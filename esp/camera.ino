@@ -6,8 +6,8 @@
 // ===========================
 // Configuration
 // ===========================
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "aterm-e1ab3a";
+const char* password = "7cac2cfd46f83";
 
 // Edge Server URL (Replace 192.168.1.100 with your Raspberry Pi's IP)
 const char* serverUrl = "http://192.168.1.100:8000/upload"; 
