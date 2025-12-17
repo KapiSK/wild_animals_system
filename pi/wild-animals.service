@@ -1,0 +1,26 @@
+[Unit]
+Description=Wild Animals Edge Server
+After=network.target
+
+[Service]
+# ユーザー名は環境に合わせて変更してください (例: pi, slab)
+User=slab
+Group=slab
+
+# 作業ディレクトリ
+WorkingDirectory=/home/slab/wild-animals/pi
+
+# 仮想環境の uvicorn を使用して起動
+# パスは環境に合わせて変更してください
+ExecStart=/home/slab/wild-animals/pi/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+
+# ログ出力設定
+StandardOutput=append:/home/slab/wild-animals/pi/server.log
+StandardError=append:/home/slab/wild-animals/pi/server.log
+
+# 自動再起動設定
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
