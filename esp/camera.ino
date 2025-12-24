@@ -82,6 +82,9 @@ namespace hw {
   constexpr uint8_t PIN_STATUS    = 4;  // Status LED Output (GPIO 4)
   constexpr uint8_t PIN_FLAG      = PIN_MOTION; // Alias for wake pin used in sleep setup
   constexpr uint8_t PIN_MOTOR     = PIN_MOTOR_IN1; // Alias for Motor IN1
+  // GPS Pins (XIAO ESP32S3 D6/D7)
+  constexpr uint8_t PIN_GPS_RX    = 44; // Connect to GPS TX (ESP RX) - D7
+  constexpr uint8_t PIN_GPS_TX    = 43; // Connect to GPS RX (ESP TX) - D6
 }
 
 // =======================================================
@@ -346,13 +349,57 @@ namespace elog {
         }
     }
     /** @brief Generates a timestamp string for rotated log filenames. */
-    static String tsSuffix() { /* ... (Implementation as before) ... */ }
+    static String tsSuffix() {
+        time_t now = time(nullptr);
+        struct tm tm_info;
+        localtime_r(&now, &tm_info);
+        char buf[20];
+        strftime(buf, sizeof(buf), ".%Y%m%d_%H%M%S", &tm_info);
+        return String(buf);
+    }
+    
     /** @brief Counts the number of lines (newlines) in a file. */
-    static size_t countLines(const char* path) { /* ... (Implementation as before) ... */ }
+    static size_t countLines(const char* path) {
+        File f = SD.open(path, FILE_READ);
+        if (!f) return 0;
+        size_t lines = 0;
+        while (f.available()) {
+            if (f.read() == '\n') lines++;
+        }
+        f.close();
+        return lines;
+    }
+
     /** @brief Rotates a log file by renaming it (e.g., esp.log -> esp.log.YYYYMMDD_HHMMSS). */
-    static void rotate(const char* path) { /* ... (Implementation as before) ... */ }
+    static void rotate(const char* path) {
+        String newPath = String(path) + tsSuffix();
+        LOG_PRINTF("[LOG] Rotating %s -> %s\n", path, newPath.c_str());
+        SD.remove(newPath); // Ensure target is clear (unlikely to collide but safe)
+        if (!SD.rename(path, newPath)) {
+            LOG_PRINTF("[ERR] Failed to rotate log file %s\n", path);
+        }
+    }
+
     /** @brief Appends a string to a log file, performing rotation if necessary. */
-    static void appendWithRotate(const char* path, const String& s, size_t max_lines = MAX_LINES) { /* ... (Implementation as before) ... */ }
+    static void appendWithRotate(const char* path, const String& s, size_t max_lines = MAX_LINES) {
+        ensure(); // Ensure directory exists
+        
+        // Check size and rotate if needed
+        if (SD.exists(path)) {
+             if (countLines(path) >= max_lines) {
+                 rotate(path);
+             }
+        }
+
+        File f = SD.open(path, FILE_APPEND);
+        if (f) {
+            f.print(s);
+            f.close();
+        } else {
+            // Fallback: try to write to Serial if SD fails
+            Serial.printf("[ERR] Failed to append to log %s\n", path);
+        }
+    }
 }
 
 // =======================================================
@@ -1107,6 +1154,119 @@ static void cleanupOldArchives() {
     }
 }
 
+    }
+}
+
+// =======================================================
+// GPS & Time Sync Logic
+// =======================================================
+namespace gps {
+    constexpr uint32_t BAUD_RATE = 9600;
+    constexpr uint32_t SYNC_TIMEOUT_MS = 2000; // Try to sync for 2 seconds per boot (adjust as needed)
+
+    // Minimal NMEA Parser for RMC sentence
+    // $GNRMC,hhmmss.ss,A,lat,N,lon,E,spd,cog,ddmmyy,,,*cc
+    static bool parseRMC(const String& line) {
+        if (!line.startsWith("$GNRMC") && !line.startsWith("$GPRMC")) return false;
+        
+        // Check Validity (Field 2)
+        // Simple comma finding
+        int idx1 = line.indexOf(',');
+        int idx2 = line.indexOf(',', idx1 + 1); // Time
+        int idx3 = line.indexOf(',', idx2 + 1); // Status
+        
+        if (idx3 == -1) return false;
+        if (line.charAt(idx2 + 1) != 'A') return false; // A=Active, V=Void
+
+        // Extract Date (Field 9)
+        // Iterate to find 9th comma
+        int curr = idx3;
+        for (int i = 0; i < 6; i++) {
+            curr = line.indexOf(',', curr + 1);
+            if (curr == -1) return false;
+        }
+        int idxDate = curr; // Comma before date
+        int idxMag  = line.indexOf(',', idxDate + 1); // Comma after date (Magnetic Var)
+
+        String timeStr = line.substring(idx1 + 1, idx2);
+        String dateStr = line.substring(idxDate + 1, idxMag);
+
+        // Validation
+        if (timeStr.length() < 6 || dateStr.length() < 6) return false;
+
+        // Parse Time (hhmmss.ss)
+        int hrs = timeStr.substring(0, 2).toInt();
+        int min = timeStr.substring(2, 4).toInt();
+        int sec = timeStr.substring(4, 6).toInt();
+
+        // Parse Date (ddmmyy)
+        int day = dateStr.substring(0, 2).toInt();
+        int mon = dateStr.substring(2, 4).toInt();
+        int yr  = dateStr.substring(4, 6).toInt() + 2000; // Assume 20xx
+
+        struct tm t = {0};
+        t.tm_year = yr - 1900;
+        t.tm_mon  = mon - 1;
+        t.tm_mday = day;
+        t.tm_hour = hrs;
+        t.tm_min  = min;
+        t.tm_sec  = sec;
+        
+        time_t utc = mktime(&t);
+        // Apply Timezone (JST = UTC+9)
+        utc += 9 * 3600;
+        
+        struct timeval tv = { .tv_sec = utc, .tv_usec = 0 };
+        settimeofday(&tv, NULL);
+        
+        LOG_PRINTF("[GPS ] Time Synced: %04d/%02d/%02d %02d:%02d:%02d (JST)\n", yr, mon, day, hrs+9 > 23 ? hrs+9-24 : hrs+9, min, sec);
+        
+        // Log Location (basic extraction)
+        int idxLat = idx3; // Comma before Lat
+        int idxLatDir = line.indexOf(',', idxLat + 1);
+        int idxLon = line.indexOf(',', idxLatDir + 1);
+        int idxLonDir = line.indexOf(',', idxLon + 1);
+        
+        if (idxLonDir != -1) {
+             String lat = line.substring(idxLat + 1, idxLatDir);
+             String latD = line.substring(idxLatDir + 1, idxLatDir + 2);
+             String lon = line.substring(idxLon + 1, idxLonDir);
+             String lonD = line.substring(idxLonDir + 1, idxLonDir + 2);
+             LOG_PRINTF("[GPS ] Loc: %s %s, %s %s\n", lat.c_str(), latD.c_str(), lon.c_str(), lonD.c_str());
+        }
+
+        return true;
+    }
+
+    static void begin() {
+        Serial1.begin(BAUD_RATE, SERIAL_8N1, hw::PIN_GPS_RX, hw::PIN_GPS_TX);
+        LOG_PRINTLN("[GPS ] Initialized Serial1");
+    }
+
+    static void pollAndTimeSync() {
+        uint32_t t0 = millis();
+        bool synced = false;
+        while (millis() - t0 < SYNC_TIMEOUT_MS) {
+            while (Serial1.available()) {
+                String line = Serial1.readStringUntil('\n');
+                line.trim();
+                if (line.length() > 0) {
+                    // LOG_PRINTLN(line.c_str()); // Debug raw NMEA
+                    if (parseRMC(line)) {
+                        synced = true;
+                        break;
+                    }
+                }
+            }
+            if (synced) break;
+            delay(10);
+        }
+        if (!synced) {
+            LOG_PRINTLN("[GPS ] No valid fix/time received within timeout.");
+        }
+    }
+}
+
 static void goDeepSleepNow() {
     status::setLed(status::LedState::OFF); // Turn LED off during final prep
 
@@ -1326,6 +1486,10 @@ void setup() {
     elog::ensure();
 // Ensure /logs directory exists
     openNewDailyLogFile(); // Prepare the daily log file
+
+    // --- GPS Prep ---
+    gps::begin();
+    gps::pollAndTimeSync(); // Attempt to sync time (short timeout)
 
     // --- Main Operations ---
     // 1. Initialize Camera

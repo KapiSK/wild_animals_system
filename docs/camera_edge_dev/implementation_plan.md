@@ -1,9 +1,10 @@
-# カメラエッジ (ESP32) 実装計画 (v2)
+# カメラエッジ (ESP32) 実装計画 (v3)
 
 ## Goal Description
 
 ESP32カメラエッジの機能を大幅に強化し、堅牢なトレイルカメラシステムを構築する。
 ネットワーク切断時でもデータをSDカードにバッファリングし、接続回復時に再送する機能(Offline Buffering)や、昼夜に応じたハードウェア制御(Day/Night Mode)を実装する。
+**追加要件**: GPSモジュール (GT-502MGG-N) を使用して、正確な時刻同期と位置情報の記録を行う。
 
 ## User Review Required
 >
@@ -11,82 +12,45 @@ ESP32カメラエッジの機能を大幅に強化し、堅牢なトレイルカ
 > **Missing Implementations detected**
 > ファイル `esp/camera.ino` 内の `elog` 名前空間にある関数 (`tsSuffix`, `countLines`, `rotate`, `appendWithRotate`) がプレースホルダー (`/* ... */`) のままになっています。コンパイルを通すにはこれらの実装が必要です。
 
+> [!IMPORTANT]
+> **GPS Wiring Proposal**
+> XIAO ESP32S3の空きピン **D6 (RX)** と **D7 (TX)** をGPS接続に使用することを提案します。
+>
+> - GPS TX --> ESP32 D7 (GPIO 44)
+> - GPS RX <-- ESP32 D6 (GPIO 43) (設定変更が必要な場合のみ接続)
+> - GPS GND --> GND
+> - GPS VCC --> 3.3V or 5V (モジュールの電圧に合わせてください)
+
 ## Current Implementation Details (Based on `es_cam.ino`)
 
-### 1. Cycle & State Management
-
-- **Wakeup Sources**: PIR Motion Sensor (GPIO 1) or Timer (20 min).
-- **Cold Boot Handling**: If wake cause is Power-on, immediately sleep to save battery.
-- **Sequence Number**: Persisted in `/seq.txt` on SD card.
-- **Cycle ID**: `[MAC Address]-[SequenceNumber]` (e.g., `AABBCCDDEEFF-00000001`).
-
-### 2. Capture Sequence
-
-- **Resolution**: UXGA (1600x1200).
-- **Burst Mode**: Takes 4 shots.
-  - Shot 1: Discarded (AE/AWB stabilization).
-  - Shot 2-4: Saved to SD card `/archive/[CycleID]/img[1-3].jpg`.
-- **Day/Night Logic**:
-  - **Sensor**: CDS Photoresistor on GPIO 5.
-  - **Night Action**: Flash LED ON (GPIO 6), Motor Forward.
-  - **Day Action**: Flash LED OFF, Motor Reverse.
-
-### 3. Data Storage & Logging
-
-- **Structure**:
-
-    ```text
-    /
-    ├── seq.txt                 # Current Sequence Number
-    ├── logs/
-    │   ├── uploaded_cids.txt   # List of uploaded Cycle IDs
-    │   ├── esp.log             # Rotating system log
-    │   └── log_YYYYMMDD.txt    # Daily log
-    └── archive/
-        └── [CycleID]/          # Data for specific cycle
-            ├── img1.jpg
-            ├── img2.jpg
-            ├── img3.jpg
-            └── esp_chunk.log   # Log messages for this cycle
-    ```
-
-- **Garbage Collection**:
-  - Triggered before sleep.
-  - Deletes oldest cycles if count > 100 or Free Space < 30MB.
-
-### 4. Upload Logic
-
-- **Protocol**: HTTP POST (Multipart-like manual implementation or standard).
-- **Target**: Raspberry Pi Edge Server (`wild-animal.local`).
-- **Discovery**: mDNS to resolve IP.
-- **Retry Mechanism**:
-  - Scans `/archive` folder.
-  - Prioritizes **Recent Cycles** (Current cycle + last 3 cycles).
-  - Skips already uploaded cycles (checked against `/logs/uploaded_cids.txt`).
-  - Uploads `img1-3.jpg` and `esp_chunk.log`.
-- **Integrity**: Sends `X-Content-SHA256` header for validation.
-
-### 5. Power Management
-
-- **Deep Sleep**: Enters deep sleep after operations.
-- **Cooldown**: 30s mandatory wait before sleep to prevent rapid loops.
-- **LED Indications**:
-  - **Solid ON**: Boot/Idle/Connected.
-  - **Slow Blink**: Connecting/Resolving.
-  - **Fast Blink**: Capturing/Uploading.
-  - **Error Blink**: Hardware/Mount failure.
+(v2と同様の内容は省略)
 
 ## Proposed Changes
 
-### Fix Missing Logging Logic
+### 1. Fix Missing Logging Logic
 
 #### [MODIFY] [esp/camera.ino](file:///c:/Users/kapib/vscodegit/wild_animals/test2/esp/camera.ino)
 
 - `elog::tsSuffix`, `elog::countLines`, `elog::rotate`, `elog::appendWithRotate` の実装を追加する。
 
+### 2. GPS Integration (New)
+
+#### [MODIFY] [esp/camera.ino](file:///c:/Users/kapib/vscodegit/wild_animals/test2/esp/camera.ino)
+
+- **Serial Interface**: HardwareSerial (Serial1) を D6/D7 ピンで初期化。
+  - `Serial1.begin(9600, SERIAL_8N1, 44, 43);` (RX=44, TX=43)
+- **NMEA Parser**:
+  - `$GPRMC` または `$GNRMC` センテンスをパースする軽量ロジックを追加。
+  - **Time Sync**: UTC時刻を取得し、システム時刻 (`settimeofday`) を更新（起動時および定期的に補正）。
+  - **Location**: 緯度経度を取得し、メタデータとして保存（Exifへの埋め込み、またはログへの記録）。
+- **Wakeup Sequence**:
+  - GPSの測位には時間がかかるため、起動直後にGPS電源を入れ、撮影と並行して測位を試みる、または一定時間待機するロジックを検討する必要がある。
+  - **省電力方針**: 毎回測位するとバッテリー消費が激しいため、「1日1回同期」や「コールドブート時のみ同期」などの運用を推奨。基本はRTCタイマーで運用。
+
 ## Verification Plan
 
 ### Manual Verification
 
-- コンパイル成功の確認。
-- 実機での動作確認 (ログのローテーション、SDカードへの書き込み、アップロードの再試行動作)。
+- GPSモジュールからのNMEAデータ受信確認。
+- システム時刻がGPS時刻に同期されることの確認。
+- 撮影画像のログ等に正しい位置情報・時刻が記録されること。
