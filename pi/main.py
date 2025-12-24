@@ -49,14 +49,13 @@ async def process_image(file_path: str, filename: str):
     async with processing_semaphore:
         logger.info(f"Starting processing for {filename}")
         try:
-            # Run detection
-            # Note: YOLO inference is CPU intensive and synchronous.
-            # While it runs, the event loop is blocked in this task, but since we are running
-            # in a background task context and using semaphore, it shouldn't block uploads significantly
-            # if uploads are handled purely by simple I/O.
-            # However, for true non-blocking redundancy, running detect in a threadpool is better.
-            # is_animal, label = await asyncio.to_thread(detector.detect, file_path)
-            is_animal, label = detector.detect(file_path)
+            # Define path for saving the inference result (annotated image)
+            result_filename = f"{os.path.splitext(filename)[0]}_result.jpg"
+            result_path = os.path.join(UPLOAD_DIR, result_filename)
+
+            # Run detection in a separate thread to avoid blocking the event loop
+            # This allows the server to continue receiving uploads while processing
+            is_animal, label = await asyncio.to_thread(detector.detect, file_path, result_path)
 
             if is_animal:
                 logger.info(f"Animal detected in {filename}: {label}")

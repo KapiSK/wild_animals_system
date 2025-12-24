@@ -13,3 +13,6 @@ venv/
 uploads/
 server.log
 *.pt
+
+test_win.py
+
