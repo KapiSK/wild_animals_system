@@ -21,6 +21,10 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "your_email@example.com")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "your_password")
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "recipient@example.com")
 
+# MegaDetector v5a Configuration
+MODEL_URL = "https://github.com/ecology-tech/MegaDetector/releases/download/v5.0/md_v5a.0.0.pt"
+MODEL_PATH = "md_v5a.0.0.pt"
+
 # Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
@@ -31,14 +35,33 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Load YOLO model
-# Using 'yolov8n.pt' for speed, can be changed to 'yolov8s.pt' or larger for accuracy
-model = YOLO("yolov8n.pt") 
+def download_model_if_needed():
+    """Download MegaDetector model if not present."""
+    if not os.path.exists(MODEL_PATH):
+        logger.info(f"Model not found. Downloading from {MODEL_URL}...")
+        import requests
+        try:
+            response = requests.get(MODEL_URL, stream=True)
+            response.raise_for_status()
+            with open(MODEL_PATH, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info("Model downloaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to download model: {e}")
+            raise
 
-# Target classes (Animals) based on COCO dataset
-# 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 
-# 19: cow, 20: elephant, 21: bear, 22: zebra, 23: giraffe
-ANIMAL_CLASSES = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+# Load Model (MegaDetector)
+# Note: Ultralytics YOLOv8 can load valid YOLOv5 models.
+# If issues arise, ensure 'ultralytics' is up to date or use 'torch.hub.load' with yolov5.
+download_model_if_needed()
+model = YOLO(MODEL_PATH) 
+
+# MegaDetector v5 classes:
+# 0: animal (detection)
+# 1: person
+# 2: vehicle
+ANIMAL_CLASSES = [0] # Only detect animals
 
 def send_email(subject: str, body: str, attachment_path: str = None):
     """

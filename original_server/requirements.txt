@@ -5,3 +5,4 @@ ultralytics
 opencv-python
 python-dotenv
 aiosmtplib
+requests
