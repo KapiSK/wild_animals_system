@@ -53,15 +53,29 @@ def download_model_if_needed():
 
 # Load Model (MegaDetector)
 # Note: Ultralytics YOLOv8 can load valid YOLOv5 models.
-# If issues arise, ensure 'ultralytics' is up to date or use 'torch.hub.load' with yolov5.
 download_model_if_needed()
-model = YOLO(MODEL_PATH) 
+try:
+    model = YOLO(MODEL_PATH) 
+    logger.info(f"Model loaded. Classes: {model.names}")
+except Exception as e:
+    logger.error(f"Failed to load model: {e}")
+    raise
 
 # MegaDetector v5 classes:
 # 0: animal (detection)
 # 1: person
 # 2: vehicle
-ANIMAL_CLASSES = [0] # Only detect animals
+# dynamic check for 'animal' class
+ANIMAL_CLASSES = []
+for k, v in model.names.items():
+    if 'animal' in v.lower():
+        ANIMAL_CLASSES.append(k)
+        
+if not ANIMAL_CLASSES:
+    logger.warning("'animal' class not found in model names. Defaulting to class 0.")
+    ANIMAL_CLASSES = [0]
+    
+logger.info(f"Animal classes set to: {ANIMAL_CLASSES}")
 
 def send_email(subject: str, body: str, attachment_path: str = None):
     """
@@ -102,8 +116,8 @@ def process_and_notify(image_path: str, filename: str):
     """
     logger.info(f"Processing {filename}...")
     
-    # Run inference
-    results = model(image_path)
+    # Run inference with confidence threshold
+    results = model(image_path, conf=0.25)
     
     detected_animals = {}
     animal_found = False
@@ -122,8 +136,13 @@ def process_and_notify(image_path: str, filename: str):
             processed_filename = f"processed_{filename}"
             processed_path = os.path.join(PROCESSED_DIR, processed_filename)
             
-            # plot() returns the image as a numpy array
+            # plot() returns the image as a numpy array. 
+            # We filter by passing only the classes we want to visualize? 
+            # Ultralytics plot() doesn't always support class filtering directly in all versions, 
+            # but we can try to rely on the fact that result contains all boxes.
+            # To be safe and clean, we just plot all detections (including people/vehicles) as that can be useful context.
             annotated_frame = result.plot()
+            
             cv2.imwrite(processed_path, annotated_frame)
             logger.info(f"Animal detected! Saved annotated image to {processed_path}")
             

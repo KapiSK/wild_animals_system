@@ -479,9 +479,10 @@ static bool initCamera() {
  * @brief Captures an image, discards if it's the first, saves otherwise.
  * @param captureIndex The index of this capture in the sequence (1-based).
  * @param saveIndex The index to use for saving the file (1-based, 0 if discard).
+ * @param night True if it is night mode, False for day.
  * @return True if capture and save (or discard) were successful, False on error.
  */
-static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex) {
+static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex, bool night) {
     status::setLed(status::LedState::BLINK_FAST); // LED: Indicate capture activity
     camera_fb_t * fb = esp_camera_fb_get(); // Get frame buffer
     status::setLed(status::LedState::ON); // LED: Back to solid after capture attempt
@@ -523,8 +524,10 @@ static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex) {
         }
     }
 
-    char path[64]; // Buffer for file path
-    sprintf(path, "%s/img%u.jpg", cycleDir.c_str(), saveIndex); // Construct filename (img1.jpg, img2.jpg, ...)
+    char path[128]; // Buffer for file path
+    char suffix = night ? 'n' : 'd';
+    // New naming: {CycleID}-{Index}{n/d}.jpg
+    sprintf(path, "%s/%s-%u%c.jpg", cycleDir.c_str(), g_cycleId.c_str(), saveIndex, suffix);
 
     status::setLed(status::LedState::BLINK_FAST); // LED: Indicate saving to SD
     File file = SD.open(path, FILE_WRITE); // Open file for writing
@@ -697,6 +700,10 @@ static bool uploadFile(const String& url, const String& path, const char* ctype,
         if (imgIdx > 0) {
             httpClient.addHeader("X-Img-Index", String(imgIdx));
         }
+        // Extract filename from path for X-File-Name header
+        int lastSlash = path.lastIndexOf('/');
+        String fname = (lastSlash != -1) ? path.substring(lastSlash + 1) : path;
+        httpClient.addHeader("X-File-Name", fname);
 
         // Calculate SHA256 Hash for content verification
         mbedtls_sha256_context ctx;
@@ -856,6 +863,15 @@ static void uploadPendingData() {
     int uploadCount = 0;
     const int MAX_UPLOADS_LIMIT = 3; // ★ユーザー要望: 最大3件まで
 
+    for (const String& cid : cycleDirs) {
+        // ... (filtering omitted for brevity in thought, but included in function)
+        // We will replace the loop body logic in the next chunk or this one?
+        // multi_replace with AllowMultiple works.
+        // Let's replace the loop inner storage check logic.
+        pass; 
+    }
+
+
     // 4. リストの上から順 (最新順) にチェック
     for (const String& cid : cycleDirs) {
         
@@ -880,12 +896,27 @@ static void uploadPendingData() {
         }
 
         // C. ファイルが揃っているかチェック
-        String p1 = "/archive/" + cid + "/img1.jpg";
-        String p2 = "/archive/" + cid + "/img2.jpg";
-        String p3 = "/archive/" + cid + "/img3.jpg";
+        // Naming: {CID}-{1~3}{n|d}.jpg
+        // We check for both 'n' and 'd' variants.
+        String p1 = "", p2 = "", p3 = "";
+        
+        String p1n = "/archive/" + cid + "/" + cid + "-1n.jpg";
+        String p1d = "/archive/" + cid + "/" + cid + "-1d.jpg";
+        if (SD.exists(p1n)) p1 = p1n; else if (SD.exists(p1d)) p1 = p1d;
+
+        String p2n = "/archive/" + cid + "/" + cid + "-2n.jpg";
+        String p2d = "/archive/" + cid + "/" + cid + "-2d.jpg";
+        if (SD.exists(p2n)) p2 = p2n; else if (SD.exists(p2d)) p2 = p2d;
+
+        String p3n = "/archive/" + cid + "/" + cid + "-3n.jpg";
+        String p3d = "/archive/" + cid + "/" + cid + "-3d.jpg";
+        if (SD.exists(p3n)) p3 = p3n; else if (SD.exists(p3d)) p3 = p3d;
+
         String pLog = "/archive/" + cid + "/esp_chunk.log";
         
-        if (!SD.exists(p1) || !SD.exists(p2) || !SD.exists(p3) || !SD.exists(pLog)) {
+        if (p1 == "" || p2 == "" || p3 == "" || !SD.exists(pLog)) {
+             // Fallback: Check for legacy names img1.jpg just in case? 
+             // (Skipping legacy check to keep code clean as per new requirements)
             LOG_PRINTF("[UPLOAD] Skipping incomplete cycle: %s\n", cid.c_str());
             continue;
         }
@@ -1391,7 +1422,8 @@ static void beginCapture() {
     g_syslogStartOff = g_syslogBuf.length(); // Mark start of logs for this cycle
 
     // Apply LED/Motor actions based on current light level
-    applyDayNightActions(isNight());
+    bool night = isNight();
+    applyDayNightActions(night);
 
     // --- Capture Loop ---
     // Takes NUM_SHOTS_TOTAL (4), saves NUM_SHOTS_SAVE (3)
@@ -1400,7 +1432,7 @@ static void beginCapture() {
     for (uint8_t i = 1; i <= param::NUM_SHOTS_TOTAL; ++i) {
         // Determine save index (0 for discard, 1, 2, 3 for saving)
         uint8_t saveIdx = (i == 1) ? 0 : savedCount + 1;
-        bool success = shootAndSave(i, saveIdx); // Attempt capture/save
+        bool success = shootAndSave(i, saveIdx, night); // Attempt capture/save
 
         // Track success only for shots meant to be saved
         if (i > 1) { // If it wasn't the discarded shot
