@@ -51,7 +51,7 @@ User=$USER_NAME
 Group=$USER_NAME
 WorkingDirectory=$WORKING_DIR
 Environment="PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=$PYTHON_EXEC original_server/server.py
+ExecStart=$PYTHON_EXEC server.py
 Restart=always
 RestartSec=5
 
