@@ -49,7 +49,7 @@ After=network.target
 [Service]
 User=$USER_NAME
 Group=$USER_NAME
-WorkingDirectory=$WORKING_DIR
+WorkingDirectory=$SCRIPT_DIR
 Environment="PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=$PYTHON_EXEC server.py
 Restart=always
