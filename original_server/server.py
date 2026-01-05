@@ -22,7 +22,7 @@ SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "your_password")
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "recipient@example.com")
 
 # MegaDetector v5a Configuration
-MODEL_URL = "https://github.com/ecology-tech/MegaDetector/releases/download/v5.0/md_v5a.0.0.pt"
+MODEL_URL = "https://github.com/agentmorris/MegaDetector/releases/download/v5.0/md_v5a.0.0.pt"
 MODEL_PATH = "md_v5a.0.0.pt"
 
 # Ensure directories exist
