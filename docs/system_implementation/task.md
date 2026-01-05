@@ -2,7 +2,12 @@
 
 - [x] 準備フェーズ <!-- id: 0 -->
   - [x] 実装計画の作成 (YOLOv8n対応) <!-- id: 1 -->
-- [x] フェーズ 1: 外部サーバー (MegaDetector) <!-- id: 2 -->
+- [x] **Phase 1: External Server Implementation** (Cloud/Linux)
+  - [x] Basic setup (FastAPI)
+  - [x] Receiving images (`POST /upload`)
+  - [x] AI Inference (MegaDetector v5)
+  - [x] Email Notification (SMTP)
+  - [x] Service configuration (systemd) <!-- Completed -->
   - [x] `original_server/server.py`: BB描画・メール添付ロジックの確認 <!-- id: 3 -->
 - [x] フェーズ 2: エッジサーバー (Pi / YOLOv8n) <!-- id: 4 -->
   - [x] `pi/detector.py`: YOLOv8nの実装と動物クラスフィルタリング <!-- id: 5 -->
