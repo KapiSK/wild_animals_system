@@ -55,9 +55,22 @@ def download_model_if_needed():
 # MegaDetector v5a is a YOLOv5 model. We use the yolov5 library to load it.
 download_model_if_needed()
 try:
+    # PyTorch 2.6+ defaults weights_only=True which ensures security but fails with older models (like MegaDetector).
+    # Since we trust this model from the official source, we monkey-patch torch.load to allow partial loading.
+    import torch
+    _original_torch_load = torch.load
+    def _patched_torch_load(*args, **kwargs):
+        if 'weights_only' not in kwargs:
+            kwargs['weights_only'] = False
+        return _original_torch_load(*args, **kwargs)
+    torch.load = _patched_torch_load
+
     # load() automatically handles YOLOv5 models
     model = yolov5.load(MODEL_PATH)
     logger.info(f"Model loaded. Classes: {model.names}")
+    
+    # Restore original load just in case
+    torch.load = _original_torch_load
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
     raise
