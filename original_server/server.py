@@ -5,7 +5,7 @@ from email.message import EmailMessage
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from dotenv import load_dotenv
-from ultralytics import YOLO
+import yolov5
 import cv2
 import asyncio
 
@@ -52,10 +52,11 @@ def download_model_if_needed():
             raise
 
 # Load Model (MegaDetector)
-# Note: Ultralytics YOLOv8 can load valid YOLOv5 models.
+# MegaDetector v5a is a YOLOv5 model. We use the yolov5 library to load it.
 download_model_if_needed()
 try:
-    model = YOLO(MODEL_PATH) 
+    # load() automatically handles YOLOv5 models
+    model = yolov5.load(MODEL_PATH)
     logger.info(f"Model loaded. Classes: {model.names}")
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
@@ -117,44 +118,52 @@ def process_and_notify(image_path: str, filename: str):
     logger.info(f"Processing {filename}...")
     
     # Run inference with confidence threshold
-    results = model(image_path, conf=0.25)
+    # yolov5 model call returns a Results object
+    # conf arg works for NMS
+    model.conf = 0.25 # Set confidence threshold globally for the model instance
+    results = model(image_path)
     
     detected_animals = {}
     animal_found = False
     
-    for result in results:
-        boxes = result.boxes
-        for box in boxes:
-            cls = int(box.cls[0])
-            if cls in ANIMAL_CLASSES:
-                animal_found = True
-                label = model.names[cls]
-                detected_animals[label] = detected_animals.get(label, 0) + 1
+    # Parse results. results.xyxy[0] contains tensor with [x1, y1, x2, y2, conf, cls]
+    # Or use pandas() for easier parsing
+    df = results.pandas().xyxy[0]
+    
+    for index, row in df.iterrows():
+        cls = int(row['class'])
+        if cls in ANIMAL_CLASSES:
+            animal_found = True
+            label = row['name']
+            detected_animals[label] = detected_animals.get(label, 0) + 1
+    
+    # Save annotated image if animal found
+    if animal_found:
+        processed_filename = f"processed_{filename}"
+        processed_path = os.path.join(PROCESSED_DIR, processed_filename)
         
-        # Save annotated image if animal found
-        if animal_found:
-            processed_filename = f"processed_{filename}"
-            processed_path = os.path.join(PROCESSED_DIR, processed_filename)
-            
-            # plot() returns the image as a numpy array. 
-            # We filter by passing only the classes we want to visualize? 
-            # Ultralytics plot() doesn't always support class filtering directly in all versions, 
-            # but we can try to rely on the fact that result contains all boxes.
-            # To be safe and clean, we just plot all detections (including people/vehicles) as that can be useful context.
-            annotated_frame = result.plot()
-            
-            cv2.imwrite(processed_path, annotated_frame)
-            logger.info(f"Animal detected! Saved annotated image to {processed_path}")
-            
-            # Prepare email body
-            counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
-            subject = f"Wild Animal Detected: {counts_str}"
-            body = f"Detected animals:\n{counts_str}\n\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            # Send email
-            send_email(subject, body, processed_path)
-        else:
-            logger.info(f"No animals detected in {filename}")
+        # results.render() updates the image in-place (in .imgs attribute) and returns list of ndarrays
+        results.render() 
+        # The annotated image is the first one (since we passed one image)
+        annotated_frame = results.imgs[0]
+        
+        # Save usually works with BGR for OpenCV
+        # YOLOv5 usually handles RGB/BGR, let's verify if 'render' returns RGB.
+        # It typically returns RGB. OpenCV uses BGR.
+        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+        
+        cv2.imwrite(processed_path, annotated_frame)
+        logger.info(f"Animal detected! Saved annotated image to {processed_path}")
+        
+        # Prepare email body
+        counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
+        subject = f"Wild Animal Detected: {counts_str}"
+        body = f"Detected animals:\n{counts_str}\n\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        # Send email
+        send_email(subject, body, processed_path)
+    else:
+        logger.info(f"No animals detected in {filename}")
 
 @app.post("/upload")
 async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
