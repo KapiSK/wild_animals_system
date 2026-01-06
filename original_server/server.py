@@ -132,23 +132,151 @@ def send_email(subject: str, body: str, attachment_path: str = None):
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
 
-def process_and_notify(image_path: str, filename: str):
+from collections import defaultdict
+import re
+
+# ... (Previous imports omitted for brevity in replacement, but kept in file) ...
+
+# Cycle Manager for Aggregation using same logic as Pi (roughly)
+class CycleManager:
+    def __init__(self):
+        # { cycle_id: { 'files': [], 'last_update': datetime } }
+        self.cycles = defaultdict(lambda: {'files': [], 'last_update': datetime.now()})
+        self.lock = asyncio.Lock()
+
+    async def add_result(self, cycle_id, result_data):
+        """
+        result_data: {
+          'filename': str,
+          'animal_count': int,
+          'max_conf': float,
+          'annotated_path': str,
+          'summary_text': str
+        }
+        """
+        async with self.lock:
+            self.cycles[cycle_id]['files'].append(result_data)
+            self.cycles[cycle_id]['last_update'] = datetime.now()
+            
+            # Check if cycle is complete (assuming 3 images per cycle)
+            if len(self.cycles[cycle_id]['files']) >= 3:
+                await self.process_cycle(cycle_id)
+                del self.cycles[cycle_id]
+
+    async def process_cycle(self, cycle_id):
+        files = self.cycles[cycle_id]['files']
+        logger.info(f"Cycle {cycle_id} complete. Processing aggregated email.")
+        
+        # 1. Identify best image (High animal count > High confidence)
+        best_data = sorted(files, key=lambda x: (x['animal_count'], x['max_conf']), reverse=True)[0]
+        
+        # 2. Compose Email Body
+        # "1サイクルの画像3枚組のうち、何枚で検出か"
+        detected_images_count = sum(1 for f in files if f['animal_count'] > 0)
+        
+        body_lines = [
+            f"Cycle ID: {cycle_id}",
+            f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Detections: Found animals in {detected_images_count} out of {len(files)} images.",
+            "",
+            "Details per image:"
+        ]
+        
+        for f in files:
+            # Sort by original upload order if possible? 
+            # Filename usually has timestamp or index. Let's just list them.
+            body_lines.append(f"- {f['filename']}: {f['summary_text']}")
+            
+        body = "\n".join(body_lines)
+        subject = f"Wild Animal Cycle Detected: {best_data['summary_text']}"
+        
+        # 3. Send Email (One email per cycle)
+        # Using the annotated path of the best image
+        send_email(subject, body, best_data['annotated_path'])
+        logger.info(f"Aggregated email sent for Cycle {cycle_id}")
+
+    async def check_timeouts(self, timeout_seconds=300):
+        """
+        Periodically check for incomplete cycles that have timed out.
+        """
+        while True:
+            await asyncio.sleep(60) # Run check every minute
+            logger.info("Running cycle timeout check...")
+            now = datetime.now()
+            
+            # Need to iterate over a copy of keys because we might modify the dict
+            cycle_ids = list(self.cycles.keys())
+            
+            for cycle_id in cycle_ids:
+                data = self.cycles[cycle_id]
+                last_update = data['last_update']
+                time_diff = (now - last_update).total_seconds()
+                
+                if time_diff > timeout_seconds:
+                    logger.warning(f"Cycle {cycle_id} timed out (last update {time_diff}s ago). Force processing.")
+                    async with self.lock:
+                        # Double check existence in lock
+                        if cycle_id in self.cycles:
+                             await self.process_cycle(cycle_id)
+                             del self.cycles[cycle_id]
+
+cycle_manager = CycleManager()
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the timeout checker background task
+    asyncio.create_task(cycle_manager.check_timeouts())
+
+def extract_cycle_id(filename: str) -> str:
     """
-    Perform inference on the image and send notification if animals are detected.
+    Extract Cycle ID from filename.
+    Format expected: TIMESTAMP_CycleID-IndexSuffix.jpg (from server receive naming)
+    or just CycleID-IndexSuffix.jpg if sent directly.
+    Example: 20250106_120000_123456_WIN-SIM-CAM01-0001-1d.jpg
+    """
+    try:
+        # Extract the original filename part (after the timestamp prefix added by upload_image)
+        # We renamed it as f"{timestamp}_{file.filename}" in upload_image
+        # file.filename from Pi is like "WIN-SIM-CAM01-0001-1d.jpg"
+        
+        # Remove the server-added timestamp prefix
+        # Splitting by first few underscores is risky if we don't know exact format.
+        # But we know upload_image adds "%Y%m%d_%H%M%S_%f_" (3 underscores)
+        parts = filename.split('_', 3) 
+        if len(parts) >= 4:
+            original_filename = parts[3]
+        else:
+            # Maybe original filename didn't have that prefix or logic changed?
+            # Fallback to full filename if split fails
+            original_filename = filename
+
+        # Now parse {CycleID}-{Index}{Suffix}.jpg
+        # Look for the last dash followed by digit(s)
+        # Regex: (.*)-(\d+)[nd]?\.jpg$
+        match = re.search(r"^(.*)-(\d+)[nd]?\.jpg$", original_filename, re.IGNORECASE)
+        if match:
+            return match.group(1)
+            
+        # Fallback: simple split if regex fails
+        return original_filename.rsplit('-', 1)[0]
+    except Exception as e:
+        logger.error(f"Failed to extract cycle ID: {e}")
+        return "unknown"
+
+async def process_and_notify(image_path: str, filename: str):
+    """
+    Perform inference and Add to Cycle Buffer.
     """
     logger.info(f"Processing {filename}...")
     
-    # Run inference with confidence threshold
-    # yolov5 model call returns a Results object
-    # conf arg works for NMS
-    model.conf = 0.25 # Set confidence threshold globally for the model instance
+    # Run inference
+    model.conf = 0.25 
     results = model(image_path)
     
     detected_animals = {}
     animal_found = False
+    max_conf = 0.0
     
-    # Parse results. results.xyxy[0] contains tensor with [x1, y1, x2, y2, conf, cls]
-    # Or use pandas() for easier parsing
     df = results.pandas().xyxy[0]
     
     for index, row in df.iterrows():
@@ -156,56 +284,59 @@ def process_and_notify(image_path: str, filename: str):
         if cls in ANIMAL_CLASSES:
             animal_found = True
             label = row['name']
+            conf = float(row['confidence'])
             detected_animals[label] = detected_animals.get(label, 0) + 1
+            if conf > max_conf:
+                max_conf = conf
     
+    # Generate summary string
+    if detected_animals:
+        counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
+    else:
+        counts_str = "No animals"
+        
+    annotated_path = image_path # Default to original if no annotation needed
     
     # Save annotated image if animal found
     if animal_found:
         processed_filename = f"processed_{filename}"
-        processed_path = os.path.join(PROCESSED_DIR, processed_filename)
+        annotated_path = os.path.join(PROCESSED_DIR, processed_filename)
         
-        # Manual annotation to avoid "NumPy array marked as readonly" error in results.render()
         try:
-            # Load original image
             img = cv2.imread(image_path)
-            
-            # Draw detections
             for index, row in df.iterrows():
-                # Only draw if it's an animal or person/vehicle if desired?
-                # Let's draw everything returned by model for context, or just filtered?
-                # The user logic filtered animals for notification, but usually we want to see everything 
-                # or just the animals. Let's stick to drawing everything safely.
-                
                 x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
-                label = f"{row['name']} {row['confidence']:.2f}"
-                
-                # Draw box
+                label_text = f"{row['name']} {row['confidence']:.2f}"
                 cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                
-                # Draw label
-                t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
                 c2 = x1 + t_size[0], y1 - t_size[1] - 3
-                cv2.rectangle(img, (x1, y1), c2, (0, 255, 0), -1, cv2.LINE_AA)  # filled
-                cv2.putText(img, label, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
+                cv2.rectangle(img, (x1, y1), c2, (0, 255, 0), -1, cv2.LINE_AA)
+                cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
 
-            cv2.imwrite(processed_path, img)
-            logger.info(f"Animal detected! Saved annotated image to {processed_path}")
-            
-            # Prepare email body
-            counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
-            subject = f"Wild Animal Detected: {counts_str}"
-            body = f"Detected animals:\n{counts_str}\n\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            # Send email
-            send_email(subject, body, processed_path)
-            
+            cv2.imwrite(annotated_path, img)
+            logger.info(f"Animal detected! Saved annotated image to {annotated_path}")
         except Exception as e:
-            logger.error(f"Failed to annotate or save image: {e}")
-            # Still send email even if annotation fails? Maybe without attachment or original?
-            # Let's try to send even if annotation fails, using original image?
-            # For now, just logging error and skipping email if processing failed is safer to avoid spamming broken emails.
+            logger.error(f"Failed to annotate: {e}")
+            annotated_path = image_path # Fallback
     else:
         logger.info(f"No animals detected in {filename}")
+
+    # Add to Cycle Buffer
+    cycle_id = extract_cycle_id(filename)
+    logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
+    
+    # Calculate total animal count
+    total_animals = sum(detected_animals.values())
+    
+    result_data = {
+        'filename': filename,
+        'animal_count': total_animals,
+        'max_conf': max_conf,
+        'annotated_path': annotated_path,
+        'summary_text': counts_str
+    }
+    
+    await cycle_manager.add_result(cycle_id, result_data)
 
 @app.post("/upload")
 async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
