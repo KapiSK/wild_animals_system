@@ -106,7 +106,8 @@ def send_email(subject: str, body: str, attachment_path: str = None):
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = SENDER_EMAIL
-    msg['To'] = RECIPIENT_EMAIL
+    recipients = [email.strip() for email in RECIPIENT_EMAIL.split(',')]
+    msg['To'] = ", ".join(recipients)
     msg.set_content(body)
 
     if attachment_path:
@@ -128,7 +129,7 @@ def send_email(subject: str, body: str, attachment_path: str = None):
             smtp.starttls()
             smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
             smtp.send_message(msg)
-        logger.info(f"Email sent to {RECIPIENT_EMAIL}")
+        logger.info(f"Email sent to {recipients}")
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
 
