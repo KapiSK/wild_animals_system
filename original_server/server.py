@@ -230,35 +230,34 @@ async def startup_event():
 def extract_cycle_id(filename: str) -> str:
     """
     Extract Cycle ID from filename.
-    Format expected: TIMESTAMP_CycleID-IndexSuffix.jpg (from server receive naming)
-    or just CycleID-IndexSuffix.jpg if sent directly.
-    Example: 20250106_120000_123456_WIN-SIM-CAM01-0001-1d.jpg
+    Format expected: ServerTimestamp_PiTimestamp_CycleID-IndexSuffix.jpg
+    or just CycleID-IndexSuffix.jpg
+    
+    The logic parses the {CycleID}-{Index}{Suffix}.jpg pattern first,
+    then strips any underscore-separated prefixes (timestamps) to get the bare CycleID.
     """
     try:
-        # Extract the original filename part (after the timestamp prefix added by upload_image)
-        # We renamed it as f"{timestamp}_{file.filename}" in upload_image
-        # file.filename from Pi is like "WIN-SIM-CAM01-0001-1d.jpg"
+        # 1. Regex to find the suffix patterns like "-1d.jpg" or "-2.jpg"
+        # We capture everything before that suffix as the "stem".
+        # Regex: greedy match (.*) until a hyphen and digit(s) and extension at end
+        match = re.search(r"^(.*)-(\d+)[nd]?\.jpg$", filename, re.IGNORECASE)
         
-        # Remove the server-added timestamp prefix
-        # Splitting by first few underscores is risky if we don't know exact format.
-        # But we know upload_image adds "%Y%m%d_%H%M%S_%f_" (3 underscores)
-        parts = filename.split('_', 3) 
-        if len(parts) >= 4:
-            original_filename = parts[3]
-        else:
-            # Maybe original filename didn't have that prefix or logic changed?
-            # Fallback to full filename if split fails
-            original_filename = filename
-
-        # Now parse {CycleID}-{Index}{Suffix}.jpg
-        # Look for the last dash followed by digit(s)
-        # Regex: (.*)-(\d+)[nd]?\.jpg$
-        match = re.search(r"^(.*)-(\d+)[nd]?\.jpg$", original_filename, re.IGNORECASE)
         if match:
-            return match.group(1)
+            full_stem = match.group(1) # e.g. "2026..._2026..._WIN-SIM-CAM01-0001"
             
-        # Fallback: simple split if regex fails
-        return original_filename.rsplit('-', 1)[0]
+            # 2. Strip timestamps.
+            # Timestamps are usually separated by underscores. 
+            # Cycle ID itself might contain underscores? 
+            # Project convention: CycleID is MacAddr-Seq (hyphens) or similar.
+            # Timestamps are YYYYMMDD_HHMMSS_ffffff
+            # Only the LAST part is the CycleID if we assume standard naming.
+            
+            if '_' in full_stem:
+                return full_stem.split('_')[-1]
+            return full_stem
+            
+        # Fallback if regex fails (unexpected naming)
+        return filename.rsplit('-', 1)[0]
     except Exception as e:
         logger.error(f"Failed to extract cycle ID: {e}")
         return "unknown"

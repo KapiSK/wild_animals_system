@@ -44,8 +44,10 @@ def main():
             print(f"Error: Missing {source_name} in {IMG_DIR}")
             return
 
-    # 疑似的な CycleID (MACアドレス-シーケンス番号)
-    cycle_id = "WIN-SIM-CAM01-0001"
+    # 疑似的な CycleID (簡潔なIDを自動生成: SIM-ランダム4桁)
+    import random
+    rand_id = random.randint(1000, 9999)
+    cycle_id = f"SIM-{rand_id}"
     
     print(f"Starting upload simulation for Cycle: {cycle_id}")
     
