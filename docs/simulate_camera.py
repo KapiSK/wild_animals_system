@@ -5,58 +5,69 @@ import sys
 
 # --- 設定 ---
 # 実際のRaspberry Pi（エッジサーバー）のIPアドレスに変更してください
-EDGE_SERVER_IP = "192.168.X.X" 
+EDGE_SERVER_IP = "172.10.176.172"
 EDGE_SERVER_PORT = 8000
 EDGE_URL = f"http://{EDGE_SERVER_IP}:{EDGE_SERVER_PORT}/upload"
 
-# テスト用の画像ファイル
-# カレントディレクトリに test.jpg がある想定、なければ作成または指定
-IMAGE_FILE = "test.jpg"
+# テスト用画像のディレクトリ
+# スクリプトと同じ階層の 'img' フォルダを探す
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+IMG_DIR = os.path.join(SCRIPT_DIR, "img")
 
 def main():
-    if len(sys.argv) > 1:
-        target_ip = sys.argv[1]
-    else:
-        target_ip = EDGE_SERVER_IP
-        
+    target_ip = EDGE_SERVER_IP
+    
+    # 引数処理: python simulate_camera.py [IP]
+    args = sys.argv[1:]
+    if len(args) >= 1:
+        # IPっぽいかチェック
+        if "." in args[0] and args[0][0].isdigit():
+             target_ip = args[0]
+
     url = f"http://{target_ip}:{EDGE_SERVER_PORT}/upload"
     print(f"Target URL: {url}")
+    print(f"Image Source Directory: {IMG_DIR}")
+
+    # imgフォルダ確認
+    if not os.path.exists(IMG_DIR):
+        print(f"Error: 'img' directory not found at {IMG_DIR}")
+        print("Please create 'img' folder and place img1.jpg, img2.jpg, img3.jpg inside.")
+        return
+
+    # 必須画像ファイル (JPEG想定)
+    source_images = ["img1.jpg", "img2.jpg", "img3.jpg"]
     
+    # 存在確認
+    for source_name in source_images:
+        path = os.path.join(IMG_DIR, source_name)
+        if not os.path.exists(path):
+            print(f"Error: Missing {source_name} in {IMG_DIR}")
+            return
+
     # 疑似的な CycleID (MACアドレス-シーケンス番号)
     cycle_id = "WIN-SIM-CAM01-0001"
     
-    # ESP32の命名規則に従ったファイル名
-    # {CycleID}-{Index}{n/d}.jpg
-    # 例: WIN-SIM-CAM01-0001-1d.jpg (昼間の1枚目)
-    files_to_send = [
-        f"{cycle_id}-1d.jpg",
-        f"{cycle_id}-2d.jpg",
-        f"{cycle_id}-3d.jpg"
-    ]
-    
-    # テスト画像の準備
-    if not os.path.exists(IMAGE_FILE):
-        print(f"Creating dummy image: {IMAGE_FILE}")
-        # 空のファイルだとサーバー側検出でエラーになる可能性があるため、ダミーデータを入れる
-        # ただ、YOLO検出させるなら本物の動物画像を用意するか、
-        # Pi側で「動物なし」と判定されて転送されないことを確認するテストになる。
-        with open(IMAGE_FILE, "wb") as f:
-            f.write(os.urandom(1024)) # ランダムデータ
-            
     print(f"Starting upload simulation for Cycle: {cycle_id}")
     
-    for filename in files_to_send:
-        print(f"Uploading {filename} ...")
+    for i, source_name in enumerate(source_images):
+        # Indexは 1, 2, 3
+        idx = i + 1
+        # ESP32の命名規則に従った送信ファイル名
+        # {CycleID}-{Index}{n/d}.jpg
+        # 例: WIN-SIM-CAM01-0001-1d.jpg (昼間の1枚目)
+        target_filename = f"{cycle_id}-{idx}d.jpg"
+        source_path = os.path.join(IMG_DIR, source_name)
+        
+        print(f"Uploading {source_name} as {target_filename} ...")
         try:
-            with open(IMAGE_FILE, "rb") as f:
+            with open(source_path, "rb") as f:
                 # サーバーは 'file' フィールドで受け取る
                 # ファイル名ヘッダーなどはrequestsが自動で処理するが、
                 # ESP32コードでは X-File-Name ヘッダーも付けていた可能性があるため確認
-                # pi/main.py は UploadFile.filename を見るので、multipart/form-dataのfilenameが重要
-                files = {'file': (filename, f, 'image/jpeg')}
+                files = {'file': (target_filename, f, 'image/jpeg')}
                 
-                # ESP32は X-File-Name ヘッダーをつけている (pi/main.pyはこれを見ていないが念のため)
-                headers = {'X-File-Name': filename}
+                # ESP32は X-File-Name ヘッダーをつけている
+                headers = {'X-File-Name': target_filename}
                 
                 response = requests.post(url, files=files, headers=headers, timeout=10)
                 
