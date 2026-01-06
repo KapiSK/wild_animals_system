@@ -158,31 +158,52 @@ def process_and_notify(image_path: str, filename: str):
             label = row['name']
             detected_animals[label] = detected_animals.get(label, 0) + 1
     
+    
     # Save annotated image if animal found
     if animal_found:
         processed_filename = f"processed_{filename}"
         processed_path = os.path.join(PROCESSED_DIR, processed_filename)
         
-        # results.render() updates the image in-place (in .imgs attribute) and returns list of ndarrays
-        results.render() 
-        # The annotated image is the first one (since we passed one image)
-        annotated_frame = results.imgs[0]
-        
-        # Save usually works with BGR for OpenCV
-        # YOLOv5 usually handles RGB/BGR, let's verify if 'render' returns RGB.
-        # It typically returns RGB. OpenCV uses BGR.
-        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
-        
-        cv2.imwrite(processed_path, annotated_frame)
-        logger.info(f"Animal detected! Saved annotated image to {processed_path}")
-        
-        # Prepare email body
-        counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
-        subject = f"Wild Animal Detected: {counts_str}"
-        body = f"Detected animals:\n{counts_str}\n\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
-        # Send email
-        send_email(subject, body, processed_path)
+        # Manual annotation to avoid "NumPy array marked as readonly" error in results.render()
+        try:
+            # Load original image
+            img = cv2.imread(image_path)
+            
+            # Draw detections
+            for index, row in df.iterrows():
+                # Only draw if it's an animal or person/vehicle if desired?
+                # Let's draw everything returned by model for context, or just filtered?
+                # The user logic filtered animals for notification, but usually we want to see everything 
+                # or just the animals. Let's stick to drawing everything safely.
+                
+                x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+                label = f"{row['name']} {row['confidence']:.2f}"
+                
+                # Draw box
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                # Draw label
+                t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                c2 = x1 + t_size[0], y1 - t_size[1] - 3
+                cv2.rectangle(img, (x1, y1), c2, (0, 255, 0), -1, cv2.LINE_AA)  # filled
+                cv2.putText(img, label, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
+
+            cv2.imwrite(processed_path, img)
+            logger.info(f"Animal detected! Saved annotated image to {processed_path}")
+            
+            # Prepare email body
+            counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
+            subject = f"Wild Animal Detected: {counts_str}"
+            body = f"Detected animals:\n{counts_str}\n\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            # Send email
+            send_email(subject, body, processed_path)
+            
+        except Exception as e:
+            logger.error(f"Failed to annotate or save image: {e}")
+            # Still send email even if annotation fails? Maybe without attachment or original?
+            # Let's try to send even if annotation fails, using original image?
+            # For now, just logging error and skipping email if processing failed is safer to avoid spamming broken emails.
     else:
         logger.info(f"No animals detected in {filename}")
 
