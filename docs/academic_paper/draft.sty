@@ -1,0 +1,67 @@
+\def\Year{2025~}
+%%%% Change the following
+\pagestyle{empty}
+%set paper size
+\topmargin	17mm	%bottom margin 24mm
+\oddsidemargin	18mm	%left margin 18mm & right margin 17mm
+\advance\topmargin-1in\advance\oddsidemargin-1in
+\evensidemargin\oddsidemargin	       	
+%for A4 paper
+\if@compatibility\else
+\DeclareOption{a4}{
+\topmargin	29mm%bottom margin 30mm
+\oddsidemargin	15mm%left & right margin 15mm
+\advance\topmargin-1in\advance\oddsidemargin-1in
+\evensidemargin\oddsidemargin	       	
+}
+\ProcessOptions
+\fi
+%for 8 1/2" x 11" paper paper, use the following definition
+
+%text sizes
+\textwidth  180mm
+\textheight 238mm
+\columnsep  5.0mm
+\parindent  3.5mm
+
+%misc parameters
+\headsep 0mm  \headheight 0mm
+\footskip 18mm%\footheight 6mm
+					 	
+%conversion to values for LaTeX
+					
+\makeatletter
+%as Latex considers descenders in its calculation of interline spacing,
+%to get 12 point spacing for normalsize text, must set it to 10 points
+\def\@normalsize{\@setsize\normalsize{12pt}\xpt\@xpt
+\abovedisplayskip 10pt plus2pt minus5pt\belowdisplayskip \abovedisplayskip
+\abovedisplayshortskip \z@ plus3pt\belowdisplayshortskip 6pt plus3pt
+minus3pt\let\@listi\@listI}
+
+%interline spaceing and title font for section
+\def\section{\@startsection {section}{1}{\z@}{20pt plus 2pt minus 2pt}
+{8pt plus 2pt minus 2pt}{\centering\normalsize\sc}}
+
+%interline spacing and title font for subsection
+\def\subsection{\@startsection {subsection}{2}{\z@}{16pt plus 2pt minus 2pt}
+{6pt plus 2pt minus 2pt}{\normalsize\sl}}
+
+%section numbering
+%\def\thesection{\Roman{section}.\hskip -.5em}
+%\def\thesection{\@Roman\c@section.}
+\def\thesection{\@Roman\c@section}
+%\def\thesubsection{\Alph{subsection}.\hskip -.5em}
+\def\thesubsection{\@Alph\c@subsection}
+\def\@seccntformat#1{\csname the#1\endcsname.\quad}
+
+%figures/tables captions
+\long\def\@makecaption#1#2{
+\vskip10pt\begin{center} #1 #2 \end{center}\par\vskip 1pt}
+\def\fnum@figure{\raggedright{\footnotesize Fig. \thefigure }.%
+\footnotesize}
+\def\fnum@table{\footnotesize TABLE \thetable\\\footnotesize\sc}
+\def\thetable{\Roman{table}}
+
+\makeatother					
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
