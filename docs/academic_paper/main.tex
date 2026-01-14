@@ -20,11 +20,10 @@
 
 %make title
 \title{\Large\bf
-階層型エッジAIを用いた野生動物モニタリングシステム：\\
-ESP32とRaspberry Piによる誤検知削減と省電力化
+鳥獣害対策のための複数台のカメラを用いた低コスト通信型監視システムの開発
 \\~\\
 \large\bf
-Wildlife Monitoring System using Hierarchical Edge AI: Reducing False Positives and Power Consumption with ESP32 and Raspberry Pi}
+Development of a Low-Cost Communication-Based Monitoring System Using Multiple Cameras for Wildlife Damage Control}
 
 
 %for two authors (Template style)
@@ -42,16 +41,13 @@ Wildlife Monitoring System using Hierarchical Edge AI: Reducing False Positives 
 \thispagestyle{empty}
 
 {\small\bf Abstract---
-野生動物の生態調査において、PIRセンサーを用いたカメラトラップは広く利用されているが、風や光の変化による誤検知（False Positives）が多く、確認作業の負担や通信コストの増大が課題となっている。本研究では、ESP32搭載カメラによる省電力撮影と、Raspberry Piエッジサーバー上のYOLOv8nによる一次フィルタリングを組み合わせた階層型システムを提案する。バースト撮影と多数決ロジックによる誤検知削減手法を実装し、必要なデータのみを外部サーバー（MegaDetector搭載）へ送信することで、効率的なモニタリングを実現した。
-
-Abstract is a brief (50--80 word) synopsis of your paper. The purpose is to provide a quick outline of your presentation, giving the reader an overview of the research. It must be fit within the size allowed, which is about 3\,inches or 7.5\,centimeters.}
+農作物への鳥獣被害は深刻な社会問題となっており、その対策としてIoT技術を用いた安価で効率的な監視システムが求められている。本研究では、鳥獣害対策を目的とし、複数台の安価な無線カメラ端末（ESP32）とデータを集約するエッジサーバー（Raspberry Pi）を用いた低コストな通信型監視システムを開発した。本システムは、エッジ側でのYOLOv8nを用いた一次フィルタリングと「3枚バースト撮影・多数決判定」により、PIRセンサー特有の誤検知を大幅に削減し、真に必要な検知情報のみを管理者に通知する。これにより、通信コストの抑制と、被害発生時の迅速な対応支援を実現する。
+}
 
 \section{はじめに (Introduction)}
-野生動物の個体数推定や行動解析において、無人撮影カメラ（カメラトラップ）は不可欠なツールである。しかし、従来のPIRセンサーを用いたカメラは、植物の揺れや日光の反射など、動物以外にも反応してしまう問題がある。これにより、膨大な数の「空撮影」画像が生成され、研究者や保護官にとって大きなデータ整理の負担となっている\cite{beery2019iwildcam}。
+近年、シカやイノシシなどの野生動物による農作物被害や生活圏への出没が深刻化しており、鳥獣害対策は喫緊の課題である。被害防除のためには、動物の出没状況を正確かつリアルタイムに把握することが重要である。カメラトラップはその有効な手段の一つであるが、従来のPIR（受動型赤外線）センサーを用いた安価なカメラは、風による植物の揺れなどを誤検知することが多く、大量の「空撮影」データにより確認作業が煩雑になるという問題がある\cite{beery2019iwildcam}。また、セルラー通信を用いて画像をリアルタイム送信する場合、誤検知画像の送信は通信コストの浪費につながる。
 
-また、セルラー通信を用いて画像をリアルタイム送信する場合、誤検知画像の送信は通信コストの無駄となる。従来の手法では、すべての画像を一度クラウドに送信してから解析を行うアプローチが主流であったが、これでは帯域幅とストレージを圧迫する。
-
-そこで本研究では、低コストなハードウェアを組み合わせた、通信効率の高いインテリジェントな監視システムを提案する。具体的には、Raspberry Piを用いたエッジコンピューティングにより、現場で画像の一次選別を行う（図\ref{fig:system_overview}参照）。
+一方で、広範囲な農地や里山を監視するためには、多数のカメラを設置する必要があり、システム全体の低コスト化が不可欠である。そこで本研究では、鳥獣害対策への適用を念頭に、複数台の安価なカメラ端末とそれらを統括するエッジサーバーから成る、低コストかつ高効率な通信型監視システムを提案する。具体的には、Raspberry Piを用いたエッジコンピューティングにより、現場で画像の一次選別を行う（図\ref{fig:system_overview}参照）。
 
 \section{関連研究 (Related Work)}
 野生動物モニタリングの分野では、従来よりPIRセンサーを用いたトレイルカメラが広く用いられてきた。しかし、Beeryら\cite{beery2019iwildcam}が指摘するように、PIRセンサーは温度変化や風による揺れに対しても反応するため、撮影画像の大半（時には90\%以上）が動物を含まない「空撮影（empty images）」となることが知られている。この問題に対し、Norouzzadehらによるディープラーニングを用いた大規模画像分類の試みがあるが、これらは主に撮影後のオフライン解析に焦点を当てている。
