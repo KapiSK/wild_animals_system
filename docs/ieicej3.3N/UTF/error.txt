@@ -1,0 +1,24 @@
+template.dvi -> template.pdf
+[1Trying to make PK font uprml-h at 1024 DPI...
+The METAFONT mode is: ljfour
+Running miktex-makemf.exe...
+
+Sorry, but miktex-makemf did not succeed.
+
+The log file hopefully contains the information to get MiKTeX going again:
+
+  C:\Users\kapib\AppData\Local\MiKTeX\miktex\log\miktex-makemf.log
+Running miktex-ttf2pk.exe...
+
+Sorry, but miktex-makepk did not succeed.
+
+The log file hopefully contains the information to get MiKTeX going again:
+
+  C:\Users\kapib\AppData\Local\MiKTeX\miktex\log\miktex-makepk.log
+
+dvipdfmx:warning: Could not locate a virtual/physical font for TFM "uprml-h".
+dvipdfmx:warning: >> There are no valid font mapping entry for this font.
+dvipdfmx:warning: >> Font file name "uprml-h" was assumed but failed to locate that font.
+dvipdfmx:fatal: Cannot proceed without .vf or "physical" font for PDF output...
+
+No output PDF file written.

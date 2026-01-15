@@ -1,0 +1,140 @@
+%%「論文」，「レター」，「レター（C分冊）」，「技術研究報告」などのテンプレート
+%% v3.3N [2023/03/30]
+%% 1. 「論文」
+\documentclass[paper]{ieicej}
+%\documentclass[invited]{ieicej}% 招待論文
+%\documentclass[survey]{ieicej}% サーベイ論文
+%\documentclass[comment]{ieicej}% 解説論文
+%\usepackage[dvips]{graphicx}
+\usepackage[dvipdfmx]{graphicx,xcolor}
+\usepackage[fleqn]{amsmath}
+\usepackage{newtxtext}% 英数字フォントの設定を変更しないでください
+\usepackage[varg]{newtxmath}% % 英数字フォントの設定を変更しないでください
+\usepackage{latexsym}
+%\usepackage{amssymb}
+
+\setcounter{page}{1}
+
+\field{D} % 情報・システム
+\jtitle{鳥獣害対策のための複数台カメラを用いた低コスト通信型警戒システムの開発}
+\etitle{Development of a Low-Cost Communication-Based Monitoring System Using Multiple Cameras for Wildlife Damage Control}
+\authorlist{%
+ \authorentry{著者名}{Author Name}{所属ラベル}\MembershipNumber{}
+ %\authorentry{和文著者名}{英文著者名}{所属ラベル}\MembershipNumber{}
+ %\authorentry[メールアドレス]{和文著者名}{英文著者名}{所属ラベル}\MembershipNumber{}
+ %\authorentry{和文著者名}{英文著者名}{所属ラベル}[現在の所属ラベル]\MembershipNumber{}
+}
+\affiliate[所属ラベル]{和文所属}{English Affiliation}
+%\paffiliate[]{}
+%\paffiliate[現在の所属ラベル]{和文所属}
+\jalcdoi{???????????}% ← このままにしておいてください
+
+\begin{document}
+\begin{abstract}
+%和文あらまし 500字以内
+本論文では，省電力かつ高精度な野生動物モニタリングを実現するための階層的エッジAIシステムを提案する．
+本システムは，低消費電力なESP32を用いたエッジカメラ群と，高度な処理能力を持つRaspberry Piエッジサーバで構成される．
+エッジカメラは人感センサを用いて撮影を行い，画像をエッジサーバに送信する．
+エッジサーバはYOLOを用いた物体検出を行い，誤検知の削減と動物種の特定を行う．
+さらに，検証済みのデータは外部サーバへ送信され，ユーザへの通知や長期的なデータ蓄積に利用される．
+実環境での運用試験の結果，提案システムは誤検知を大幅に削減しつつ，長期間の稼働が可能であることを示した．
+\end{abstract}
+\begin{keyword}
+野生動物モニタリング, エッジAI, IoT, ESP32, Raspberry Pi
+\end{keyword}
+\begin{eabstract}
+%英文アブストラクト 100 words
+This paper proposes a hierarchical edge AI system for power-efficient and high-precision wildlife monitoring.
+The system consists of a cluster of low-power ESP32-based edge cameras and a Raspberry Pi edge server with advanced processing capabilities.
+The edge cameras capture images triggered by PIR sensors and transmit them to the edge server.
+The edge server performs object detection using YOLO to reduce false positives and identify animal species.
+Validated data is then transmitted to an external server for user notification and long-term storage.
+Field operational tests demonstrated that the proposed system significantly reduces false positives while enabling long-term operation.
+\end{eabstract}
+\begin{ekeyword}
+Wildlife Monitoring, Edge AI, IoT, ESP32, Raspberry Pi
+\end{ekeyword}
+\maketitle
+
+\section{まえがき}
+近年，シカやイノシシなどの野生動物による農作物被害が深刻な問題となっている．
+被害対策の第一歩として，動物の出没状況を正確に把握することが重要である．
+従来，この目的には自動撮影カメラ（トレイルカメラ）が用いられてきた．
+しかし，市販のトレイルカメラは，草木の揺れや光の変化などを動物として誤検知する場合が多く，撮影された大量の画像から対象動物を確認する作業に多大な労力を要する．
+また，既存の通信機能付きトレイルカメラは高価であり，かつ通信コストもかかるため，広範囲に多数設置することは経済的に困難である．
+
+本研究では，これらの課題を解決するために，安価な汎用マイコンであるESP32とRaspberry Piを用いた，低コストかつ運用性の高い通信型分散モニタリングシステムを提案する．
+本システムは，撮影に特化した複数の簡易なエッジカメラと，画像処理を集約して行うエッジサーバから構成される．
+エッジカメラはPIRセンサ（人感センサ）による省電力な待受を行い，撮影した画像を即座にエッジサーバへ送信する．
+エッジサーバは受信した画像に対してDeep Learning（YOLO）を用いた物体検出を行い，動物が写っている画像のみを選別する．
+これにより，誤検知画像を大幅に削減し，ユーザが必要な情報のみをリアルタイムに受け取ることを可能にしつつ，システム全体の導入コストと通信コストを低減することを目指す．
+
+\section{提案システム}
+\subsection{システム構成}
+本章では，提案システムの全体構成と各要素の役割について述べる．
+
+\subsection{システム構成}
+提案システムは，以下の3つの階層により構成される．
+\begin{enumerate}
+\item \textbf{エッジカメラ (Edge Camera)}:
+安価で低消費電力な無線マイコンであるESP32を採用する．
+PIRセンサにより熱源を検知したときのみ起動し，カメラモジュールで撮影を行う．
+撮影データはWi-Fiを用いて直ちにエッジサーバへ送信し，送信完了後に再びDeep Sleepモードへ移行することで，バッテリによる長期間の稼働を実現する．
+\item \textbf{エッジサーバ (Edge Server)}:
+シングルボードコンピュータであるRaspberry Piを使用する．
+エッジカメラからのデータ受信ハブとして機能すると同時に，高度な演算処理能力を活かしてAI推論を行う．
+物体検出アルゴリズムYOLOv8を用いて，受信画像に動物が含まれるかを判定し，種別の特定を行う．
+これにより，ネットワーク帯域の無駄遣いを防ぎつつ，誤検知画像を除去する．
+\item \textbf{外部サーバ (External Server)}:
+エッジサーバから選別された有用なデータのみが集約される．
+ユーザはメール通知やWebインターフェースを通じて，現地の状況をリアルタイムに確認できる．
+また，長期的なデータの蓄積や分析を行う役割も担う．
+\end{enumerate}
+
+\subsection{処理フロー}
+システムの動作フローは以下の通りである．
+\begin{enumerate}
+\item エッジカメラのPIRセンサが反応すると，ESP32がDeep Sleepから復帰する．
+\item カメラにより静止画を撮影する．
+\item 撮影データをWi-Fi経由でエッジサーバへ送信する．送信失敗時は再送を試みるが，一定回数失敗した場合はバッテリ保護のためデータを破棄してSleepに戻る．
+\item エッジサーバは画像を受信すると，推論キューに追加する．
+\item 推論エンジンが画像を解析し，動物が検出された場合のみ，画像を保存用ディレクトリに移動し，外部サーバへ転送する．
+\item 外部サーバはデータを受け取り，ユーザへ通知を行う．
+\end{enumerate}
+
+\section{実装}
+\subsection{エッジカメラの実装}
+(ESP32のファームウェア，Deep Sleep制御，GPS同期について記述)
+
+\subsection{エッジサーバの実装}
+(Pythonによる画像受信サーバ，YOLO推論，外部サーバへのアップロードについて記述)
+
+\subsection{外部サーバの実装}
+(Flask等を用いた受信・表示システムについて記述)
+
+\section{実験と評価}
+(稼働時間，検知精度などの実験設定と結果)
+
+\section{むすび}
+本論文では，階層的エッジAIを用いた野生動物モニタリングシステムを提案し，その設計と実装について述べた．
+
+\ack %% 謝辞
+本研究の一部は...
+
+%\bibliographystyle{sieicej}
+%\bibliography{myrefs}
+\begin{thebibliography}{99}% 文献数が10未満の時 {9}
+\bibitem{ref1} 参考文献1
+\end{thebibliography}
+
+\appendix
+\section{}
+
+%% 著者紹介・顔写真の掲載はC分冊の場合は任意です．
+\begin{biography}
+\profile{正員}{著者名}{紹介文}
+%\profile{会員種別}{名前}{紹介文}% 顔写真あり
+%\profile*{会員種別}{名前}{紹介文}% 顔写真なし
+\end{biography}
+
+\end{document}
