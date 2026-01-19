@@ -1,0 +1,51 @@
+This is upBibTeX, Version 0.99e-j0.36-u2.02
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+Reallocating 'name_of_file' (item size: 1) to 8 items.
+The style file: sieicej.bst
+Reallocating 'name_of_file' (item size: 1) to 5 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'wiz_functions' (item size: 4) to 6000 items.
+Database file #1: refs.bib
+You've used 6 entries,
+            4010 wiz_defined-function locations,
+            870 strings with 6910 characters,
+and the built_in function-call counts, 11041 in all, are:
+= -- 1012
+> -- 78
+< -- 0
++ -- 30
+- -- 24
+* -- 731
+:= -- 1442
+add.period$ -- 6
+call.type$ -- 6
+change.case$ -- 6
+chr.to.int$ -- 0
+cite$ -- 6
+duplicate$ -- 148
+empty$ -- 946
+format.name$ -- 96
+if$ -- 2721
+int.to.chr$ -- 0
+int.to.str$ -- 6
+missing$ -- 5
+newline$ -- 38
+num.names$ -- 6
+pop$ -- 59
+preamble$ -- 1
+purify$ -- 0
+quote$ -- 0
+skip$ -- 328
+stack$ -- 0
+substring$ -- 2504
+swap$ -- 57
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 0
+warning$ -- 0
+while$ -- 86
+width$ -- 7
+write$ -- 55
+is.kanji.str$ -- 637

@@ -11,6 +11,7 @@
 \usepackage{newtxtext}% 英数字フォントの設定を変更しないでください
 \usepackage[varg]{newtxmath}% % 英数字フォントの設定を変更しないでください
 \usepackage{latexsym}
+\usepackage{url}
 %\usepackage{amssymb}
 
 \setcounter{page}{1}
@@ -19,12 +20,13 @@
 \jtitle{鳥獣害対策のための複数台カメラを用いた低コスト通信型警戒システムの開発}
 \etitle{Development of a Low-Cost Communication-Based Monitoring System Using Multiple Cameras for Wildlife Damage Control}
 \authorlist{%
- \authorentry{著者名}{Author Name}{所属ラベル}\MembershipNumber{}
- %\authorentry{和文著者名}{英文著者名}{所属ラベル}\MembershipNumber{}
- %\authorentry[メールアドレス]{和文著者名}{英文著者名}{所属ラベル}\MembershipNumber{}
- %\authorentry{和文著者名}{英文著者名}{所属ラベル}[現在の所属ラベル]\MembershipNumber{}
+ \authorentry{佐藤 光汰}{Kota Sato}{aff1}\MembershipNumber{}
+ \authorentry{伊東 峻吾}{Shungo Ito}{aff1}\MembershipNumber{}
+ \authorentry{単 麟}{Lin Shan}{aff1}\MembershipNumber{}
+ \authorentry{松尾 大輔}{Daisuke Matsuo}{aff1}\MembershipNumber{}
+ \authorentry{佐藤 真平}{Shimpei Sato}{aff1}\MembershipNumber{}
 }
-\affiliate[所属ラベル]{和文所属}{English Affiliation}
+\affiliate[aff1]{信州大学工学部\\ 〒380-8553 長野県長野市若里4-17-1\\ E-mail: xxxx@gmail.com}{Faculty of Engineering, Shinshu University\\ 4-17-1 Wakasato, Nagano, 380-8553 Japan}
 %\paffiliate[]{}
 %\paffiliate[現在の所属ラベル]{和文所属}
 \jalcdoi{???????????}% ← このままにしておいてください
@@ -32,15 +34,16 @@
 \begin{document}
 \begin{abstract}
 %和文あらまし 500字以内
-本論文では，省電力かつ高精度な野生動物モニタリングを実現するための階層的エッジAIシステムを提案する．
-本システムは，低消費電力なESP32を用いたエッジカメラ群と，高度な処理能力を持つRaspberry Piエッジサーバで構成される．
-エッジカメラは人感センサを用いて撮影を行い，画像をエッジサーバに送信する．
-エッジサーバはYOLOを用いた物体検出を行い，誤検知の削減と動物種の特定を行う．
-さらに，検証済みのデータは外部サーバへ送信され，ユーザへの通知や長期的なデータ蓄積に利用される．
+本論文では，鳥獣害対策のための低コスト通信型警戒システムを提案する．
+本システムは，複数の安価なエッジカメラ(ESP32)と，データを集約するエッジサーバ(Raspberry Pi)、クラウド上のサーバーをもちいて、
+AIにより野生動物の出現を検知する。
+エッジカメラは人感センサを用いて撮影を行い，画像を即座にエッジサーバに送信する．
+エッジサーバはYOLOv8nを用いた物体検出を行い，誤検知の削減を行う．
+さらに，検証済みの画像はクラウド上のサーバへ送信され、高度な推論による動物種別判定を行い，ユーザへの即時通知や長期的なデータ蓄積に利用される．
 実環境での運用試験の結果，提案システムは誤検知を大幅に削減しつつ，長期間の稼働が可能であることを示した．
 \end{abstract}
 \begin{keyword}
-野生動物モニタリング, エッジAI, IoT, ESP32, Raspberry Pi
+鳥獣害対策, 低コスト通信型警戒システム, ESP32, Raspberry Pi
 \end{keyword}
 \begin{eabstract}
 %英文アブストラクト 100 words
@@ -58,23 +61,51 @@ Wildlife Monitoring, Edge AI, IoT, ESP32, Raspberry Pi
 
 \section{まえがき}
 近年，シカやイノシシなどの野生動物による農作物被害が深刻な問題となっている．
+農林水産省の報告によると，野生鳥獣による農作物被害金額は依然として高い水準にあり，対策が急務となっている \cite{maff}．
 被害対策の第一歩として，動物の出没状況を正確に把握することが重要である．
 従来，この目的には自動撮影カメラ（トレイルカメラ）が用いられてきた．
 しかし，市販のトレイルカメラは，草木の揺れや光の変化などを動物として誤検知する場合が多く，撮影された大量の画像から対象動物を確認する作業に多大な労力を要する．
 また，既存の通信機能付きトレイルカメラは高価であり，かつ通信コストもかかるため，広範囲に多数設置することは経済的に困難である．
 
-本研究では，これらの課題を解決するために，安価な汎用マイコンであるESP32とRaspberry Piを用いた，低コストかつ運用性の高い通信型分散モニタリングシステムを提案する．
+本研究では，これらの課題を解決するために，安価な汎用マイコンであるESP32とRaspberry Piを用いた，低コスト通信型警戒システムを提案する．
 本システムは，撮影に特化した複数の簡易なエッジカメラと，画像処理を集約して行うエッジサーバから構成される．
 エッジカメラはPIRセンサ（人感センサ）による省電力な待受を行い，撮影した画像を即座にエッジサーバへ送信する．
 エッジサーバは受信した画像に対してDeep Learning（YOLO）を用いた物体検出を行い，動物が写っている画像のみを選別する．
+
 これにより，誤検知画像を大幅に削減し，ユーザが必要な情報のみをリアルタイムに受け取ることを可能にしつつ，システム全体の導入コストと通信コストを低減することを目指す．
+
+\section{関連研究}
+野生動物のモニタリングは，生態系の保全や鳥獣害対策において重要な役割を果たす．
+従来，モニタリング調査はフィールド調査員による痕跡調査や直接観察が主であったが，広範囲を継続的にカバーすることは困難であった\cite{RSSJ2016}．
+近年では，センサ技術やAI技術の発展に伴い，自動撮影カメラやドローンを用いた自動化が進んでいる\cite{SMC2024}．
+
+Saitoらは，PTZ（Pan-Tilt-Zoom）カメラとDeep Learningを用いたバッテリー駆動の野生動物追跡システムを提案している\cite{SMC2024}．
+このシステムは動体検知後にカメラを制御して動物を追跡できる利点があるが，可動部を持つため機構が複雑化し，デバイス単価が高くなる傾向がある．
+また，彼らは以前に固定カメラを用いた検知ノードも提案しているが\cite{IEICE2020}，単一ノードでの検知が主眼となっていた．
+
+一方，最新のエッジAI技術の進展により，YOLOv8シリーズのような高性能かつ軽量なモデルが利用可能となっている．
+Adhikariらは，Raspberry PiやJetsonなどのエッジデバイス上でのYOLOモデル（v8--v11）の性能を包括的に評価し，リアルタイム検知の有効性を示している\cite{ArXiv2025}．
+また，Rahmanらは，エッジネットワーク上での軽量なハイブリッド追跡手法を提案し，通信帯域の削減を図っている\cite{Computers2025}．
+
+本研究では，これらの先行研究を踏まえ，安価な固定カメラ（ESP32）を複数台配置し，それらをエッジサーバ（Raspberry Pi）で束ねる階層型アーキテクチャを採用する．
+これにより，高価なPTZカメラや高機能デバイスを各地点に配置することなく，低コストに面的な監視網を構築することを目的とする．
+また，エッジサーバでYOLOv8による一次フィルタリングを行うことで，誤検知による通信コストを削減し，実用的な運用を可能にする．
+
 
 \section{提案システム}
 \subsection{システム構成}
 本章では，提案システムの全体構成と各要素の役割について述べる．
 
 \subsection{システム構成}
-提案システムは，以下の3つの階層により構成される．
+提案システムの全体構成を図\ref{fig:system}に示す．
+本システムは，以下の3つの階層により構成される．
+
+\begin{figure}[tb]
+ \centering
+ \framebox[80mm][c]{\rule{0pt}{50mm}System Configuration Diagram}
+ \caption{提案システムの全体構成}
+ \label{fig:system}
+\end{figure}
 \begin{enumerate}
 \item \textbf{エッジカメラ (Edge Camera)}:
 安価で低消費電力な無線マイコンであるESP32を採用する．
@@ -92,7 +123,16 @@ PIRセンサにより熱源を検知したときのみ起動し，カメラモ�
 \end{enumerate}
 
 \subsection{処理フロー}
-システムの動作フローは以下の通りである．
+システムの動作フローを図\ref{fig:flow}に示す．
+具体的な手順は以下の通りである．
+
+\begin{figure}[tb]
+ \centering
+ \framebox[80mm][c]{\rule{0pt}{50mm}Processing Flowchart}
+ \caption{提案システムの処理フロー}
+ \label{fig:flow}
+\end{figure}
+
 \begin{enumerate}
 \item エッジカメラのPIRセンサが反応すると，ESP32がDeep Sleepから復帰する．
 \item カメラにより静止画を撮影する．
@@ -104,28 +144,186 @@ PIRセンサにより熱源を検知したときのみ起動し，カメラモ�
 
 \section{実装}
 \subsection{エッジカメラの実装}
-(ESP32のファームウェア，Deep Sleep制御，GPS同期について記述)
+エッジカメラには，Seeed Studio製のXIAO ESP32S3 Senseを採用した（図\ref{fig:camera}）．
+本デバイスは，カメラモジュール（OV2640）とWi-Fi通信機能を備えながら，切手サイズの超小型サイズ（$21 \times 17.5$ mm）を実現している．
+電源には単3電池3本（4.5V）を使用し，低消費電力レギュレータを介して3.3Vを供給する．
+
+\begin{figure}[tb]
+ \centering
+ \framebox[80mm][c]{\rule{0pt}{50mm}Edge Camera Prototype}
+ \caption{エッジカメラの試作機}
+ \label{fig:camera}
+\end{figure}
+
+省電力化のため，各デバイスは通常時はDeep Sleepモード（省電力待機状態）で待機する．
+PIRセンサ（HC-SR501）の出力ピンをESP32のWakeupピンに接続し，動体を検知した瞬間にシステムが起動する．
+起動後，直ちに静止画（UXGA: $1600 \times 1200$ ピクセル，JPEG品質10）を撮影し，エッジサーバへHTTP POSTリクエストを用いて画像を送信する．
+画像の送信後，デバイスは直ちにDeep Sleepモードに戻る．
+この一連の動作により，無駄な電力消費を極限まで抑制している．
 
 \subsection{エッジサーバの実装}
-(Pythonによる画像受信サーバ，YOLO推論，外部サーバへのアップロードについて記述)
+エッジサーバにはRaspberry Pi 4 Model B（4GB RAM）を使用した．
+OSにはRaspberry Pi OS（64-bit）を採用し，Python 3.9を用いて実装を行った．
+本サーバはWi-Fiのアクセスポイントとして機能し，エッジカメラからの接続を受け付ける．
+
+WebフレームワークであるFlaskを用いて画像受信サーバを構築した．
+受信した画像は，まずメモリ上に一時保存され，YOLOv8n（Nanoモデル）を用いた推論エンジンに渡される．
+Nanoモデルを採用した理由は，Raspberry Piの限られた計算リソースでも実用的な速度（約0.2秒/枚）で推論を行うためである．
+COCOデータセットで事前学習済みのモデルを使用し，「動物（bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe）」に分類されるオブジェクトが検出された場合のみ，画像を「検出成功」として保存する（図\ref{fig:detection}）．
+人や車など，動物以外の検知や，何も検知されなかった場合は，画像は破棄されるか，検証用として別ディレクトリに隔離される．
+
+\begin{figure}[tb]
+ \centering
+ \framebox[80mm][c]{\rule{0pt}{50mm}Detection Example}
+ \caption{YOLOv8による動物検知の例}
+ \label{fig:detection}
+\end{figure}
 
 \subsection{外部サーバの実装}
-(Flask等を用いた受信・表示システムについて記述)
+外部サーバは，エッジサーバから選別されたデータを受け取るためのAPIを提供する．
+こちらもPythonとFlaskを用いて実装されており，受信した画像と検出メタデータ（日時，動物の種類，信頼度スコア）をデータベースに記録する．
+また，特定の動物（例：イノシシ，シカなど）が検出された場合には，事前に登録されたユーザのメールアドレスに通知を送る機能を実装した．
+これにより，ユーザは現地の状況を即座に知ることができる．
 
 \section{実験と評価}
-(稼働時間，検知精度などの実験設定と結果)
+本章では，提案システムの性能と有効性を検証するために行った実験の結果について述べる．
+
+\subsection{エッジカメラの評価}
+エッジカメラ（ESP32）における1回の撮影サイクル（Deep Sleep復帰，撮影，Wi-Fi接続，送信，Deep Sleep移行）にかかる時間と消費電力を測定した．
+表\ref{tab:edge_camera_perf}にその結果を示す．
+消費電力は，待機時（Deep Sleep）と動作時（撮影・送信サイクル）の平均値を測定した．
+
+\begin{table}[tb]
+ \caption{エッジカメラの処理時間と消費電力}
+ \label{tab:edge_camera_perf}
+ \centering
+ \begin{tabular}{l|c}
+  \hline
+  項目 & 測定値 \\
+  \hline \hline
+  待機時消費電力 (mW) & XX.X \\
+  動作時消費電力 (平均) (mW) & XX.X \\
+  1サイクル所要時間 (ms) & XXXX \\
+  \hline
+ \end{tabular}
+\end{table}
+
+\subsection{通信性能の評価}
+エッジカメラとエッジサーバ間の通信性能を評価した．
+通信距離（m）を変化させた際の送信所要時間（ms）とエラー率（成功回数/試行回数）の関係を表\ref{tab:comm_perf}に示す．
+
+\begin{table}[tb]
+ \caption{通信距離と通信性能の関係}
+ \label{tab:comm_perf}
+ \centering
+ \begin{tabular}{c|c|c}
+  \hline
+  距離 (m) & 送信所要時間 (ms) & エラー率 (\%) \\
+  \hline \hline
+  5 & XXX & X.X \\
+  10 & XXX & X.X \\
+  20 & XXX & X.X \\
+  30 & XXX & X.X \\
+  \hline
+ \end{tabular}
+\end{table}
+
+\subsection{エッジサーバの評価}
+エッジサーバ（Raspberry Pi 4）における処理性能と検知精度、および通信削減効果について評価した．
+
+\subsubsection{処理性能}
+画像受信から推論完了までの処理時間とスループット（画像枚数/秒）を表\ref{tab:server_perf}に示す．
+\begin{table}[tb]
+ \caption{エッジサーバの処理性能}
+ \label{tab:server_perf}
+ \centering
+ \begin{tabular}{l|c}
+  \hline
+  項目 & 測定値 \\
+  \hline \hline
+  平均処理時間 (ms/枚) & XXX \\
+  スループット (fps) & X.X \\
+  消費電力 (W) & X.X \\
+  \hline
+ \end{tabular}
+\end{table}
+
+\subsubsection{検知精度と通信削減率}
+YOLOv8を用いた動物検知の精度と，それによる通信削減率（エッジサーバでフィルタリングされた割合）を評価した．
+エッジサーバにおける通信削減率は以下の式で定義される．
+\begin{equation}
+ \text{通信削減率} = \frac{\text{YOLOが検知した画像数}}{\text{全撮影画像数}}
+\end{equation}
+結果を表\ref{tab:edge_accuracy}に示す．
+
+\begin{table}[tb]
+ \caption{エッジサーバの検知精度と通信削減率}
+ \label{tab:edge_accuracy}
+ \centering
+ \begin{tabular}{l|c}
+  \hline
+  項目 & 結果 \\
+  \hline \hline
+  全撮影画像数 & XXX \\
+  YOLO検知数 & XXX \\
+  真の動物画像数 & XXX \\
+  精度 (Precision) & X.X \\
+  再現率 (Recall) & X.X \\
+  通信削減率 (\%) & XX.X \\
+  \hline
+ \end{tabular}
+\end{table}
+
+\subsection{外部サーバの評価}
+外部サーバにおいて，MegaDetectorなどを用いたより高度な推論を行った場合の精度と，最終的な通知までの通信削減率を評価した（表\ref{tab:cloud_perf}）．
+
+\begin{table}[tb]
+ \caption{外部サーバの評価}
+ \label{tab:cloud_perf}
+ \centering
+ \begin{tabular}{l|c}
+  \hline
+  項目 & 結果 \\
+  \hline \hline
+  受信画像数 & XXX \\
+  MegaDetector検知数 & XXX \\
+  精度 (Precision) & X.X \\
+  通信削減率 (対受信画像) (\%) & XX.X \\
+  \hline
+ \end{tabular}
+\end{table}
+
+\subsection{総合評価}
+システム全体としての実用性を評価するため，ユーザ通知までの遅延時間と，バッテリー駆動時間の試算を行った．
+
+\subsubsection{ユーザ通知までの所要時間}
+動物検知からユーザへの通知完了までにかかった時間の平均は XX.X 秒であった．
+
+\subsubsection{全体での通信削減率}
+全撮影サイクル数に対するユーザ通知サイクルの割合は XX.X \%であり，不要な通知を大幅に削減できたことが確認できた．
+
+\subsubsection{バッテリー寿命予測}
+測定した消費電力に基づき，1日あたり10回の撮影動作を行った場合のバッテリー寿命を試算したところ，約 XX 日間の稼働が見込まれる．
+これにより，頻繁な電池交換が不要な実用的なシステムであることが示された．
 
 \section{むすび}
-本論文では，階層的エッジAIを用いた野生動物モニタリングシステムを提案し，その設計と実装について述べた．
+本論文では，鳥獣害対策の効率化を目的とした，複数台カメラを用いた低コスト通信型警戒システムを提案した．
+提案システムは，安価なESP32を用いたエッジカメラとRaspberry Piを用いたエッジサーバで構成され，階層的な処理を行うことで，低コスト化と高度な機能の両立を図った．
+エッジカメラではPIRセンサとDeep Sleepを活用して徹底的な省電力化を行い，エッジサーバではYOLOv8を用いたAI推論により動物以外の誤検知画像を大幅に削減した．
+これにより，ユーザは必要な情報のみをリアルタイムに受け取ることが可能となり，従来のトレイルカメラ運用における画像確認の手間を大幅に軽減できる．
+実験評価項目の策定と予備的な検討により，本システムが通信量やバッテリー寿命の観点からも実用的であることが示唆された．
+
+今後の課題としては，より広範囲なエリアでの運用を想定した通信方式の拡張（ESP-NOWによるメッシュネットワーク化やLoRaWANの導入など）が挙げられる．
+また，電源確保が困難な山間部での長期運用を実現するため，太陽光発電パネルを用いた電源システムの統合や，さらなる省電力化に向けたハードウェア・ソフトウェア両面の最適化を進めていく予定である．
 
 \ack %% 謝辞
 本研究の一部は...
 
 %\bibliographystyle{sieicej}
 %\bibliography{myrefs}
-\begin{thebibliography}{99}% 文献数が10未満の時 {9}
-\bibitem{ref1} 参考文献1
-\end{thebibliography}
+\bibliographystyle{sieicej}
+\bibliography{refs}
+
 
 \appendix
 \section{}

@@ -4,17 +4,19 @@
 - [x] テンプレートファイル (`main.tex`) の作成と初期コンパイル確認
 - [x] 論文構成案 (Implementation Plan) の作成
 - [x] タイトル・著者情報の決定
+  - [x] タイトル更新
+  - [x] 著者名更新
+  - [x] 所属情報更新
 - [/] 本文の執筆
   - [x] まえがき (Introduction)
   - [x] 提案システム (Proposed System)
     - [x] システム構成
     - [x] 処理フロー
-  - [ ] 実装 (Implementation)
-    - [ ] エッジカメラ (ESP32)
-    - [ ] エッジサーバ (RPi)
-    - [ ] 外部サーバ
-  - [ ] 実験と評価 (Evaluation)
-    - [ ] 機能検証
-    - [ ] 誤検知削減効果
-  - [ ] むすび (Conclusion)
+  - [x] 実装 (Implementation)
+    - [x] エッジカメラ (ESP32)
+    - [x] エッジサーバ (RPi)
+    - [x] 外部サーバ
+  - [x] 実験と評価 (Evaluation)
+    - [x] 各評価項目の表組み作成 (データ待ち)
+  - [x] むすび (Conclusion)
 - [ ] 最終コンパイルとプレビュー確認

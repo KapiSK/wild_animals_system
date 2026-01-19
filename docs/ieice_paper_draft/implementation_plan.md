@@ -40,13 +40,78 @@
 
 ### 4. 実験と評価 (Experiments and Evaluation)
 
-- **機能検証**: 撮影から通知までのフロー確認
-- **精度評価**: 誤検知の削減率 (False Positive Rate)
-- **電力評価**: ESP32の稼働時間予測
+- **エッジカメラ評価**
+  - 撮影サイクルの所要時間 (起動〜撮影〜送信〜Web/Sleep)
+  - 消費電力 (待機時・動作時)
+- **通信性能評価**
+  - エッジカメラ→エッジサーバ間の通信所要時間
+  - 通信距離とエラー率の関係
+- **エッジサーバ評価**
+  - 消費電力・処理時間・スループット
+  - YOLOv8による動物検知精度 (Precision/Recall)
+  - 通信削減率 (フィルタリング効果)
+- **外部サーバ評価**
+  - MegaDetector等による二次判定の精度
+  - 最終的な通信削減率
+- **システム全体評価**
+  - ユーザー通知までの総所要時間 (Latency)
+  - 全体的な通信削減率 (Notification/Total Cycles)
 
-### 5. むすび (Conclusion)
+### 6. 図版計画 (Figures and Images)
 
-- まとめと今後の課題 (Meshネットワーク化、太陽光発電導入など)
+論文の説得力と可読性を高めるために、以下の図版の掲載を推奨します。
+
+#### (1) システム全体構成図 (System Overview)
+
+- **内容**: エッジカメラ、エッジサーバ、外部サーバの接続関係と役割を図示。
+- **目的**: 読者がシステムの全体像を直感的に理解できるようにする。
+
+```mermaid
+graph LR
+    subgraph "Field (Edge Camera)"
+        Sense[PIR Sensor] -->|Wakeup| ESP32
+        Cam[Camera] -->|Image| ESP32
+        ESP32 -->|Wi-Fi| AP
+    end
+    
+    subgraph "Edge Server (Raspberry Pi)"
+        AP[Wi-Fi AP] -->|Receive| Flask[Receiver]
+        Flask -->|Image| YOLO[YOLOv8n Inference]
+        YOLO -->|Filtered Data| DB[(Local Storage)]
+    end
+    
+    subgraph "Cloud / User"
+        DB -->|Internet| Mail[Mail Notification]
+        DB -->|Internet| Web[Dashboard]
+    end
+```
+
+#### (2) 処理フローチャート (Processing Flowchart)
+
+- **内容**: エッジカメラの「Deep Sleep → 撮影 → 送信」のサイクルや、サーバ側の「受信 → 推論 → 選別」の流れ。
+- **目的**: 省電力化の仕組みや、どのように誤検知を排除しているかを論理的に示す。
+
+#### (3) ハードウェア外観・設置写真 (Hardware Photos)
+
+- **内容**:
+  - 製作したエッジカメラの中身（ESP32, 電池ボックス, 配線）。
+  - 実際の設置風景（防水ケースに入れて木に取り付けている様子など）。
+- **目的**: システムの実在性と、小型・低コストであることを視覚的にアピールする。
+
+#### (4) 検知結果の例 (Detection Examples)
+
+- **内容**:
+  - **成功例**: 動物（シカ、イノシシ）を検出し、バウンディングボックスが付与された画像。
+  - **比較例**: 昼間の画像と夜間（赤外線）の画像の比較。
+  - **誤検知排除**: 風で揺れる木などが撮影されたが、YOLOで動物として検知されなかった（フィルタリングされた）例。
+- **目的**: システムの有効性と誤検知削減能力を証明する。
+
+#### (5) 実験結果のグラフ (Evaluation Graphs)
+
+- **内容**:
+  - 消費電力の推移（横軸：時間、縦軸：電流）。Deep Sleep時と通信時の差を強調。
+  - 通信距離とエラー率の関係グラフ。
+- **目的**: 表データよりも直感的に性能（特に省電力性）を伝える。
 
 ## 次のステップ
 

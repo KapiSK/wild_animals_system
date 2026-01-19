@@ -665,7 +665,7 @@ LaTeX Font Info:    Font shape `OT1/ntxtlf/m/n' will be
 Class ieicej Warning: Check the 1st. argument of \profile{}{}{}.
 
 
-Class ieicej Warning: Profile's name "" doesn't have a space.
+Class ieiss ieicej Warning: Profile's name "" doesn't have a space.
 
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
 (Font)              scaled to size 17.07169pt on input line 69.
@@ -675,8 +675,12 @@ LaTeX Font Info:    Font shape `OT1/ntxtlf/m/n' will be
 (Font)              scaled to size 17.28pt on input line 69.
 LaTeX Font Info:    Trying to load font information for OT1+qhv on input line 6
 9.
-(C:\Users\kapib\AppData\Local\Programs\MiKTeX\tex/latex/tex-gyre\ot1qhv.fd
-File: ot1qhv.fd 2009/09/25 v1.2 font definition file for OT1/qhv
+! Interruption.
+<argument> __file_size:n {ot1qhv.fd}
+                                    
+l.69 \end{document}
+                   
+? v
 )
 LaTeX Font Info:    Font shape `OT1/qhv/m/n' will be
 (Font)              scaled to size 7.52002pt on input line 69.
