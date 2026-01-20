@@ -1,5 +1,6 @@
 import os
 import datetime
+import time
 import asyncio
 import logging
 import re
@@ -45,32 +46,60 @@ processing_semaphore = asyncio.Semaphore(1)
 
 class CycleManager:
     def __init__(self):
-        # Stores cycle data: { cycle_id: { 'files': [{'path': str, 'filename': str, 'is_animal': bool}], 'last_update': timestamp } }
-        self.cycles = defaultdict(lambda: {'files': [], 'last_update': datetime.datetime.now()})
+        # Stores cycle data: { cycle_id: { 'files': [], 'last_update': timestamp, 'start_time': float, 'timings': [] } }
+        self.cycles = defaultdict(lambda: {
+            'files': [], 
+            'last_update': datetime.datetime.now(),
+            'start_time': None,
+            'timings': [] # List of dicts with timing info for each image
+        })
         self.lock = asyncio.Lock()
 
-    async def add_result(self, cycle_id, file_path, filename, is_animal):
+    async def add_result(self, cycle_id, file_path, filename, is_animal, timing_info):
         async with self.lock:
-            self.cycles[cycle_id]['files'].append({
+            cycle = self.cycles[cycle_id]
+            
+            # Set cycle start time if it's the first image
+            if cycle['start_time'] is None:
+                cycle['start_time'] = timing_info['receive_start']
+            # Or keep the earliest one if images arrive out of order/parallel (though we lock)
+            elif timing_info['receive_start'] < cycle['start_time']:
+                cycle['start_time'] = timing_info['receive_start']
+
+            cycle['files'].append({
                 'path': file_path,
                 'filename': filename,
                 'is_animal': is_animal
             })
-            self.cycles[cycle_id]['last_update'] = datetime.datetime.now()
+            cycle['timings'].append(timing_info)
+            cycle['last_update'] = datetime.datetime.now()
             
-            files = self.cycles[cycle_id]['files']
+            files = cycle['files']
             count = len(files)
             
             # Check condition if we have 3 images
             if count >= 3:
+                cycle_end_time = time.perf_counter()
+                total_cycle_time = (cycle_end_time - cycle['start_time']) * 1000 # ms
+                
                 animal_count = sum(1 for f in files if f['is_animal'])
                 logger.info(f"Cycle {cycle_id} complete. Detected animals: {animal_count}/{count}")
                 
+                # Calculate total specific times
+                total_save = sum(t['save_duration'] for t in cycle['timings']) * 1000
+                total_inference = sum(t['inference_duration'] for t in cycle['timings']) * 1000
+                
+                forward_start = time.perf_counter()
                 if animal_count >= 2:
                     logger.info(f"Cycle {cycle_id} MET criteria (>=2 animals). Forwarding all strings.")
                     await self.forward_cycle(files)
                 else:
                     logger.info(f"Cycle {cycle_id} NOT met criteria. Not forwarding.")
+                forward_duration = (time.perf_counter() - forward_start) * 1000
+
+                # Log Performance Metrics
+                logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
+                logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Forward={forward_duration:.2f}ms")
                 
                 # Cleanup
                 del self.cycles[cycle_id]
@@ -171,7 +200,7 @@ def extract_cycle_id(filename: str):
     return "unknown"
 
 
-async def process_image(file_path: str, filename: str):
+async def process_image(file_path: str, filename: str, receive_start: float, save_duration: float):
     """
     Background task to process the image:
     1. Run object detection
@@ -187,8 +216,12 @@ async def process_image(file_path: str, filename: str):
             result_filename = f"{os.path.splitext(filename)[0]}_result.jpg"
             result_path = os.path.join(UPLOAD_DIR, result_filename)
 
+            # Measure Inference Time
+            inference_start = time.perf_counter()
             # Run detection
             is_animal, label = await asyncio.to_thread(detector.detect, file_path, result_path)
+            inference_duration = time.perf_counter() - inference_start
+            
             if is_animal:
                 logger.info(f"Animal detected in {filename}: {label}")
             else:
@@ -198,8 +231,14 @@ async def process_image(file_path: str, filename: str):
             cycle_id = extract_cycle_id(filename)
             logger.info(f"Cycle ID for {filename}: {cycle_id}")
             
+            timing_info = {
+                'receive_start': receive_start,
+                'save_duration': save_duration,
+                'inference_duration': inference_duration
+            }
+
             if cycle_id != "unknown":
-                await cycle_manager.add_result(cycle_id, file_path, filename, is_animal)
+                await cycle_manager.add_result(cycle_id, file_path, filename, is_animal, timing_info)
             else:
                 logger.warning(f"Could not extract Cycle ID from {filename}, skipping buffering.")
 
@@ -237,6 +276,8 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     2. Return 200 OK immediately
     3. Schedule processing in background
     """
+    receive_start = time.perf_counter()
+    
     # Generate timestamp for storage, but we must handle it in CycleID extraction
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"{timestamp}_{file.filename}"
@@ -250,10 +291,13 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
             while content := await file.read(1024 * 1024): # Read in chunks
                 await buffer.write(content)
         
+        save_end = time.perf_counter()
+        save_duration = save_end - receive_start
+
         logger.info(f"Saved {filename}")
         
         # Schedule background processing
-        background_tasks.add_task(process_image, file_path, filename)
+        background_tasks.add_task(process_image, file_path, filename, receive_start, save_duration)
         
         return {"status": "ok", "filename": filename, "message": "Image received and queued for processing"}
         
