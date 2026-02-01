@@ -100,6 +100,21 @@ class CycleManager:
                 # Log Performance Metrics
                 logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
                 logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Forward={forward_duration:.2f}ms")
+
+                # --- CSV Logging ---
+                try:
+                    csv_file = "edge_metrics.csv"
+                    file_exists = os.path.isfile(csv_file)
+                    with open(csv_file, "a") as f:
+                        if not file_exists:
+                            f.write("timestamp,cycle_id,total_time_ms,total_save_ms,total_inference_ms,forward_duration_ms,animal_count,forwarded\n")
+                        
+                        do_forward = (animal_count >= 2)
+                        f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.2f},{total_save:.2f},{total_inference:.2f},{forward_duration:.2f},{animal_count},{do_forward}\n")
+                except Exception as e:
+                    logger.error(f"Failed to write to {csv_file}: {e}")
+                
+
                 
                 # Cleanup
                 del self.cycles[cycle_id]

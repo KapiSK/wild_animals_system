@@ -231,6 +231,18 @@ class CycleManager:
         logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
         logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Email={email_duration:.2f}ms")
 
+        # --- CSV Logging ---
+        try:
+            csv_file = "cloud_metrics.csv"
+            file_exists = os.path.isfile(csv_file)
+            with open(csv_file, "a") as f:
+                if not file_exists:
+                    f.write("timestamp,cycle_id,total_time_ms,inference_time_ms,email_time_ms,detected_count,best_conf\n")
+                
+                f.write(f"{datetime.now().isoformat()},{cycle_id},{total_cycle_time:.2f},{total_inference:.2f},{email_duration:.2f},{detected_images_count},{best_data['max_conf']:.4f}\n")
+        except Exception as e:
+            logger.error(f"Failed to write metrics: {e}")
+
     async def check_timeouts(self, timeout_seconds=300):
         """
         Periodically check for incomplete cycles that have timed out.

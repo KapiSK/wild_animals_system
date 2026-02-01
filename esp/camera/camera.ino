@@ -207,6 +207,7 @@ uint32_t g_tWake          = 0;        // Millis() timestamp when woken up
 uint32_t g_tCapStart = 0, g_tCapEnd = 0; // Capture timings
 uint32_t g_tWifiStart = 0, g_tWifiEnd = 0; // WiFi connection timings
 uint32_t g_tUploadStart = 0, g_tUploadEnd = 0; // Upload timings
+int32_t  g_rssi           = 0;        // SIGNAL STRENGTH (dBm)
 uint32_t g_tBegin         = 0;        // Millis() timestamp when capture/processing started
 String   g_syslogBuf;                 // In-memory buffer for logs generated during this cycle
 size_t   g_syslogStartOff = 0;        // Starting position in syslogBuf for the current cycle's chunk
@@ -433,6 +434,8 @@ static void initWiFi() {
     // Connected successfully
     LOG_PRINTLN("\n[WIFI] Connected Successfully.");
     LOG_PRINTLN("[WIFI] IP Address: " + WiFi.localIP().toString());
+    g_rssi = WiFi.RSSI();
+    LOG_PRINTF("[WIFI] Signal Strength (RSSI): %d dBm\n", g_rssi);
     status::setLed(status::LedState::ON); // LED: Solid ON indicates success
     g_tWifiEnd = millis(); // Record end of WiFi connection
 }
@@ -1217,8 +1220,23 @@ static void goDeepSleepNow() {
     uint32_t tWifi  = (g_tWifiEnd > g_tWifiStart) ? (g_tWifiEnd - g_tWifiStart) : 0;
     uint32_t tUp    = (g_tUploadEnd > g_tUploadStart) ? (g_tUploadEnd - g_tUploadStart) : 0;
     
-    LOG_PRINTF("[PERF] Cycle: %s, Total: %u ms, Cap: %u ms, Wifi: %u ms, Upload: %u ms\n", 
-               g_cycleId.c_str(), tTotal, tCap, tWifi, tUp);
+    LOG_PRINTF("[PERF] Cycle: %s, Total: %u ms, Cap: %u ms, Wifi: %u ms, Upload: %u ms, RSSI: %d\n", 
+               g_cycleId.c_str(), tTotal, tCap, tWifi, tUp, g_rssi);
+
+    // --- Write Metrics to CSV ---
+    File metricFile = SD.open("/metrics.csv", FILE_APPEND);
+    if (metricFile) {
+        // If file is empty, write header first
+        if (metricFile.size() == 0) {
+            metricFile.println("CycleID,Total_ms,Capture_ms,Wifi_ms,Upload_ms,RSSI_dBm");
+        }
+        metricFile.printf("%s,%u,%u,%u,%u,%d\n", 
+            g_cycleId.c_str(), tTotal, tCap, tWifi, tUp, g_rssi);
+        metricFile.close();
+        LOG_PRINTLN("[PERF] Metrics written to /metrics.csv");
+    } else {
+        LOG_PRINTLN("[ERR] Failed to open /metrics.csv for writing");
+    }
 
     LOG_PRINTF("[SLEEP] Entering %u ms cooldown...\n", param::SLEEP_COOLDOWN_MS);
     
