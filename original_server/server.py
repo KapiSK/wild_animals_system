@@ -8,10 +8,12 @@ from dotenv import load_dotenv
 import yolov5
 import cv2
 import asyncio
+import time
 
 # Load environment variables
 load_dotenv()
 
+# Configuration
 # Configuration
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "received_images")
 PROCESSED_DIR = os.getenv("PROCESSED_DIR", "processed_images")
@@ -141,11 +143,16 @@ import re
 # Cycle Manager for Aggregation using same logic as Pi (roughly)
 class CycleManager:
     def __init__(self):
-        # { cycle_id: { 'files': [], 'last_update': datetime } }
-        self.cycles = defaultdict(lambda: {'files': [], 'last_update': datetime.now()})
+        # { cycle_id: { 'files': [], 'last_update': datetime.now(), 'start_time': None, 'timings': [] } }
+        self.cycles = defaultdict(lambda: {
+            'files': [], 
+            'last_update': datetime.now(),
+            'start_time': None,
+            'timings': []
+        })
         self.lock = asyncio.Lock()
 
-    async def add_result(self, cycle_id, result_data):
+    async def add_result(self, cycle_id, result_data, timing_info):
         """
         result_data: {
           'filename': str,
@@ -156,8 +163,17 @@ class CycleManager:
         }
         """
         async with self.lock:
-            self.cycles[cycle_id]['files'].append(result_data)
-            self.cycles[cycle_id]['last_update'] = datetime.now()
+            cycle = self.cycles[cycle_id]
+            
+            # Set cycle start time if it's the first image
+            if cycle['start_time'] is None:
+                cycle['start_time'] = timing_info['receive_start']
+            elif timing_info['receive_start'] < cycle['start_time']:
+                cycle['start_time'] = timing_info['receive_start']
+
+            cycle['files'].append(result_data)
+            cycle['timings'].append(timing_info)
+            cycle['last_update'] = datetime.now()
             
             # Check if cycle is complete (assuming 3 images per cycle)
             if len(self.cycles[cycle_id]['files']) >= 3:
@@ -165,8 +181,21 @@ class CycleManager:
                 del self.cycles[cycle_id]
 
     async def process_cycle(self, cycle_id):
-        files = self.cycles[cycle_id]['files']
+        cycle_data = self.cycles[cycle_id]
+        files = cycle_data['files']
         logger.info(f"Cycle {cycle_id} complete. Processing aggregated email.")
+        
+        cycle_end_time = time.perf_counter()
+        if cycle_data['start_time']:
+            total_cycle_time = (cycle_end_time - cycle_data['start_time']) * 1000
+        else:
+            total_cycle_time = 0
+            
+        # Calculate specific totals
+        timings = cycle_data['timings']
+        total_save = sum(t.get('save_duration', 0) for t in timings) * 1000
+        total_inference = sum(t.get('inference_duration', 0) for t in timings) * 1000
+
         
         # 1. Identify best image (High animal count > High confidence)
         best_data = sorted(files, key=lambda x: (x['animal_count'], x['max_conf']), reverse=True)[0]
@@ -193,8 +222,14 @@ class CycleManager:
         
         # 3. Send Email (One email per cycle)
         # Using the annotated path of the best image
+        email_start = time.perf_counter()
         send_email(subject, body, best_data['annotated_path'])
+        email_duration = (time.perf_counter() - email_start) * 1000
         logger.info(f"Aggregated email sent for Cycle {cycle_id}")
+
+        # Log Performance Metrics
+        logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
+        logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Email={email_duration:.2f}ms")
 
     async def check_timeouts(self, timeout_seconds=300):
         """
@@ -263,15 +298,17 @@ def extract_cycle_id(filename: str) -> str:
         logger.error(f"Failed to extract cycle ID: {e}")
         return "unknown"
 
-async def process_and_notify(image_path: str, filename: str):
+async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float):
     """
     Perform inference and Add to Cycle Buffer.
     """
     logger.info(f"Processing {filename}...")
     
+    inference_start = time.perf_counter()
     # Run inference
     model.conf = 0.25 
     results = model(image_path)
+    inference_duration = time.perf_counter() - inference_start
     
     detected_animals = {}
     animal_found = False
@@ -336,7 +373,13 @@ async def process_and_notify(image_path: str, filename: str):
         'summary_text': counts_str
     }
     
-    await cycle_manager.add_result(cycle_id, result_data)
+    timing_info = {
+        'receive_start': receive_start,
+        'save_duration': save_duration,
+        'inference_duration': inference_duration
+    }
+    
+    await cycle_manager.add_result(cycle_id, result_data, timing_info)
 
 @app.post("/upload")
 async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -349,13 +392,17 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     
     logger.info(f"Receiving image: {filename}")
     
+    receive_start = time.perf_counter()
     try:
         with open(file_path, "wb") as buffer:
             while content := await file.read(1024 * 1024):
                 buffer.write(content)
         
+        save_end = time.perf_counter()
+        save_duration = save_end - receive_start
+
         # Trigger background processing
-        background_tasks.add_task(process_and_notify, file_path, filename)
+        background_tasks.add_task(process_and_notify, file_path, filename, receive_start, save_duration)
         
         return {"status": "ok", "message": "Image received and processing started"}
     except Exception as e:
