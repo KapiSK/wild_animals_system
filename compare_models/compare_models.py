@@ -155,7 +155,7 @@ def main():
     csv_path = os.path.join(output_dir, "detailed_log.csv")
     csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["Filename", "CycleID", "YOLO_Detected", "MD_Detected", "YOLO_Conf", "MD_Conf"])
+    csv_writer.writerow(["Filename", "CycleID", "YOLO_Detected", "MD_Detected", "YOLO_Conf", "MD_Conf", "YOLO_Label", "MD_Label"])
 
 
     print(f"Loading Models...")
@@ -211,33 +211,37 @@ def main():
             # YOLO Inference (YOLOv8)
             res_yolo = model_yolo(img_path, verbose=False, conf=conf_threshold)
             det_yolo = is_detected(res_yolo, conf_threshold, 'yolo')
-            # Get max conf for logging
+            # Get max conf and label for logging
             yolo_conf = 0.0
-            if det_yolo:
-                 # is_detected just returns bool, need to extract conf again or modify is_detected?
-                 # Simpler to re-extract here or modify is_detected to return conf.
-                 # Let's simple re-extract max conf for animal classes
-                 # YOLOv8 (COCO):
-                 # 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 19: cow, 
-                 # 20: elephant, 21: bear, 22: zebra, 23: giraffe
-                 animal_classes = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23] 
-                 for box in res_yolo[0].boxes:
-                     if int(box.cls[0]) in animal_classes:
-                         yolo_conf = max(yolo_conf, float(box.conf[0]))
+            yolo_label = ""
+            if len(res_yolo) > 0 and res_yolo[0].boxes and len(res_yolo[0].boxes) > 0:
+                 # Find the box with highest confidence
+                 max_conf_box = max(res_yolo[0].boxes, key=lambda x: x.conf[0])
+                 yolo_conf = float(max_conf_box.conf[0])
+                 yolo_label = res_yolo[0].names[int(max_conf_box.cls[0])]
 
             # MD Inference (YOLOv5)
             # YOLOv5 returns a generic Models object, distinct from YOLOv8 Results
             res_md = model_md(img_path) 
             # res_md.xyxy[0] contains detections: [x1, y1, x2, y2, conf, cls]
             det_md = is_detected(res_md, conf_threshold, 'md')
-            # Get max conf for logging
+            # Get max conf and label for logging
             md_conf = 0.0
-            if det_md:
-                try:
-                    for *xyxy, conf, cls in res_md.xyxy[0]:
-                        if int(cls) == 1: # MegaDetector: 1=animal
-                            md_conf = max(md_conf, float(conf))
-                except: pass
+            md_label = ""
+            try:
+                detections = res_md.xyxy[0]
+                if len(detections) > 0:
+                    # Find detection with highest confidence
+                    # detections is tensor, need iterating
+                    best_det = max(detections, key=lambda x: x[4])
+                    best_conf = float(best_det[4])
+                    best_cls = int(best_det[5])
+                    
+                    md_conf = best_conf
+                    # MegaDetector v5: 1=animal, 2=person, 3=vehicle
+                    md_names = {1: 'animal', 2: 'person', 3: 'vehicle'}
+                    md_label = md_names.get(best_cls, str(best_cls))
+            except: pass
 
             cycle_id = extract_cycle_id(filename)
             
@@ -249,7 +253,7 @@ def main():
             })
             
             # Log to CSV
-            csv_writer.writerow([filename, cycle_id, det_yolo, det_md, f"{yolo_conf:.4f}", f"{md_conf:.4f}"])
+            csv_writer.writerow([filename, cycle_id, det_yolo, det_md, f"{yolo_conf:.4f}", f"{md_conf:.4f}", yolo_label, md_label])
 
             # Save Images
             if det_yolo:

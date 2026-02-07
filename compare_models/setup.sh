@@ -18,6 +18,8 @@ echo "Upgrading pip and setuptools..."
 $PYTHON_CMD -m pip install --upgrade pip setuptools wheel
 
 echo "Installing required Python packages..."
+# Manually install dependencies to avoid Ultralytics auto-update issues
+$PYTHON_CMD -m pip install "urllib3>=1.26.15" "requests>=2.31.0" "pillow>=10.0.0" "gitpython>=3.1.30"
 $PYTHON_CMD -m pip install ultralytics tqdm torch torchvision
 
 # Check if MegaDetector model exists

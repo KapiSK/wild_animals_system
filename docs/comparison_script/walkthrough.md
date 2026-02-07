@@ -95,7 +95,7 @@ DEFAULT_OUTPUT_DIR = "compare_results"
 ### CSVログ出力
 
 `compare_results/detailed_log.csv` に、画像ごとの詳細な結果が出力されます。
-カラム: `Filename`, `CycleID`, `YOLO_Detected`, `MD_Detected`, `YOLO_Conf`, `MD_Conf`
+カラム: `Filename`, `CycleID`, `YOLO_Detected`, `MD_Detected`, `YOLO_Conf`, `MD_Conf`, `YOLO_Label`, `MD_Label`
 
 ### 検知画像の保存
 
