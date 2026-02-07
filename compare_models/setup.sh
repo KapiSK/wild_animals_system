@@ -2,14 +2,19 @@
 
 echo "=== MegaDetector Comparison Setup ==="
 
-# Check if pip is installed
-if ! command -v pip &> /dev/null; then
-    echo "Error: pip could not be found. Please install Python and pip."
+# Check if python3 is available
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "Error: Python could not be found."
     exit 1
 fi
 
+echo "Using Python: $PYTHON_CMD"
 echo "Installing required Python packages..."
-pip install ultralytics matplotlib tqdm torch torchvision
+$PYTHON_CMD -m pip install ultralytics matplotlib tqdm torch torchvision
 
 # Check if MegaDetector model exists
 MD_MODEL="md_v5a.0.0.pt"

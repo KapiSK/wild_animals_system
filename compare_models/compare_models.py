@@ -4,8 +4,23 @@ import argparse
 import re
 import csv
 import shutil
-import matplotlib.pyplot as plt
-from ultralytics import YOLO
+import glob
+import argparse
+import re
+import csv
+import shutil
+import sys
+
+try:
+    import matplotlib.pyplot as plt
+    from ultralytics import YOLO
+    from tqdm import tqdm
+except ImportError as e:
+    print(f"Error: Missing required library: {e.name}")
+    print("Please install the required packages using the following command:")
+    print("pip install ultralytics matplotlib tqdm torch torchvision")
+    sys.exit(1)
+
 from collections import defaultdict
 import datetime
 
