@@ -14,7 +14,7 @@ fi
 
 echo "Using Python: $PYTHON_CMD"
 echo "Installing required Python packages..."
-$PYTHON_CMD -m pip install ultralytics matplotlib tqdm torch torchvision
+$PYTHON_CMD -m pip install ultralytics tqdm torch torchvision
 
 # Check if MegaDetector model exists
 MD_MODEL="md_v5a.0.0.pt"

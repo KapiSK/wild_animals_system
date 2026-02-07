@@ -12,13 +12,12 @@ import shutil
 import sys
 
 try:
-    import matplotlib.pyplot as plt
     from ultralytics import YOLO
     from tqdm import tqdm
 except ImportError as e:
     print(f"Error: Missing required library: {e.name}")
     print("Please install the required packages using the following command:")
-    print("pip install ultralytics matplotlib tqdm torch torchvision")
+    print("pip install ultralytics tqdm torch torchvision")
     sys.exit(1)
 
 from collections import defaultdict
@@ -40,18 +39,6 @@ DEFAULT_CONF_THRESHOLD = 0.25
 # デフォルト出力先フォルダ
 DEFAULT_OUTPUT_DIR = "compare_results"
 # ==========================================
-
-def setup_fonts():
-    # ... (setup_fonts content remains same, but we are replacing lines around output dir so need context)
-    # 日本語フォントの設定（matplotlib用）
-    # Windowsの代表的な日本語フォントを試行
-    fonts = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'IPAGothic', 'TakaoGothic']
-    for font in fonts:
-        try:
-            plt.rcParams['font.family'] = font
-            break
-        except:
-            continue
 
 # ... (extract_cycle_id and is_detected are unchanged) ...
 
@@ -261,32 +248,6 @@ def main():
     print(f"  MD Only:         {cycle_stats['md_only']:>5}")
     print(f"  YOLO Only:       {cycle_stats['yolo_only']:>5}")
     print(f"  Neither:         {cycle_stats['neither']:>5}")
-
-    # --- 可視化 ---
-    os.makedirs(output_dir, exist_ok=True)
-    setup_fonts()
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-    
-    labels = ['Both', 'MD Only', 'YOLO Only', 'Neither']
-    colors = ['#2ca02c', '#1f77b4', '#ff7f0e', '#7f7f7f'] # Green, Blue, Orange, Gray
-    
-    # Image Pie Chart
-    sizes_img = [img_stats['both'], img_stats['md_only'], img_stats['yolo_only'], img_stats['neither']]
-    ax1.pie(sizes_img, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors)
-    ax1.set_title(f'Per Image (n={len(img_results)})')
-
-    # Cycle Pie Chart
-    sizes_cycle = [cycle_stats['both'], cycle_stats['md_only'], cycle_stats['yolo_only'], cycle_stats['neither']]
-    ax2.pie(sizes_cycle, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors)
-    ax2.set_title(f'Per Cycle (n={len(cycle_data)})')
-
-    plt.suptitle("MegaDetector vs YOLOv8 Performance Comparison")
-    
-    save_path = os.path.join(output_dir, 'comparison_chart.png')
-    plt.savefig(save_path)
-    print(f"\nChart saved to: {save_path}")
-    # plt.show() # CLI実行時は表示しない方が安全な場合が多い
 
 if __name__ == "__main__":
     main()

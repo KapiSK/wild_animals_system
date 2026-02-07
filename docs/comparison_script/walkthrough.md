@@ -21,10 +21,10 @@ bash setup.sh
 
 #### ライブラリのインストール
 
-必要なライブラリをインストールします。YOLOv8用の `ultralytics` とグラフ描画用の `matplotlib` が必要です。
+必要なライブラリをインストールします。YOLOv8用の `ultralytics` が必要です。
 
 ```bash
-pip install ultralytics matplotlib tqdm torch torchvision
+pip install ultralytics tqdm torch torchvision
 ```
 
 #### MegaDetectorモデルの準備
@@ -103,10 +103,6 @@ DEFAULT_OUTPUT_DIR = "compare_results"
 
 - `md_detected/`: MegaDetectorで検知された画像
 - `yolo_detected/`: YOLOv8で検知された画像
-
-### グラフ出力
-
-`compare_results/comparison_chart.png` に、画像単位およびサイクル単位の分類結果を示す円グラフが保存されます。
 
 ## 注意点
 
