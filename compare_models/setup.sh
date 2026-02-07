@@ -13,6 +13,10 @@ else
 fi
 
 echo "Using Python: $PYTHON_CMD"
+
+echo "Upgrading pip and setuptools..."
+$PYTHON_CMD -m pip install --upgrade pip setuptools wheel
+
 echo "Installing required Python packages..."
 $PYTHON_CMD -m pip install ultralytics tqdm torch torchvision
 

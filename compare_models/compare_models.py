@@ -40,7 +40,83 @@ DEFAULT_CONF_THRESHOLD = 0.25
 DEFAULT_OUTPUT_DIR = "compare_results"
 # ==========================================
 
-# ... (extract_cycle_id and is_detected are unchanged) ...
+def extract_cycle_id(filename):
+    """
+    ファイル名からサイクルIDを抽出する。
+    想定形式:
+    1. pi/main.pyアップロード形式: TIMESTAMP_CycleID-Index.jpg
+    2. ESP32オリジナル形式: CycleID-Index.jpg
+    """
+    # 拡張子を除去
+    stem = os.path.splitext(filename)[0]
+    
+    # 末尾の "-Index" パターン ("-1", "-2", "-3") を探す
+    # Indexの後ろに 'n' や 'd' がつく場合もある (-1n.jpg)
+    match = re.search(r"-(1|2|3)[nd]?$", stem)
+    
+    if match:
+        # Indexより前の部分を取得
+        prefix = stem[:match.start()]
+        
+        # main.py形式の場合、TIMESTAMP_部分を除去したい
+        # しかし、CycleID自体にアンダースコアが含まれる可能性があるため、単純なsplitは危険。
+        # ここでは、「末尾のIndexを除いたもの」をサイクルIDとして扱う簡易実装とする。
+        # 厳密にTIMESTAMPを除くには、"YYYYMMDD_HHMMSS_ffffff_" のパターン詳細が必要だが、
+        # 比較目的では「同じサイクルかどうか」が重要なので、プレフィックス込みでもグルーピングは可能。
+        return prefix
+        
+    return "unknown"
+
+def is_detected(results, conf_threshold, model_type='yolo'):
+    """
+    推論結果から動物が検知されたか判定する
+    """
+    if model_type == 'md':
+        # MegaDetector (YOLOv5 via torch.hub) returns a Detections object
+        # results.xyxy[0] is a tensor of shape (N, 6) [x1, y1, x2, y2, conf, cls]
+        try:
+             # results.xyxy is a list of tensors (one per image in batch)
+             # We processed one image, so take index 0
+             detections = results.xyxy[0] 
+        except:
+             return False
+
+        if len(detections) == 0:
+            return False
+
+        for *xyxy, conf, cls in detections:
+            if conf < conf_threshold:
+                continue
+                
+            cls_id = int(cls)
+            # MegaDetector: 1=animal
+            if cls_id == 1: 
+                return True
+        return False
+
+    else:
+        # YOLOv8 (ultralytics) returns a list of Results objects
+        if len(results) == 0:
+            return False
+        
+        boxes = results[0].boxes
+        if boxes is None or len(boxes) == 0:
+            return False
+
+        # YOLOv8 (COCO):
+        # 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 19: cow, 
+        # 20: elephant, 21: bear, 22: zebra, 23: giraffe
+        animal_classes = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23] 
+        
+        for box in boxes:
+            if box.conf[0] < conf_threshold:
+                continue
+                
+            cls_id = int(box.cls[0])
+            if cls_id in animal_classes:
+                return True
+        
+        return False
 
 def main():
     parser = argparse.ArgumentParser(description='Compare MegaDetector and YOLOv8 performance.')
