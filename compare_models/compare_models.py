@@ -89,8 +89,11 @@ def is_detected(results, conf_threshold, model_type='yolo'):
                 continue
                 
             cls_id = int(cls)
-            # MegaDetector: 1=animal
-            if cls_id == 1: 
+            # MegaDetector v5 usually uses 1=animal, but some versions/loaders might map it to 0.
+            # We treat 0 and 1 as potentially 'animal' if we are unsure, 
+            # but usually 2=person, 3=vehicle.
+            # If user report says only 0 is detected, likely 0 is animal in this context.
+            if cls_id == 1 or cls_id == 0: 
                 return True
         return False
 
@@ -173,7 +176,8 @@ def main():
         # MegaDetector (YOLOv5) Load using torch.hub
         import torch
         # force_reload=False to use cache if available, trust_repo=True required for recent torch versions
-        model_md = torch.hub.load('ultralytics/yolov5', 'custom', path=md_path, trust_repo=True) 
+        model_md = torch.hub.load('ultralytics/yolov5', 'custom', path=md_path, trust_repo=True)
+        print(f"MD Model Classes: {model_md.names}") 
     except Exception as e:
         print(f"Error loading models: {e}")
         return
@@ -232,15 +236,20 @@ def main():
                 detections = res_md.xyxy[0]
                 if len(detections) > 0:
                     # Find detection with highest confidence
-                    # detections is tensor, need iterating
                     best_det = max(detections, key=lambda x: x[4])
                     best_conf = float(best_det[4])
                     best_cls = int(best_det[5])
                     
                     md_conf = best_conf
-                    # MegaDetector v5: 1=animal, 2=person, 3=vehicle
-                    md_names = {1: 'animal', 2: 'person', 3: 'vehicle'}
-                    md_label = md_names.get(best_cls, str(best_cls))
+                    
+                    # Try to use model names if available
+                    if hasattr(model_md, 'names') and best_cls < len(model_md.names):
+                        md_label = model_md.names[best_cls]
+                    else:
+                        # MegaDetector v5 fallback: 1=animal, 2=person, 3=vehicle
+                        # But user says 0 is detected.
+                        md_names = {1: 'animal', 2: 'person', 3: 'vehicle', 0: 'animal?'}
+                        md_label = md_names.get(best_cls, str(best_cls))
             except: pass
 
             cycle_id = extract_cycle_id(filename)
