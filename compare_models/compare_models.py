@@ -27,7 +27,7 @@ import datetime
 # 設定: モデルと画像のパス
 # ==========================================
 # デフォルトの画像フォルダパス
-DEFAULT_IMAGE_DIR = r"/home/slab/project/data/hykecam_1010/ALL/night/"
+DEFAULT_IMAGE_DIR = r"/home/satoko/project/hykecam_1010/ALL/night/"
 # MegaDetectorのモデルパス (.ptファイル)
 # ※ユーザー環境に合わせて変更してください。ここでは仮のパスを設定しています。
 DEFAULT_MD_MODEL_PATH = r"md_v5a.0.0.pt" 
