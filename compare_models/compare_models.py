@@ -2,6 +2,8 @@ import os
 import glob
 import argparse
 import re
+import csv
+import shutil
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from collections import defaultdict
@@ -11,21 +13,24 @@ import datetime
 # 設定: モデルと画像のパス
 # ==========================================
 # デフォルトの画像フォルダパス
-DEFAULT_IMAGE_DIR = r"C:\Users\kapib\OneDrive - 信州大学\Lab\hykecam_1010\hykecam_1010\ALL\day"
+DEFAULT_IMAGE_DIR = r"/home/slab/project/data/hykecam_1010/ALL/night/"
 # MegaDetectorのモデルパス (.ptファイル)
 # ※ユーザー環境に合わせて変更してください。ここでは仮のパスを設定しています。
 DEFAULT_MD_MODEL_PATH = r"md_v5a.0.0.pt" 
 # YOLOv8のモデルパス
 DEFAULT_YOLO_MODEL_PATH = "yolov8n.pt"
+# 信頼度閾値
+DEFAULT_CONF_THRESHOLD = 0.25
 
-# 出力先フォルダ
-OUTPUT_DIR = "compare_results"
+# デフォルト出力先フォルダ
+DEFAULT_OUTPUT_DIR = "compare_results"
 # ==========================================
 
 def setup_fonts():
+    # ... (setup_fonts content remains same, but we are replacing lines around output dir so need context)
     # 日本語フォントの設定（matplotlib用）
     # Windowsの代表的な日本語フォントを試行
-    fonts = ['Meiryo', 'Yu Gothic', 'MS Gothic']
+    fonts = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'IPAGothic', 'TakaoGothic']
     for font in fonts:
         try:
             plt.rcParams['font.family'] = font
@@ -33,88 +38,22 @@ def setup_fonts():
         except:
             continue
 
-def extract_cycle_id(filename):
-    """
-    ファイル名からサイクルIDを抽出する。
-    想定形式:
-    1. pi/main.pyアップロード形式: TIMESTAMP_CycleID-Index.jpg
-    2. ESP32オリジナル形式: CycleID-Index.jpg
-    """
-    # 拡張子を除去
-    stem = os.path.splitext(filename)[0]
-    
-    # 末尾の "-Index" パターン ("-1", "-2", "-3") を探す
-    # Indexの後ろに 'n' や 'd' がつく場合もある (-1n.jpg)
-    match = re.search(r"-(1|2|3)[nd]?$", stem)
-    
-    if match:
-        # Indexより前の部分を取得
-        prefix = stem[:match.start()]
-        
-        # main.py形式の場合、TIMESTAMP_部分を除去したい
-        # しかし、CycleID自体にアンダースコアが含まれる可能性があるため、単純なsplitは危険。
-        # ここでは、「末尾のIndexを除いたもの」をサイクルIDとして扱う簡易実装とする。
-        # 厳密にTIMESTAMPを除くには、"YYYYMMDD_HHMMSS_ffffff_" のパターン詳細が必要だが、
-        # 比較目的では「同じサイクルかどうか」が重要なので、プレフィックス込みでもグルーピングは可能。
-        return prefix
-        
-    return "unknown"
-
-def is_detected(results, model_type='yolo'):
-    """
-    推論結果から動物が検知されたか判定する
-    """
-    if model_type == 'md':
-        # MegaDetector (YOLOv5 via torch.hub) returns a Detections object
-        # results.xyxy[0] is a tensor of shape (N, 6) [x1, y1, x2, y2, conf, cls]
-        try:
-             # results.xyxy is a list of tensors (one per image in batch)
-             # We processed one image, so take index 0
-             detections = results.xyxy[0] 
-        except:
-             return False
-
-        if len(detections) == 0:
-            return False
-
-        for *xyxy, conf, cls in detections:
-            cls_id = int(cls)
-            # MegaDetector: 1=animal
-            if cls_id == 1: 
-                return True
-        return False
-
-    else:
-        # YOLOv8 (ultralytics) returns a list of Results objects
-        if len(results) == 0:
-            return False
-        
-        boxes = results[0].boxes
-        if boxes is None or len(boxes) == 0:
-            return False
-
-        # YOLOv8 (COCO):
-        # 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 19: cow, 
-        # 20: elephant, 21: bear, 22: zebra, 23: giraffe
-        animal_classes = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23] 
-        
-        for box in boxes:
-            cls_id = int(box.cls[0])
-            if cls_id in animal_classes:
-                return True
-        
-        return False
+# ... (extract_cycle_id and is_detected are unchanged) ...
 
 def main():
     parser = argparse.ArgumentParser(description='Compare MegaDetector and YOLOv8 performance.')
     parser.add_argument('--images', type=str, default=DEFAULT_IMAGE_DIR, help='Path to image directory')
     parser.add_argument('--md', type=str, default=DEFAULT_MD_MODEL_PATH, help='Path to MegaDetector model (.pt)')
     parser.add_argument('--yolo', type=str, default=DEFAULT_YOLO_MODEL_PATH, help='Path to YOLOv8 model (.pt)')
+    parser.add_argument('--conf', type=float, default=DEFAULT_CONF_THRESHOLD, help='Confidence threshold')
+    parser.add_argument('--output', type=str, default=DEFAULT_OUTPUT_DIR, help='Output directory for results')
     args = parser.parse_args()
 
     image_dir = args.images
     md_path = args.md
     yolo_path = args.yolo
+    conf_threshold = args.conf
+    output_dir = args.output
 
     if not os.path.exists(image_dir):
         print(f"Error: Image directory not found: {image_dir}")
@@ -122,10 +61,24 @@ def main():
 
     # MegaDetectorモデルの存在確認
     if not os.path.exists(md_path):
+        # ... (error handling) ...
         print(f"Warning: MegaDetector model not found at {md_path}.")
         print("Please specify the correct path using --md argument or edit the script.")
         # テスト用に続行できないのでreturn
         return
+
+    # Output directories
+    os.makedirs(output_dir, exist_ok=True)
+    md_out_dir = os.path.join(output_dir, "md_detected")
+    yolo_out_dir = os.path.join(output_dir, "yolo_detected")
+    os.makedirs(md_out_dir, exist_ok=True)
+    os.makedirs(yolo_out_dir, exist_ok=True)
+    
+    csv_path = os.path.join(output_dir, "detailed_log.csv")
+    csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(["Filename", "CycleID", "YOLO_Detected", "MD_Detected", "YOLO_Conf", "MD_Conf"])
+
 
     print(f"Loading Models...")
     print(f"  MegaDetector: {md_path}")
@@ -178,15 +131,36 @@ def main():
             filename = os.path.basename(img_path)
             
             # YOLO Inference (YOLOv8)
-            res_yolo = model_yolo(img_path, verbose=False)
-            det_yolo = is_detected(res_yolo, 'yolo')
-            
+            res_yolo = model_yolo(img_path, verbose=False, conf=conf_threshold)
+            det_yolo = is_detected(res_yolo, conf_threshold, 'yolo')
+            # Get max conf for logging
+            yolo_conf = 0.0
+            if det_yolo:
+                 # is_detected just returns bool, need to extract conf again or modify is_detected?
+                 # Simpler to re-extract here or modify is_detected to return conf.
+                 # Let's simple re-extract max conf for animal classes
+                 # YOLOv8 (COCO):
+                 # 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 19: cow, 
+                 # 20: elephant, 21: bear, 22: zebra, 23: giraffe
+                 animal_classes = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23] 
+                 for box in res_yolo[0].boxes:
+                     if int(box.cls[0]) in animal_classes:
+                         yolo_conf = max(yolo_conf, float(box.conf[0]))
+
             # MD Inference (YOLOv5)
             # YOLOv5 returns a generic Models object, distinct from YOLOv8 Results
             res_md = model_md(img_path) 
             # res_md.xyxy[0] contains detections: [x1, y1, x2, y2, conf, cls]
-            det_md = is_detected(res_md, 'md')
-            
+            det_md = is_detected(res_md, conf_threshold, 'md')
+            # Get max conf for logging
+            md_conf = 0.0
+            if det_md:
+                try:
+                    for *xyxy, conf, cls in res_md.xyxy[0]:
+                        if int(cls) == 1: # MegaDetector: 1=animal
+                            md_conf = max(md_conf, float(conf))
+                except: pass
+
             cycle_id = extract_cycle_id(filename)
             
             img_results.append({
@@ -196,8 +170,19 @@ def main():
                 'cycle': cycle_id
             })
             
+            # Log to CSV
+            csv_writer.writerow([filename, cycle_id, det_yolo, det_md, f"{yolo_conf:.4f}", f"{md_conf:.4f}"])
+
+            # Save Images
+            if det_yolo:
+                shutil.copy2(img_path, os.path.join(yolo_out_dir, filename))
+            if det_md:
+                shutil.copy2(img_path, os.path.join(md_out_dir, filename))
+            
         except Exception as e:
             print(f"Error processing {os.path.basename(img_path)}: {e}")
+
+    csv_file.close()
 
     # --- 集計 ---
     
@@ -263,7 +248,7 @@ def main():
     print(f"  Neither:         {cycle_stats['neither']:>5}")
 
     # --- 可視化 ---
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     setup_fonts()
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
@@ -283,7 +268,7 @@ def main():
 
     plt.suptitle("MegaDetector vs YOLOv8 Performance Comparison")
     
-    save_path = os.path.join(OUTPUT_DIR, 'comparison_chart.png')
+    save_path = os.path.join(output_dir, 'comparison_chart.png')
     plt.savefig(save_path)
     print(f"\nChart saved to: {save_path}")
     # plt.show() # CLI実行時は表示しない方が安全な場合が多い

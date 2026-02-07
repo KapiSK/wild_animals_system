@@ -39,6 +39,14 @@ MegaDetector (MD) と YOLOv8 を使用して、同一画像セットに対する
       2. Only MegaDetector
       3. Only YOLO
       4. Neither
+  - **ログ出力**:
+    - `compare_results/detailed_log.csv` に以下の形式で出力:
+      `Filename,CycleID,YOLO_Detected,MD_Detected,YOLO_Conf,MD_Conf,YOLO_Label,MD_Label`
+  - **画像保存**:
+    - `compare_results/detected_images/` 配下にモデルごとのフォルダを作成:
+      - `md_detected/`: MegaDetectorで検知された画像
+      - `yolo_detected/`: YOLOv8で検知された画像
+    - 検知された画像をそれぞれのフォルダにコピー。
   - **サイクル集計**:
     - ファイル名からサイクルIDを抽出。
     - サイクル内の全画像の結果を統合し、サイクル単位での検知有無を判定。

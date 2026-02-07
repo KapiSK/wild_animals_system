@@ -18,7 +18,10 @@ load_dotenv()
 # Images are saved here
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 # Optional: URL to forward images to (if not set in .env, forwarding is skipped)
+# Optional: URL to forward images to (if not set in .env, forwarding is skipped)
 MAIN_SERVER_URL = os.getenv("MAIN_SERVER_URL")
+# Local Mode: If True, skips forwarding to external server
+LOCAL_MODE = os.getenv("LOCAL_MODE", "False").lower() == "true"
 
 LOG_FILE = "server.log"
 
@@ -122,6 +125,10 @@ class CycleManager:
                  logger.info(f"Cycle {cycle_id} buffered. Count: {count}/3")
 
     async def forward_cycle(self, files):
+        if LOCAL_MODE:
+            logger.info("Local mode enabled. Skipping forwarding.")
+            return
+
         if not MAIN_SERVER_URL:
              logger.info("MAIN_SERVER_URL not set, skipping forwarding.")
              return

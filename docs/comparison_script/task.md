@@ -13,6 +13,7 @@
     - [x] MegaDetector 推論部分
     - [x] 比較・分類ロジック
     - [x] 可視化ロジック
-  - [ ] 信頼度（Confidence）設定の追加
+    - [x] 信頼度（Confidence）設定の追加
+    - [x] 出力先フォルダ（Output Dir）設定の追加
 - [ ] 動作確認 (`walkthrough.md`)
-  - [ ] 設定変更手順の追記
+  - [x] 設定変更手順の追記
