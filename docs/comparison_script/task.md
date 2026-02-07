@@ -15,5 +15,7 @@
     - [x] 可視化ロジック
     - [x] 信頼度（Confidence）設定の追加
     - [x] 出力先フォルダ（Output Dir）設定の追加
-- [ ] 動作確認 (`walkthrough.md`)
+  - [x] セットアップスクリプト (`setup.sh`) 作成
+- [x] 動作確認 (`walkthrough.md`)
   - [x] 設定変更手順の追記
+  - [x] セットアップ手順の追記

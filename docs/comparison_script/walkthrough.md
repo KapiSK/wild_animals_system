@@ -6,22 +6,35 @@
 
 ## 前提条件
 
-### 1. ライブラリのインストール
+### 1. 自動セットアップ（推奨）
+
+同梱の `compare_models/setup.sh` を実行することで、必要なライブラリのインストールとMegaDetectorモデルのダウンロードを自動で行えます。
+
+```bash
+cd compare_models
+bash setup.sh
+```
+
+### 2. 手動セットアップ
+
+手動で行う場合は、以下の手順に従ってください。
+
+#### ライブラリのインストール
 
 必要なライブラリをインストールします。YOLOv8用の `ultralytics` とグラフ描画用の `matplotlib` が必要です。
 
 ```bash
-pip install ultralytics matplotlib tqdm
+pip install ultralytics matplotlib tqdm torch torchvision
 ```
 
-### 2. MegaDetectorモデルの準備
+#### MegaDetectorモデルの準備
 
 MegaDetector (v5) のモデルファイル (`.pt`) が必要です。
 まだお持ちでない場合は、以下のGitHubリリースページなどから `md_v5a.0.0.pt` または `md_v5b.0.0.pt` をダウンロードしてください。
 
 - [Microsoft/CameraTraps Releases](https://github.com/microsoft/CameraTraps/releases)
 
-ダウンロード後、プロジェクトフォルダ（例: `c:\Users\kapib\vscodegit\wild_animals\test2\compare_models\`）または任意の場所に配置してください。
+ダウンロード後、プロジェクトフォルダ（例: `compare_models/`）に配置してください。
 
 ## 実行手順
 
