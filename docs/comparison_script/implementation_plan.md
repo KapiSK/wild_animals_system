@@ -25,14 +25,13 @@ MegaDetector (MD) と YOLOv8 を使用して、同一画像セットに対する
     - `IMAGE_DIR`: 画像フォルダパス (デフォルトは以前のパスを使用)
     - `YOLO_MODEL_PATH`: YOLOv8モデルパス (`yolov8n.pt`)
     - `MD_MODEL_PATH`: MegaDetectorモデルパス (設定必須)
-    - `CONF_THRESHOLD`: 推論時の信頼度閾値 (デフォルト: 0.25)
+    - `YOLO_CONF_THRESHOLD`: YOLO推論時の信頼度閾値 (エッジ側シミュレーション用, デフォルト: 0.1)
+    - `MD_CONF_THRESHOLD`: MD推論時の信頼度閾値 (クラウド側シミュレーション用, デフォルト: 0.25)
 
   - **推論**:
     - 全画像をループ。
-    - YOLOv8 で推論 -> 動物検知有無 (特定のクラスIDのみ対象とするか？通常は全検出or動物クラス)
-      - `conf` 引数に閾値を設定。
-    - MegaDetector で推論 -> 動物検知有無 (MDは 'animal' クラスがある)
-      - 結果の `conf` 値を閾値と比較。
+    - YOLOv8 で推論 -> `YOLO_CONF_THRESHOLD` を使用。
+    - MegaDetector で推論 -> `MD_CONF_THRESHOLD` を使用。
   - **分類**:
     - 各画像について以下の4パターンに分類:
       1. Both Detected
@@ -42,11 +41,15 @@ MegaDetector (MD) と YOLOv8 を使用して、同一画像セットに対する
   - **ログ出力**:
     - `compare_results/detailed_log.csv` に以下の形式で出力:
       `Filename,CycleID,YOLO_Detected,MD_Detected,YOLO_Conf,MD_Conf,YOLO_Label,MD_Label`
+      ※ `MD_Label` はモデルからクラス名を取得できればそれを使用し、できなければIDを出力。Class ID 0 も 'animal' として扱うよう修正済み。
   - **画像保存**:
     - `compare_results/detected_images/` 配下にモデルごとのフォルダを作成:
       - `md_detected/`: MegaDetectorで検知された画像
       - `yolo_detected/`: YOLOv8で検知された画像
     - 検知された画像をそれぞれのフォルダにコピー。
+  - **パイプライン評価**:
+    - 「YOLOで検知できず、かつMDで検知できた」ケース（Lost at Edge）を集計・強調表示。
+    - エッジでの取りこぼしを防ぐための推奨閾値を提案。
   - **サイクル集計**:
     - ファイル名からサイクルIDを抽出。
     - サイクル内の全画像の結果を統合し、サイクル単位での検知有無を判定。

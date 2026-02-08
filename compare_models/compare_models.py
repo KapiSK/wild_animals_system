@@ -34,7 +34,9 @@ DEFAULT_MD_MODEL_PATH = r"md_v5a.0.0.pt"
 # YOLOv8のモデルパス
 DEFAULT_YOLO_MODEL_PATH = "yolov8n.pt"
 # 信頼度閾値
-DEFAULT_CONF_THRESHOLD = 0.25
+# 信頼度閾値 (パイプラインシミュレーション用)
+DEFAULT_YOLO_CONF = 0.1  # エッジ側は低めに設定して取りこぼしを防ぐ
+DEFAULT_MD_CONF = 0.25   # クラウド側は標準的な閾値
 
 # デフォルト出力先フォルダ
 DEFAULT_OUTPUT_DIR = "compare_results"
@@ -126,14 +128,16 @@ def main():
     parser.add_argument('--images', type=str, default=DEFAULT_IMAGE_DIR, help='Path to image directory')
     parser.add_argument('--md', type=str, default=DEFAULT_MD_MODEL_PATH, help='Path to MegaDetector model (.pt)')
     parser.add_argument('--yolo', type=str, default=DEFAULT_YOLO_MODEL_PATH, help='Path to YOLOv8 model (.pt)')
-    parser.add_argument('--conf', type=float, default=DEFAULT_CONF_THRESHOLD, help='Confidence threshold')
+    parser.add_argument('--yolo-conf', type=float, default=DEFAULT_YOLO_CONF, help='YOLO confidence threshold (Edge)')
+    parser.add_argument('--md-conf', type=float, default=DEFAULT_MD_CONF, help='MegaDetector confidence threshold (Cloud)')
     parser.add_argument('--output', type=str, default=DEFAULT_OUTPUT_DIR, help='Output directory for results')
     args = parser.parse_args()
 
     image_dir = args.images
     md_path = args.md
     yolo_path = args.yolo
-    conf_threshold = args.conf
+    yolo_conf_threshold = args.yolo_conf
+    md_conf_threshold = args.md_conf
     output_dir = args.output
 
     if not os.path.exists(image_dir):
@@ -213,8 +217,8 @@ def main():
             filename = os.path.basename(img_path)
             
             # YOLO Inference (YOLOv8)
-            res_yolo = model_yolo(img_path, verbose=False, conf=conf_threshold)
-            det_yolo = is_detected(res_yolo, conf_threshold, 'yolo')
+            res_yolo = model_yolo(img_path, verbose=False, conf=yolo_conf_threshold)
+            det_yolo = is_detected(res_yolo, yolo_conf_threshold, 'yolo')
             # Get max conf and label for logging
             yolo_conf = 0.0
             yolo_label = ""
@@ -228,7 +232,7 @@ def main():
             # YOLOv5 returns a generic Models object, distinct from YOLOv8 Results
             res_md = model_md(img_path) 
             # res_md.xyxy[0] contains detections: [x1, y1, x2, y2, conf, cls]
-            det_md = is_detected(res_md, conf_threshold, 'md')
+            det_md = is_detected(res_md, md_conf_threshold, 'md')
             # Get max conf and label for logging
             md_conf = 0.0
             md_label = ""
@@ -337,6 +341,34 @@ def main():
     print(f"  MD Only:         {cycle_stats['md_only']:>5}")
     print(f"  YOLO Only:       {cycle_stats['yolo_only']:>5}")
     print(f"  Neither:         {cycle_stats['neither']:>5}")
+
+    # --- Edge-Cloud Simulation Analysis ---
+    print("\n" + "="*40)
+    print(" EDGE-CLOUD PIPELINE SIMULATION")
+    print("="*40)
+    print(f"Edge Threshold (YOLO): {yolo_conf_threshold}")
+    print(f"Cloud Threshold (MD):  {md_conf_threshold}")
+    
+    lost_at_edge_count = img_stats['md_only']
+    print("\n[Analysis]")
+    print(f"Lost at Edge (MD detected, YOLO missed): {lost_at_edge_count}")
+    if lost_at_edge_count > 0:
+        print(f"  -> WARNING: {lost_at_edge_count} images would be lost at the edge.")
+        print("     Consider lowering the YOLO threshold (--yolo-conf).")
+    else:
+        print("  -> EXCELLENT: No images lost at the edge with current settings.")
+
+    # Calculate reduction rate (how many images are filtered out by Edge)
+    filtered_at_edge = img_stats['neither'] + img_stats['md_only'] # simple approximation if we assume only yolo detects pass
+    # Actually, filtered at edge = (total - yolo_detected)
+    # yolo_detected = both + yolo_only
+    yolo_detected_count = img_stats['both'] + img_stats['yolo_only']
+    reduction_rate = (1 - (yolo_detected_count / len(img_results))) * 100
+    
+    print(f"\nEdge Filter Rate: {reduction_rate:.1f}%")
+    print(f"  - Total Images: {len(img_results)}")
+    print(f"  - Sent to Cloud: {yolo_detected_count}")
+    print(f"  - Filtered Out: {len(img_results) - yolo_detected_count}")
 
 if __name__ == "__main__":
     main()

@@ -47,13 +47,15 @@ MegaDetector (v5) のモデルファイル (`.pt`) が必要です。
 python compare_models/compare_models.py --md "path/to/md_v5a.0.0.pt"
 
 # 例: 画像フォルダ、信頼度、出力先を変更する場合
-python compare_models/compare_models.py --md "path/to/md_v5a.0.0.pt" --images "/path/to/images" --conf 0.4 --output "my_results"
+# 例: 画像フォルダ、信頼度、出力先を変更する場合
+python compare_models/compare_models.py --md "path/to/md_v5a.0.0.pt" --images "/path/to/images" --yolo-conf 0.05 --md-conf 0.3 --output "my_results"
 ```
 
 引数を省略した場合、以下のデフォルト値が使用されます。
 
-- 画像パス: `/home/slab/project/data/hykecam_1010/ALL/night/`
-- 信頼度: `0.25`
+- 画像パス: `/home/satoko/project/hykecam_1010/ALL/night/`
+- YOLO信頼度: `0.1` (エッジ側)
+- MD信頼度: `0.25` (クラウド側)
 - 出力先: `compare_results`
 
 ### 設定の変更（オプション）
@@ -62,9 +64,10 @@ python compare_models/compare_models.py --md "path/to/md_v5a.0.0.pt" --images "/
 
 ```python
 # 設定: モデルと画像のパス
-DEFAULT_IMAGE_DIR = r"/home/slab/project/data/hykecam_1010/ALL/night/"
+DEFAULT_IMAGE_DIR = r"/home/satoko/project/hykecam_1010/ALL/night/"
 DEFAULT_MD_MODEL_PATH = r"md_v5a.0.0.pt" 
-DEFAULT_CONF_THRESHOLD = 0.25
+DEFAULT_YOLO_CONF = 0.1
+DEFAULT_MD_CONF = 0.25
 DEFAULT_OUTPUT_DIR = "compare_results"
 ```
 
@@ -90,6 +93,22 @@ DEFAULT_OUTPUT_DIR = "compare_results"
   MD Only:             2
   YOLO Only:           1
   Neither:            15
+
+========================================
+ EDGE-CLOUD PIPELINE SIMULATION
+========================================
+Edge Threshold (YOLO): 0.1
+Cloud Threshold (MD):  0.25
+
+[Analysis]
+Lost at Edge (MD detected, YOLO missed): 2
+  -> WARNING: 2 images would be lost at the edge.
+     Consider lowering the YOLO threshold (--yolo-conf).
+
+Edge Filter Rate: 50.0%
+  - Total Images: 30
+  - Sent to Cloud: 13
+  - Filtered Out: 17
 ```
 
 ### CSVログ出力

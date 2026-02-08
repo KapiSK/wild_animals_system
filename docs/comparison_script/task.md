@@ -25,3 +25,6 @@
   - [x] グラフ出力記述の削除
 - [x] デバッグ (`debug_md.py`)
   - [x] MegaDetectorの生出力を確認するスクリプト作成
+- [x] パイプラインシミュレーション機能追加
+  - [x] YOLOとMDで個別の閾値を設定可能にする (`--yolo-conf`, `--md-conf`)
+  - [x] エッジ（YOLO）での取りこぼし（MD Detected, YOLO Missed）を分析・表示する
