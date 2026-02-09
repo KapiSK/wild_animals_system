@@ -9,11 +9,12 @@ import yolov5
 import cv2
 import asyncio
 import time
+from collections import defaultdict
+import re
 
 # Load environment variables
 load_dotenv()
 
-# Configuration
 # Configuration
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "received_images")
 PROCESSED_DIR = os.getenv("PROCESSED_DIR", "processed_images")
@@ -31,7 +32,6 @@ MODEL_PATH = "md_v5a.0.0.pt"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-# Logging setup
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
@@ -62,11 +62,9 @@ def download_model_if_needed():
             raise
 
 # Load Model (MegaDetector)
-# MegaDetector v5a is a YOLOv5 model. We use the yolov5 library to load it.
 download_model_if_needed()
 try:
-    # PyTorch 2.6+ defaults weights_only=True which ensures security but fails with older models (like MegaDetector).
-    # Since we trust this model from the official source, we monkey-patch torch.load to allow partial loading.
+    # PyTorch 2.6+ prevention
     import torch
     _original_torch_load = torch.load
     def _patched_torch_load(*args, **kwargs):
@@ -79,27 +77,23 @@ try:
     model = yolov5.load(MODEL_PATH)
     logger.info(f"Model loaded. Classes: {model.names}")
     
-    # Restore original load just in case
+    # Restore original load
     torch.load = _original_torch_load
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
     raise
 
-# MegaDetector v5 classes:
-# 0: animal (detection)
-# 1: person
-# 2: vehicle
-# dynamic check for 'animal' class
-ANIMAL_CLASSES = []
+# MegaDetector v5 classes: 0: animal, 1: person, 2: vehicle
+TARGET_CLASSES = []
 for k, v in model.names.items():
-    if 'animal' in v.lower():
-        ANIMAL_CLASSES.append(k)
+    if 'animal' in v.lower() or 'person' in v.lower():
+        TARGET_CLASSES.append(k)
         
-if not ANIMAL_CLASSES:
-    logger.warning("'animal' class not found in model names. Defaulting to class 0.")
-    ANIMAL_CLASSES = [0]
+if not TARGET_CLASSES:
+    logger.warning("'animal' or 'person' class not found in model names. Defaulting to class 0.")
+    TARGET_CLASSES = [0]
     
-logger.info(f"Animal classes set to: {ANIMAL_CLASSES}")
+logger.info(f"Target classes set to: {TARGET_CLASSES}")
 
 def send_email(subject: str, body: str, attachment_path: str = None):
     """
@@ -135,12 +129,7 @@ def send_email(subject: str, body: str, attachment_path: str = None):
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
 
-from collections import defaultdict
-import re
-
-# ... (Previous imports omitted for brevity in replacement, but kept in file) ...
-
-# Cycle Manager for Aggregation using same logic as Pi (roughly)
+# Cycle Manager for Aggregation
 class CycleManager:
     def __init__(self):
         # { cycle_id: { 'files': [], 'last_update': datetime.now(), 'start_time': None, 'timings': [] } }
@@ -154,13 +143,7 @@ class CycleManager:
 
     async def add_result(self, cycle_id, result_data, timing_info):
         """
-        result_data: {
-          'filename': str,
-          'animal_count': int,
-          'max_conf': float,
-          'annotated_path': str,
-          'summary_text': str
-        }
+        result_data include 'target_count'
         """
         async with self.lock:
             cycle = self.cycles[cycle_id]
@@ -196,32 +179,27 @@ class CycleManager:
         total_save = sum(t.get('save_duration', 0) for t in timings) * 1000
         total_inference = sum(t.get('inference_duration', 0) for t in timings) * 1000
 
-        
-        # 1. Identify best image (High animal count > High confidence)
-        best_data = sorted(files, key=lambda x: (x['animal_count'], x['max_conf']), reverse=True)[0]
+        # 1. Identify best image (High target count > High confidence)
+        best_data = sorted(files, key=lambda x: (x['target_count'], x['max_conf']), reverse=True)[0]
         
         # 2. Compose Email Body
-        # "1サイクルの画像3枚組のうち、何枚で検出か"
-        detected_images_count = sum(1 for f in files if f['animal_count'] > 0)
+        detected_images_count = sum(1 for f in files if f['target_count'] > 0)
         
         body_lines = [
             f"Cycle ID: {cycle_id}",
             f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Detections: Found animals in {detected_images_count} out of {len(files)} images.",
+            f"Detections: Found targets in {detected_images_count} out of {len(files)} images.",
             "",
             "Details per image:"
         ]
         
         for f in files:
-            # Sort by original upload order if possible? 
-            # Filename usually has timestamp or index. Let's just list them.
             body_lines.append(f"- {f['filename']}: {f['summary_text']}")
             
         body = "\n".join(body_lines)
-        subject = f"Wild Animal Cycle Detected: {best_data['summary_text']}"
+        subject = f"Target Cycle Detected: {best_data['summary_text']}"
         
-        # 3. Send Email (One email per cycle)
-        # Using the annotated path of the best image
+        # 3. Send Email
         email_start = time.perf_counter()
         send_email(subject, body, best_data['annotated_path'])
         email_duration = (time.perf_counter() - email_start) * 1000
@@ -244,15 +222,10 @@ class CycleManager:
             logger.error(f"Failed to write metrics: {e}")
 
     async def check_timeouts(self, timeout_seconds=300):
-        """
-        Periodically check for incomplete cycles that have timed out.
-        """
         while True:
-            await asyncio.sleep(60) # Run check every minute
+            await asyncio.sleep(60)
             logger.info("Running cycle timeout check...")
             now = datetime.now()
-            
-            # Need to iterate over a copy of keys because we might modify the dict
             cycle_ids = list(self.cycles.keys())
             
             for cycle_id in cycle_ids:
@@ -263,7 +236,6 @@ class CycleManager:
                 if time_diff > timeout_seconds:
                     logger.warning(f"Cycle {cycle_id} timed out (last update {time_diff}s ago). Force processing.")
                     async with self.lock:
-                        # Double check existence in lock
                         if cycle_id in self.cycles:
                              await self.process_cycle(cycle_id)
                              del self.cycles[cycle_id]
@@ -272,39 +244,19 @@ cycle_manager = CycleManager()
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the timeout checker background task
     asyncio.create_task(cycle_manager.check_timeouts())
 
 def extract_cycle_id(filename: str) -> str:
     """
     Extract Cycle ID from filename.
-    Format expected: ServerTimestamp_PiTimestamp_CycleID-IndexSuffix.jpg
-    or just CycleID-IndexSuffix.jpg
-    
-    The logic parses the {CycleID}-{Index}{Suffix}.jpg pattern first,
-    then strips any underscore-separated prefixes (timestamps) to get the bare CycleID.
     """
     try:
-        # 1. Regex to find the suffix patterns like "-1d.jpg" or "-2.jpg"
-        # We capture everything before that suffix as the "stem".
-        # Regex: greedy match (.*) until a hyphen and digit(s) and extension at end
         match = re.search(r"^(.*)-(\d+)[nd]?\.jpg$", filename, re.IGNORECASE)
-        
         if match:
-            full_stem = match.group(1) # e.g. "2026..._2026..._WIN-SIM-CAM01-0001"
-            
-            # 2. Strip timestamps.
-            # Timestamps are usually separated by underscores. 
-            # Cycle ID itself might contain underscores? 
-            # Project convention: CycleID is MacAddr-Seq (hyphens) or similar.
-            # Timestamps are YYYYMMDD_HHMMSS_ffffff
-            # Only the LAST part is the CycleID if we assume standard naming.
-            
+            full_stem = match.group(1) 
             if '_' in full_stem:
                 return full_stem.split('_')[-1]
             return full_stem
-            
-        # Fallback if regex fails (unexpected naming)
         return filename.rsplit('-', 1)[0]
     except Exception as e:
         logger.error(f"Failed to extract cycle ID: {e}")
@@ -322,64 +274,67 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
     results = model(image_path)
     inference_duration = time.perf_counter() - inference_start
     
-    detected_animals = {}
-    animal_found = False
+    detected_targets = {}
+    target_found = False
     max_conf = 0.0
     
     df = results.pandas().xyxy[0]
     
     for index, row in df.iterrows():
         cls = int(row['class'])
-        if cls in ANIMAL_CLASSES:
-            animal_found = True
+        if cls in TARGET_CLASSES:
+            target_found = True
             label = row['name']
             conf = float(row['confidence'])
-            detected_animals[label] = detected_animals.get(label, 0) + 1
+            detected_targets[label] = detected_targets.get(label, 0) + 1
             if conf > max_conf:
                 max_conf = conf
     
     # Generate summary string
-    if detected_animals:
-        counts_str = ", ".join([f"{label}: {count}" for label, count in detected_animals.items()])
+    if detected_targets:
+        counts_str = ", ".join([f"{label}: {count}" for label, count in detected_targets.items()])
     else:
-        counts_str = "No animals"
+        counts_str = "No targets"
         
     annotated_path = image_path # Default to original if no annotation needed
     
-    # Save annotated image if animal found
-    if animal_found:
+    # Save annotated image if target found
+    if target_found:
         processed_filename = f"processed_{filename}"
         annotated_path = os.path.join(PROCESSED_DIR, processed_filename)
         
         try:
             img = cv2.imread(image_path)
             for index, row in df.iterrows():
-                x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
-                label_text = f"{row['name']} {row['confidence']:.2f}"
-                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-                c2 = x1 + t_size[0], y1 - t_size[1] - 3
-                cv2.rectangle(img, (x1, y1), c2, (0, 255, 0), -1, cv2.LINE_AA)
-                cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
+                cls = int(row['class'])
+                # Only draw BB for targets
+                if cls in TARGET_CLASSES:
+                    x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+                    label_text = f"{row['name']} {row['confidence']:.2f}"
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                    c2 = x1 + t_size[0], y1 - t_size[1] - 3
+                    cv2.rectangle(img, (x1, y1), c2, (0, 255, 0), -1, cv2.LINE_AA)
+                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
 
             cv2.imwrite(annotated_path, img)
-            logger.info(f"Animal detected! Saved annotated image to {annotated_path}")
+            logger.info(f"Target detected! Saved annotated image to {annotated_path}")
         except Exception as e:
             logger.error(f"Failed to annotate: {e}")
             annotated_path = image_path # Fallback
     else:
-        logger.info(f"No animals detected in {filename}")
+        logger.info(f"No targets detected in {filename}")
 
     # Add to Cycle Buffer
     cycle_id = extract_cycle_id(filename)
     logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
     
-    # Calculate total animal count
-    total_animals = sum(detected_animals.values())
+    # Calculate total target count
+    total_targets = sum(detected_targets.values())
     
     result_data = {
         'filename': filename,
-        'animal_count': total_animals,
+        'target_count': total_targets,
         'max_conf': max_conf,
         'annotated_path': annotated_path,
         'summary_text': counts_str
