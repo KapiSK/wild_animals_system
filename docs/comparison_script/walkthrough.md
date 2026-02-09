@@ -25,6 +25,8 @@ bash setup.sh
 
 ```bash
 pip install ultralytics tqdm torch torchvision
+# v9, v10, v11 などを使用する場合は、ultralytics を最新にしてください
+pip install --upgrade ultralytics
 ```
 
 #### MegaDetectorモデルの準備
@@ -136,7 +138,8 @@ YOLOのモデル（n, s, m...）や閾値を変更しながら、サイクル単
 
 ```bash
 # ヘルパースクリプトを使用（推奨）
-# デフォルトで yolov8n.pt と yolov8s.pt を比較します
+# デフォルトで yolov8n.pt, yolov8s.pt, yolo11n.pt を比較します
+# ※v8, v9, v10, v11 など Ultralytics がサポートするモデルが使用可能です
 bash compare_models/run_benchmark.sh
 ```
 

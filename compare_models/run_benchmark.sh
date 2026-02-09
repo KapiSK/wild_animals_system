@@ -19,8 +19,27 @@ echo " MD Model: $MD_MODEL"
 echo "======================================================="
 
 # Define YOLO models to test
-# You can add 'yolov8m.pt' 'yolov8l.pt' etc. if you have resources
-MODELS=("yolov8n.pt" "yolov8s.pt")
+# Valid models (if supported by ultralytics version):
+# v8, v9, v10, v11 (latest)
+
+# Note: The user requested "v26", but as of early 2025, Ultralytics supports up to YOLO11 (v11).
+# We will benchmark v8, v9, v10, v11.
+# Limited to models up to 'm' (medium) size.
+
+MODELS=(
+    # YOLOv8
+    "yolov8n.pt" "yolov8s.pt" "yolov8m.pt"
+    
+    # YOLOv9 (t, s, m)
+    # v9c/e are large, so we include t, s, m if available
+    "yolov9t.pt" "yolov9s.pt" "yolov9m.pt"
+    
+    # YOLOv10 (n, s, m)
+    "yolov10n.pt" "yolov10s.pt" "yolov10m.pt"
+    
+    # YOLO11 (n, s, m)
+    "yolo11n.pt" "yolo11s.pt" "yolo11m.pt"
+)
 
 echo "Target Models: ${MODELS[*]}"
 echo "Running benchmark..."

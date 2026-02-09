@@ -28,9 +28,13 @@
 - [x] パイプラインシミュレーション機能追加
   - [x] YOLOとMDで個別の閾値を設定可能にする (`--yolo-conf`, `--md-conf`)
   - [x] エッジ（YOLO）での取りこぼし（MD Detected, YOLO Missed）を分析・表示する
+- [x] ベンチマーク機能作成 (`benchmark_yolo.py`)
+  - [x] YOLOの複数モデル/閾値を一括比較するスクリプト作成
+  - [x] サイクル単位での取りこぼし率（Lost Cycle Rate）を集計
+  - [x] 結果をCSV/Markdownテーブルで出力
+  - [x] `run_benchmark.sh` (モデルの自動DLと実行) 作成
 
-- [x] ベンチマーク機能作成 (`benchmark_yolo.py`) <!-- id: 60 -->
-  - [x] YOLOの複数モデル/閾値を一括比較するスクリプト作成 <!-- id: 61 -->
-  - [x] サイクル単位での取りこぼし率（Lost Cycle Rate）を集計 <!-- id: 62 -->
-  - [x] 結果をCSV/Markdownテーブルで出力 <!-- id: 63 -->
-  - [x] `run_benchmark.sh` (モデルの自動DLと実行) 作成 <!-- id: 64 -->
+- [x] 複数YOLOバージョンのサポート強化
+  - [x] `run_benchmark.sh` に YOLOv9, v10, v11 などの例を追加
+  - [x] `setup.sh` で `ultralytics` を最新化する記述を確認
+  - [x] ドキュメントにバージョン指定方法を追記
