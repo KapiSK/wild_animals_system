@@ -156,3 +156,18 @@ bash compare_models/run_benchmark.sh
 - **Miss_Rate (%)**: 取りこぼし率。低いほど良いです。
 - **FN_Cycles**: 取りこぼしたサイクルの数。
 - **MD_Positive_Cycles**: MegaDetectorが検知した（正解）サイクルの総数。
+
+### 結果の可視化 (`plot_benchmark.py`)
+
+ベンチマーク結果のCSVからグラフを生成するスクリプトも用意しました。
+※実行には `matplotlib` が必要です (`pip install matplotlib`)。
+
+```bash
+python compare_models/plot_benchmark.py --csv benchmark_results/benchmark_summary.csv
+```
+
+以下のグラフが `benchmark_plots/` ディレクトリ配下に生成されます。
+
+- `miss_rate_vs_threshold.png`: 閾値ごとの取りこぼし率（低いほど良い）
+- `recall_vs_threshold.png`: 閾値ごとの再現率（高いほど良い）
+- `tradeoff_miss_vs_fp.png`: 取りこぼし率と過検知数のトレードオフ（左下に近いほど良い）
