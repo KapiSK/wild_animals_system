@@ -92,7 +92,7 @@ namespace net {
   constexpr char WIFI_SSID[]    = "SLAB-g";       // Your Wi-Fi Network Name
   constexpr char WIFI_PASS[]    = "wakaW1sat0";   // Your Wi-Fi Password
   constexpr uint32_t WIFI_TIMEOUT = 15000;        // Wi-Fi connection attempt timeout (ms)
-  constexpr char PI_MDNS_HOST[] = "wild-animal";    // mDNS hostname of your Pi server (e.g., "pi-server.local")
+  constexpr char PI_MDNS_HOST[] = "edge";    // mDNS hostname of your Pi server (e.g., "edge.local")
 
   // These will be populated after mDNS resolution
   String PI_HOST;                                 // Base URL (e.g., "http://192.168.1.10:5000")
@@ -462,7 +462,7 @@ static bool initCamera() {
     config.frame_size = FRAMESIZE_UXGA;  // Resolution (1600x1200)
     config.pixel_format = PIXFORMAT_JPEG; // Output format
     config.jpeg_quality = 10;            // JPEG quality (0-63, lower is higher quality but larger size) - 10 is reasonable
-    config.fb_count = 1;                 // Number of frame buffers (1 is usually enough for single shots)
+    config.fb_count = 2;                 // Number of frame buffers (Increased to 2 for stability)
     config.fb_location = CAMERA_FB_IN_PSRAM; // Use PSRAM for frame buffer
     config.grab_mode = CAMERA_GRAB_LATEST; // Grab the latest frame, discard older ones
 
@@ -657,7 +657,7 @@ static bool resolvePiHost() {
 
     // Success! Store the resolved IP and construct full URLs
     LOG_PRINTF("[mDNS] Host found! IP Address: %s\n", piIP.toString().c_str());
-    String hostBase = "http://" + piIP.toString() + ":5000"; // Assuming Pi server runs on port 5000
+    String hostBase = "http://" + piIP.toString() + ":8000"; // Assuming Pi server runs on port 8000
     net::PI_HOST       = hostBase;
     net::PI_UPLOAD_URL = hostBase + "/upload";
     net::PI_HEALTHZ    = hostBase + "/healthz";
@@ -870,13 +870,7 @@ static void uploadPendingData() {
     int uploadCount = 0;
     const int MAX_UPLOADS_LIMIT = 3; // ★ユーザー要望: 最大3件まで
 
-    for (const String& cid : cycleDirs) {
-        // ... (filtering omitted for brevity in thought, but included in function)
-        // We will replace the loop body logic in the next chunk or this one?
-        // multi_replace with AllowMultiple works.
-        // Let's replace the loop inner storage check logic.
-        pass; 
-    }
+
 
 
     // 4. リストの上から順 (最新順) にチェック
@@ -1193,8 +1187,7 @@ static void cleanupOldArchives() {
     }
 }
 
-    }
-}
+
 
 
 
@@ -1236,6 +1229,28 @@ static void goDeepSleepNow() {
         LOG_PRINTLN("[PERF] Metrics written to /metrics.csv");
     } else {
         LOG_PRINTLN("[ERR] Failed to open /metrics.csv for writing");
+    }
+
+    // --- Flush Remaining Logs (Wifi, Upload, Perf) ---
+    // これまでのログ(Wi-Fi接続、アップロード、パフォーマンス計測結果など)を
+    // ファイルに書き出してからスリープする
+    String remainingLogs = makeEspLogChunkForCurrentCycle();
+    if (remainingLogs.length() > 0) {
+        // 1. メインのログファイル (/logs/esp.log) に追記
+        updateEspLogAppendRotate(remainingLogs);
+
+        // 2. サイクルアーカイブ (/archive/[CID]/esp_chunk.log) に追記
+        if (g_cycleId.length() > 0) {
+            String logChunkPath = "/archive/" + g_cycleId + "/esp_chunk.log";
+            File file = SD.open(logChunkPath, FILE_APPEND); // 追記モード
+            if (file) {
+                file.print(remainingLogs);
+                file.close();
+                LOG_PRINTF("[SAVE] Flushed remaining logs to: %s\n", logChunkPath.c_str());
+            } else {
+                LOG_PRINTF("[ERR] Failed to flush remaining logs to: %s\n", logChunkPath.c_str());
+            }
+        }
     }
 
     LOG_PRINTF("[SLEEP] Entering %u ms cooldown...\n", param::SLEEP_COOLDOWN_MS);

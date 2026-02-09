@@ -326,3 +326,29 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     except Exception as e:
         logger.error(f"Failed to save upload {filename}: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/healthz")
+async def health_check():
+    """
+    Health check endpoint for ESP32.
+    """
+    return {"status": "ok"}
+
+@app.post("/esp_log")
+async def upload_esp_log(file: UploadFile = File(...)):
+    """
+    Receive log file from ESP32.
+    """
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"esp_{timestamp}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    
+    logger.info(f"Receiving ESP log: {filename}")
+    try:
+        async with aiofiles.open(file_path, "wb") as buffer:
+            while content := await file.read(1024 * 1024):
+                await buffer.write(content)
+        return {"status": "ok", "message": "Log received"}
+    except Exception as e:
+        logger.error(f"Failed to save ESP log: {e}")
+        return {"status": "error", "message": str(e)}

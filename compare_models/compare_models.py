@@ -4,12 +4,9 @@ import argparse
 import re
 import csv
 import shutil
-import glob
-import argparse
-import re
-import csv
-import shutil
 import sys
+from collections import defaultdict
+import datetime
 
 try:
     from ultralytics import YOLO
@@ -19,9 +16,6 @@ except ImportError as e:
     print("Please install the required packages using the following command:")
     print("pip install ultralytics tqdm torch torchvision")
     sys.exit(1)
-
-from collections import defaultdict
-import datetime
 
 # ==========================================
 # 設定: モデルと画像のパス
@@ -52,9 +46,9 @@ def extract_cycle_id(filename):
     # 拡張子を除去
     stem = os.path.splitext(filename)[0]
     
-    # 末尾の "-Index" パターン ("-1", "-2", "-3") を探す
+    # 末尾の "-Index" パターン ("-1", "-2", "-3", etc.) を探す
     # Indexの後ろに 'n' や 'd' がつく場合もある (-1n.jpg)
-    match = re.search(r"-(1|2|3)[nd]?$", stem)
+    match = re.search(r"-(\d+)[nd]?$", stem)
     
     if match:
         # Indexより前の部分を取得
@@ -109,9 +103,10 @@ def is_detected(results, conf_threshold, model_type='yolo'):
             return False
 
         # YOLOv8 (COCO):
+        # 0: person
         # 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 19: cow, 
         # 20: elephant, 21: bear, 22: zebra, 23: giraffe
-        animal_classes = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23] 
+        animal_classes = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23] 
         
         for box in boxes:
             if box.conf[0] < conf_threshold:

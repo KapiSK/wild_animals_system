@@ -125,5 +125,5 @@ Edge Filter Rate: 50.0%
 
 ## 注意点
 
-- **クラスID**: YOLOv8はCOCOデータセットの動物クラス(cat, dog, bird, etc.)を対象にしています。MegaDetectorはクラスID 1 (animal) を対象にしています。
+- **クラスID**: YOLOv8はCOCOデータセットの **動物クラス(bird, cat, dog...) および 人(person)** を対象にしています。MegaDetectorはクラスID 1 (animal) および 0 (some versions) を対象にしています。
 - **サイクル抽出**: ファイル名末尾の `-1`, `-2`, `-3` 等のインデックスの直前までをサイクルIDとしてグループ化します。
