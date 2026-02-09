@@ -45,7 +45,7 @@ echo "Target Models: ${MODELS[*]}"
 echo "Running benchmark..."
 
 # Run Python script
-python3 compare_models/benchmark_yolo.py \
+python3 benchmark_yolo.py \
     --images "$IMAGE_DIR" \
     --md "$MD_MODEL" \
     --yolo-models "${MODELS[@]}" \
