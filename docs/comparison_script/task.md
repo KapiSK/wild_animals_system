@@ -28,3 +28,9 @@
 - [x] パイプラインシミュレーション機能追加
   - [x] YOLOとMDで個別の閾値を設定可能にする (`--yolo-conf`, `--md-conf`)
   - [x] エッジ（YOLO）での取りこぼし（MD Detected, YOLO Missed）を分析・表示する
+
+- [x] ベンチマーク機能作成 (`benchmark_yolo.py`) <!-- id: 60 -->
+  - [x] YOLOの複数モデル/閾値を一括比較するスクリプト作成 <!-- id: 61 -->
+  - [x] サイクル単位での取りこぼし率（Lost Cycle Rate）を集計 <!-- id: 62 -->
+  - [x] 結果をCSV/Markdownテーブルで出力 <!-- id: 63 -->
+  - [x] `run_benchmark.sh` (モデルの自動DLと実行) 作成 <!-- id: 64 -->

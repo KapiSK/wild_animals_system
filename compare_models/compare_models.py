@@ -212,7 +212,7 @@ def main():
             filename = os.path.basename(img_path)
             
             # YOLO Inference (YOLOv8)
-            res_yolo = model_yolo(img_path, verbose=False, conf=yolo_conf_threshold)
+            res_yolo = model_yolo(img_path, verbose=False, conf=yolo_conf_threshold, imgsz=640)
             det_yolo = is_detected(res_yolo, yolo_conf_threshold, 'yolo')
             # Get max conf and label for logging
             yolo_conf = 0.0

@@ -127,3 +127,29 @@ Edge Filter Rate: 50.0%
 
 - **クラスID**: YOLOv8はCOCOデータセットの **動物クラス(bird, cat, dog...) および 人(person)** を対象にしています。MegaDetectorはクラスID 1 (animal) および 0 (some versions) を対象にしています。
 - **サイクル抽出**: ファイル名末尾の `-1`, `-2`, `-3` 等のインデックスの直前までをサイクルIDとしてグループ化します。
+
+## ベンチマークツール (`benchmark_yolo.py`)
+
+YOLOのモデル（n, s, m...）や閾値を変更しながら、サイクル単位での「取りこぼし率」を一括測定できるツールも用意しました。
+
+### 実行方法
+
+```bash
+# ヘルパースクリプトを使用（推奨）
+# デフォルトで yolov8n.pt と yolov8s.pt を比較します
+bash compare_models/run_benchmark.sh
+```
+
+### 結果の見方
+
+`benchmark_results/benchmark_summary.csv` に結果が出力されます。
+
+| Model | Threshold | MD_Positive_Cycles | FN_Cycles (Missed) | Miss_Rate (%) |
+| :--- | :--- | :--- | :--- | :--- |
+| yolov8n.pt | 0.1 | 20 | 2 | 10.00 |
+| yolov8n.pt | 0.2 | 20 | 5 | 25.00 |
+| yolov8s.pt | 0.1 | 20 | 1 | 5.00 |
+
+- **Miss_Rate (%)**: 取りこぼし率。低いほど良いです。
+- **FN_Cycles**: 取りこぼしたサイクルの数。
+- **MD_Positive_Cycles**: MegaDetectorが検知した（正解）サイクルの総数。
