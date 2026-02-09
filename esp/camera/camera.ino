@@ -636,11 +636,13 @@ static bool resolvePiHost() {
     LOG_PRINTF("[mDNS] Resolving host: %s.local ...\n", net::PI_MDNS_HOST);
 
     // Start mDNS (use a unique hostname for the ESP itself if needed)
-    if (!MDNS.begin("esp32-cam")) { // Hostname for this ESP device
+    String myHostname = "esp32-cam-" + deviceIdHex();
+    if (!MDNS.begin(myHostname.c_str())) { // Hostname for this ESP device
         LOG_PRINTLN("[ERR] Failed to start mDNS responder.");
         status::setLed(status::LedState::ON); // Back to solid ON (Wi-Fi state)
         return false;
     }
+    LOG_PRINTF("[mDNS] My hostname: %s.local\n", myHostname.c_str());
 
     // Query for the Pi server's hostname with a timeout
     IPAddress piIP = MDNS.queryHost(net::PI_MDNS_HOST, 5000); // 5-second timeout

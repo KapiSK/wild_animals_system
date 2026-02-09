@@ -5,7 +5,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
 from dotenv import load_dotenv
 import aiofiles
 import httpx
@@ -291,31 +291,37 @@ async def forward_image(file_path: str, filename: str):
         logger.error(f"Unexpected error forwarding {filename}: {e}")
 
 @app.post("/upload")
-async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_image(request: Request, background_tasks: BackgroundTasks):
     """
-    Handle image upload:
+    Handle image upload (Raw Binary):
     1. Save image to disk asynchronously (fast, non-blocking)
     2. Return 200 OK immediately
     3. Schedule processing in background
     """
     receive_start = time.perf_counter()
     
-    # Generate timestamp for storage, but we must handle it in CycleID extraction
+    # Get filename from header
+    original_filename = request.headers.get("X-File-Name")
+    if not original_filename:
+        # Fallback if header missing
+        original_filename = "unknown.jpg"
+
+    # Generate timestamp for storage
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    filename = f"{timestamp}_{file.filename}"
+    filename = f"{timestamp}_{original_filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
     
     logger.info(f"Receiving upload: {filename}")
     
     try:
-        # Save file asynchronously
+        # Save file asynchronously by streaming the request body
         async with aiofiles.open(file_path, "wb") as buffer:
-            while content := await file.read(1024 * 1024): # Read in chunks
-                await buffer.write(content)
+            async for chunk in request.stream():
+                await buffer.write(chunk)
         
         save_end = time.perf_counter()
         save_duration = save_end - receive_start
-
+        
         logger.info(f"Saved {filename}")
         
         # Schedule background processing
@@ -335,19 +341,23 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/esp_log")
-async def upload_esp_log(file: UploadFile = File(...)):
+async def upload_esp_log(request: Request):
     """
-    Receive log file from ESP32.
+    Receive log file from ESP32 (Raw Binary).
     """
+    original_filename = request.headers.get("X-File-Name")
+    if not original_filename:
+        original_filename = "esp.log"
+        
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"esp_{timestamp}_{file.filename}"
+    filename = f"esp_{timestamp}_{original_filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
     
     logger.info(f"Receiving ESP log: {filename}")
     try:
         async with aiofiles.open(file_path, "wb") as buffer:
-            while content := await file.read(1024 * 1024):
-                await buffer.write(content)
+            async for chunk in request.stream():
+                await buffer.write(chunk)
         return {"status": "ok", "message": "Log received"}
     except Exception as e:
         logger.error(f"Failed to save ESP log: {e}")
