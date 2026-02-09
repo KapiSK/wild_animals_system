@@ -86,23 +86,37 @@ class CycleManager:
                 total_cycle_time = (cycle_end_time - cycle['start_time']) * 1000 # ms
                 
                 animal_count = sum(1 for f in files if f['is_animal'])
-                logger.info(f"Cycle {cycle_id} complete. Detected animals: {animal_count}/{count}")
+                logger.info(f"Cycle {cycle_id} complete. Detected targets: {animal_count}/{count}")
                 
                 # Calculate total specific times
-                total_save = sum(t['save_duration'] for t in cycle['timings']) * 1000
-                total_inference = sum(t['inference_duration'] for t in cycle['timings']) * 1000
+                total_receive_save = sum(t['save_duration'] for t in cycle['timings']) * 1000 # ms
+                total_inference = sum(t['inference_duration'] for t in cycle['timings']) * 1000 # ms
                 
                 forward_start = time.perf_counter()
-                if animal_count >= 2:
-                    logger.info(f"Cycle {cycle_id} MET criteria (>=2 animals). Forwarding all strings.")
+                if animal_count >= 1:
+                    logger.info(f"Cycle {cycle_id} MET criteria (>=1 target). Forwarding all strings.")
                     await self.forward_cycle(files)
                 else:
                     logger.info(f"Cycle {cycle_id} NOT met criteria. Not forwarding.")
-                forward_duration = (time.perf_counter() - forward_start) * 1000
+                forward_duration = (time.perf_counter() - forward_start) * 1000 # ms
+
+                # Calculate Overhead/Wait time
+                # Total = (Receive/Save + Inference) + Forward + Overhead
+                # Note: Receive/Save happens in parallel with nothing (it's the first step), 
+                # but "Wait" is the idle time between images.
+                # Strictly speaking: overhead = total - (process_time_sum)
+                # But process_time shares timeline. 
+                # Let's define overhead as: Total - (Sum of active processing phases)
+                # Active phases: Max(Receive, Inference)? No, they are sequential per image.
+                # Actually, images arrive sequentially so we process them.
+                # So the "Work" time is roughly sum of Receive+Inference for all images + Forward.
+                # The rest is "Wait" for the next image to arrive.
+                work_time = total_receive_save + total_inference + forward_duration
+                wait_overhead = total_cycle_time - work_time
 
                 # Log Performance Metrics
-                logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
-                logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Forward={forward_duration:.2f}ms")
+                logger.info(f"[PERF] Cycle {cycle_id} Finished. Total: {total_cycle_time:.0f}ms")
+                logger.info(f"[PERF] Breakdown: Recv+Save={total_receive_save:.0f}ms, Infer={total_inference:.0f}ms, Fwd={forward_duration:.0f}ms, Wait/Overhead={wait_overhead:.0f}ms")
 
                 # --- CSV Logging ---
                 try:
@@ -110,10 +124,10 @@ class CycleManager:
                     file_exists = os.path.isfile(csv_file)
                     with open(csv_file, "a") as f:
                         if not file_exists:
-                            f.write("timestamp,cycle_id,total_time_ms,total_save_ms,total_inference_ms,forward_duration_ms,animal_count,forwarded\n")
+                            f.write("timestamp,cycle_id,total_time_ms,total_recv_save_ms,total_inference_ms,forward_ms,wait_overhead_ms,animal_count,forwarded\n")
                         
-                        do_forward = (animal_count >= 2)
-                        f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.2f},{total_save:.2f},{total_inference:.2f},{forward_duration:.2f},{animal_count},{do_forward}\n")
+                        do_forward = (animal_count >= 1)
+                        f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.0f},{total_receive_save:.0f},{total_inference:.0f},{forward_duration:.0f},{wait_overhead:.0f},{animal_count},{do_forward}\n")
                 except Exception as e:
                     logger.error(f"Failed to write to {csv_file}: {e}")
                 
@@ -232,22 +246,16 @@ async def process_image(file_path: str, filename: str, receive_start: float, sav
     async with processing_semaphore:
         logger.info(f"Starting processing for {filename}")
         try:
-            # Define path for saving the inference result (annotated image)
-            # Not strictly required to save annotated image on Pi if we just filter,
-            # but good for debugging.
-            result_filename = f"{os.path.splitext(filename)[0]}_result.jpg"
-            result_path = os.path.join(UPLOAD_DIR, result_filename)
-
             # Measure Inference Time
             inference_start = time.perf_counter()
-            # Run detection
-            is_animal, label = await asyncio.to_thread(detector.detect, file_path, result_path)
+            # Run detection (save_path=None to skip BB drawing)
+            is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=None)
             inference_duration = time.perf_counter() - inference_start
             
             if is_animal:
-                logger.info(f"Animal detected in {filename}: {label}")
+                logger.info(f"Target detected in {filename}: {label}")
             else:
-                logger.info(f"No animal detected in {filename}")
+                logger.info(f"No target detected in {filename}")
 
             # Extract Cycle ID
             cycle_id = extract_cycle_id(filename)

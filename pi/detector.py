@@ -18,9 +18,9 @@ class Detector:
                 cls = int(box.cls[0])
                 label = self.model.names[cls]
                 # Filter for animals
-                # COCO classes: 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 
+                # COCO classes: 0: person, 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 
                 # 19: cow, 20: elephant, 21: bear, 22: zebra, 23: giraffe
-                animal_classes = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+                animal_classes = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
                 if cls in animal_classes: 
                     is_animal_detected = True
                     label_detected = label
