@@ -1,7 +1,7 @@
 %%「論文」，「レター」，「レター（C分冊）」，「技術研究報告」などのテンプレート
 %% v3.3N [2023/03/30]
 %% 1. 「論文」
-\documentclass[paper]{ieicej}
+\documentclass[technicalreport]{ieicej}
 %\documentclass[invited]{ieicej}% 招待論文
 %\documentclass[survey]{ieicej}% サーベイ論文
 %\documentclass[comment]{ieicej}% 解説論文
@@ -211,17 +211,17 @@ Deep Sleep時の消費電力は585mWであり，マイコン単体としては�
 通信距離（m）を変化させた際の画像送信所要時間（ms）とエラー率（成功回数/試行回数）の関係を表\ref{tab:comm_perf}に示す．
 
 \begin{table}[tb]
- \caption{通信距離と通信性能の関係}
+ \caption{通信性能 (距離別, RSSI $\approx$ -30dBm)}
  \label{tab:comm_perf}
  \centering
  \begin{tabular}{c|c|c}
   \hline
   距離 (m) & 送信所要時間 (ms) & エラー率 (\%) \\
   \hline \hline
-  5 & XXX & X.X \\
-  10 & XXX & X.X \\
-  20 & XXX & X.X \\
-  30 & XXX & X.X \\
+  $\approx$ 1 & 7991 & 0.0 \\
+  % 5 & - & - \\
+  % 10 & - & - \\
+  % 20 & - & - \\
   \hline
  \end{tabular}
 \end{table}
@@ -239,11 +239,11 @@ Deep Sleep時の消費電力は585mWであり，マイコン単体としては�
   \hline
   Process Step & Time (ms) \\
   \hline \hline
-  Camera Capture & XXXX \\
-  Wi-Fi Transmission & XXXX \\
-  Edge Server Inference & XXX \\
-  Cloud Notification & XXX \\
-  \textbf{Total Latency} & \textbf{XXXX} \\
+  Camera Capture & 3105 \\
+  Wi-Fi Transmission & 7991 \\
+  Edge Server Inference & 3241 \\
+  Cloud Notification & 7651 \\
+  \textbf{Total Latency} & \textbf{21988} \\
   \hline
  \end{tabular}
 \end{table}
@@ -268,35 +268,35 @@ Deep Sleep時の消費電力は585mWであり，マイコン単体としては�
 夜間実験におけるYOLOv8を用いた動物検知の精度と，それによる通信削減率（エッジサーバでフィルタリングされた画像の割合）を評価した．
 AIの検知精度（Ground Truth: MegaDetector）を表\ref{tab:ai_accuracy}に示す．
 \begin{table}[tb]
- \caption{AI検知精度 (夜間実験, Ground Truth: MegaDetector)}
+ \caption{AI検知精度 (夜間 vs 昼間, Ground Truth: MegaDetector)}
  \label{tab:ai_accuracy}
  \centering
- \begin{tabular}{l|c}
+ \begin{tabular}{l|c|c}
   \hline
-  Metric & Value \\
+  Metric & Night (0.05) & Day (0.05) \\
   \hline \hline
-  True Positive (TP) & 104 \\
-  False Positive (FP) & 28 \\
-  False Negative (FN) & 48 \\
-  Precision & 78.8\% \\
-  Recall & 68.4\% \\
-  Miss Rate & 31.6\% \\
+  True Positive (TP) & 104 & 195 \\
+  False Positive (FP) & 28 & 73 \\
+  False Negative (FN) & 48 & 13 \\
+  Precision & 78.8\% & 72.8\% \\
+  Recall & 68.4\% & 93.8\% \\
+  Miss Rate & 31.6\% & 6.2\% \\
   \hline
  \end{tabular}
 \end{table}
 
 また，エッジサーバにおける通信削減率を表\ref{tab:comm_reduction}に示す．
 \begin{table}[tb]
- \caption{通信削減率 (夜間実験)}
+ \caption{通信削減率 (夜間 vs 昼間)}
  \label{tab:comm_reduction}
  \centering
- \begin{tabular}{l|c}
+ \begin{tabular}{l|c|c}
   \hline
-  Item & Value \\
+  Item & Night & Day \\
   \hline \hline
-  Total Captured Images & XXX \\
-  Transmitted Images & 396 \\
-  Reduction Rate (\%) & XX.X \\
+  Total Captured Images & 804 & 4283 \\
+  Transmitted Images & 396 & 268 \\
+  Reduction Rate (\%) & 50.7 & 93.7 \\
   \hline
  \end{tabular}
 \end{table}
@@ -305,6 +305,10 @@ AIの検知精度（Ground Truth: MegaDetector）を表\ref{tab:ai_accuracy}に�
 \begin{equation}
  \text{通信削減率} = \left( 1 - \frac{\text{YOLOが検知した画像数}}{\text{全撮影画像数}} \right) \times 100
 \end{equation}
+
+表\ref{tab:comm_reduction}の結果より，夜間に比べて昼間の削減率が極めて高いことがわかる．
+これは，昼間は風による草木の揺れや光の加減による誤検知（PIRセンサの過剰反応）が頻発する一方で，YOLOv8によるフィルタリングがこれら動物以外の画像を効果的に除去し，実際に動物が写っている画像（または誤検知でも動物と判定された画像）のみを送信しているためである．
+この結果は，本システムが特に誤検知の多い環境下において，通信コスト削減に大きく寄与することを示唆している．
 
 
 

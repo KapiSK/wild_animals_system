@@ -1,0 +1,478 @@
+@charset "utf-8";
+/* contents/css/content.css */
+
+/* ロゴ下背景 */
+.header_up_bg {
+	background-image: url(/j/shared_new/shared/images/item_bar2.gif);
+	background-repeat: repeat-x;
+	background-position: left top;
+}
+/* コンテンツ全体 */
+.content {
+	padding: 0 0 30px 0;
+}
+/* 見出し */
+.content h1 {
+	background-color: #f7e5e5;
+	margin: 0 0 20px 0;
+	padding: 13px 20px 12px;
+	font-size: 1.714286em ; /* 24px */
+	font-weight: bold;
+	color: #000;
+}
+.content h2,
+.content .headline {
+	background-color: #eee;
+	margin: 30px 0 20px 0;
+	padding: 7px 18px;
+	font-size: 1.285714em; /*18px */
+	font-weight: bold;
+	color: #000;
+}
+.content .headline{
+	margin: 50px 0 20px 0;
+}
+.content h3 {
+	margin: 10px 0 20px 0;
+	padding: 0 9px 10px;
+	font-size: 1.285714em; /*18px */
+	border-bottom: 3px solid #a0a0a0;
+	font-weight: bold;
+}
+.content h4 {
+	margin: 0 0 20px 0;
+	padding: 6px 18px;
+	font-size: 1.285714em; /*18px */
+	border-left: 3px solid #a0a0a0;
+	font-weight: bold;
+}
+.content h5 {
+	margin: 0 0 20px 0;
+	font-size: 1.285714em; /*18px */
+	font-weight: bold;
+}
+.content h6 {
+	margin: 0 0 20px 0;
+	font-size: 1.285714em; /*18px */
+	font-weight: bold;
+}
+.content .subheading {
+	display: inline-block;
+	padding: 10px 30px;
+	border: 2px solid #666;
+	font-size: 1em;
+}
+/* ヘッダー下 SNSボタン等 */
+.content .content_utility {
+	margin: 0 0 20px 0;
+}
+.content .content_utility-inner { /* <ul> */
+	float: right;
+	margin: 0 0 10px 0;
+	padding: 0;
+}
+.content .content_utility-item { /* <li> */
+	float: left;
+	background-image: none;
+	margin: 0 0 0 10px;
+	padding: 0;
+}
+.content .content_utility-item.content_utility-item--print {
+	position: relative;
+	top: -3px;
+	width: 4em;
+	text-align: center;
+	border: 1px solid #535353;
+}
+.content .content_utility-item.content_utility-item--print a {
+	display: block;
+	background-color: #fffffe;
+	width: 100%;
+	padding: 3px 0 2px;
+	color: #535353;
+	font-size: .8125em; /* 13px */
+	text-decoration: none;
+}
+.content .content_utility-item.content_utility-item--print a:first-letter {
+	letter-spacing: .5em;
+}
+.content .content_utility-item.content_utility-item--print a:hover,
+.content .content_utility-item.content_utility-item--print a:focus {
+	background-color: #535353;
+	color: #fff;
+}
+.content .content_utility-date {
+	clear: both;
+	float: right;
+	text-align: right;
+}
+/* 汎用テキスト */
+.content p {
+	margin: 0 0 20px 0;
+	padding: 0 30px;
+	font-size: 1.142857em; /* 16px */
+}
+/* .heading直下のタイトルなど */
+.content .heading_paragraph {
+	margin: 0 0 10px 0;
+	font-size: 1.5em; /* 21px */
+	font-weight: bold;
+}
+/* リスト */
+.content ul {
+	margin: 20px 0 30px;
+	padding: 0 30px;
+	list-style: none;
+	font-size: 1.142857em; /* 16px */
+}
+.content ul.pl0 {
+	margin: 40px 0 30px;
+	padding: 0 30px 0 0;
+}
+.content ul li {
+	background-image: url(/j/shared_new/shared/images/icon_arrow1.png);
+	background-repeat: no-repeat;
+	background-position: left .4em;
+	margin: 0 0 10px 0;
+	padding: 0 0 0 20px;
+}
+@media (max-width:959px) {
+	.content ul li {
+		background-image: url(/j/shared_new/shared/images/icon_arrow1@2x.png);
+		background-size: 6px 9px;
+	}
+}
+.content ul a {
+	color: #000;
+}
+.content ol {
+	margin: 20px 0 30px 28px;
+	padding: 0 30px;
+	font-size: 1.142857em; /* 16px */
+}
+/* 外部リンク */
+.content a[href^="http://"],
+.content a[href^="https://"] {
+	background-image: url(/j/shared_new/shared/images/icon_wo2.png);
+	background-repeat: no-repeat;
+	background-position: right 40%;
+	margin: 0 4px 0 0;
+	padding: 0 20px 0 0;
+}
+@media (max-width:959px) {
+	.content a[href^="http://"],
+	.content a[href^="https://"] {
+		background-image: url(/j/shared_new/shared/images/icon_wo2@2x.png);
+		background-size: 15px 15px;
+	}
+}
+.content a.no_icon[href^="http://"],
+.content a.no_icon[href^="https://"] {
+	background: none;
+	margin: 0;
+	padding: 0;
+}
+/* 外部リンク除外 */
+.content a[href^="http://1"],
+.content a[href^="https://www.maff.go.jp/"], .content a[href^="https://www.maff.go.jp/"] {
+	background: none;
+	margin: 0;
+	padding: 0;
+}
+@media (max-width:959px) {
+	.content a[href^="http://1"],
+	.content a[href^="https://www.maff.go.jp/"], .content a[href^="https://www.maff.go.jp/"] {
+		background: none;
+		margin: 0;
+		padding: 0;
+	}
+}
+/* PDF添付 */
+.content a[href$=".pdf"] {
+	background-image: url(/j/shared_new/shared/images/icon_pdf.png);
+	background-repeat: no-repeat;
+	background-position: right 40%;
+	margin: 0 4px 0 0;
+	padding: 0 24px 0 0;
+}
+@media (max-width:959px) {
+	.content a[href$=".pdf"] {
+		background-image: url(/j/shared_new/shared/images/icon_pdf@2x.png);
+		background-size: 18px auto;
+	}
+}
+.content a.no_icon[href$=".pdf"] {
+	background: none;
+	margin: 0;
+	padding: 0;
+}
+/* Word添付 */
+.content a[href$=".doc"],
+.content a[href$=".docx"] {
+	background-image: url(/j/shared_new/shared/images/icon_doc.png);
+	background-repeat: no-repeat;
+	background-position: right 40%;
+	margin: 0 4px 0 0;
+	padding: 0 24px 0 0;
+}
+@media (max-width:959px) {
+	.content a[href$=".doc"],
+	.content a[href$=".docx"] {
+		background-image: url(/j/shared_new/shared/images/icon_doc@2x.png);
+		background-size: 18px auto;
+	}
+}
+.content a.no_icon[href$=".doc"],
+.content a.no_icon[href$=".docx"] {
+	background: none;
+	margin: 0;
+	padding: 0;
+}
+/* Excel添付 */
+.content a[href$=".xls"],
+.content a[href$=".xlsx"],
+.content a[href$=".xlsm"] {
+	background-image: url(/j/shared_new/shared/images/icon_xls.png);
+	background-repeat: no-repeat;
+	background-position: right 40%;
+	margin: 0 4px 0 0;
+	padding: 0 24px 0 0;
+}
+@media (max-width:959px) {
+	.content a[href$=".xls"],
+	.content a[href$=".xlsx"],
+	.content a[href$=".xlsm"] {
+		background-image: url(/j/shared_new/shared/images/icon_xls@2x.png);
+		background-size: 18px auto;
+	}
+}
+.content a.no_icon[href$=".xls"],
+.content a.no_icon[href$=".xlsx"],
+.content a.no_icon[href$=".xlsm"] {
+	background: none;
+	margin: 0;
+	padding: 0;
+}
+/* PowerPoint添付 */
+.content a[href$=".ppt"],
+.content a[href$=".pptx"] {
+	background-image: url(/j/shared_new/shared/images/icon_ppt.png);
+	background-repeat: no-repeat;
+	background-position: right 40%;
+	margin: 0 4px 0 0;
+	padding: 0 24px 0 0;
+}
+@media (max-width:959px) {
+	.content a[href$=".ppt"],
+	.content a[href$=".pptx"] {
+		background-image: url(/j/shared_new/shared/images/icon_ppt@2x.png);
+		background-size: 18px auto;
+	}
+}
+.content a.no_icon[href$=".ppt"],
+.content a.no_icon[href$=".pptx"] {
+	background: none;
+	margin: 0;
+	padding: 0;
+}
+/* FAQ */
+.faq { /* <dl> */
+	margin: 0 0 30px 0;
+	padding: 0 30px 0 70px;
+}
+.faq dt {
+	position: relative;
+	margin: 0 0 20px 0;
+	font-size: 1.142857em; /* 16px */
+	font-weight: normal;
+}
+.faq dt:before {
+	content: 'Q';
+	display: inline-block;
+	position: absolute;
+	background-color: #ad0000;
+	top: -4px;
+	left: -40px;
+	width: 30px;
+	height: 30px;
+	text-align: center;
+	font-size: 1.285714em; /*18px */
+	color: #fff;
+}
+.faq dd p {
+	padding: 0;
+}
+.faq dd {
+	position: relative;
+}
+.faq dd:before {
+	content: 'A';
+	display: inline-block;
+	position: absolute;
+	background-color: #fff;
+	top: -4px;
+	left: -40px;
+	width: 30px;
+	height: 30px;
+	padding: 2px 0 0 0;
+	border: 1px solid #ad0000;
+	text-align: center;
+	font-size: 1.285714em; /*18px */
+}
+.faq dd ul {
+	padding: 0 0 0 4px;
+}
+.faq dd ol {
+/*	margin: 20px 0 30px 26px; */
+	padding: 0;
+}
+/* アンケート */
+.survey {
+	margin: 50px 0 20px 0;
+	border-right: 3px solid #eee;
+	border-bottom: 3px solid #eee;
+	border-left: 3px solid #eee;
+}
+.survey .survey-heading {
+	background-color: #eee;
+	margin: 0;
+	padding: 7px 15px;
+	font-size: 1.285714em; /*18px */
+	font-weight: bold;
+}
+.survey .survey-q {
+	background-color: #f8f8f8;
+	margin: 0 0 5px 0;
+	padding: 10px 20px;
+	font-size: 1.142857em; /* 16px */
+	border: none;
+	color: #000;
+}
+.survey .survey-a { /* <ul> */
+	margin: 10px 0 25px;
+	padding: 0 20px;
+}
+.survey .survey-a li {
+	background-image: none;
+	float: left;
+	width: 10em;
+	margin: 0 20px 0 0;
+	padding: 0;
+}
+.survey .survey-a label {
+	margin: 0;
+	font-weight: normal;
+}
+.survey .survey-q_txt {
+	margin: 0 0 10px;
+}
+.survey .survey-q_txt label {
+	width: 100%;
+	font-weight: normal;
+}
+.survey .survey-q_txt .form_control {
+	background-color: #fff;
+	height: auto;
+	font-size: 1em;
+}
+.survey .survey_submit {
+	padding: 10px 10px 0 20px;
+}
+.btn_submit {
+	background-color: #dcdcdc;
+	padding: 9px 28px;
+	color: #000;
+	border: none;
+}
+.btn_submit:hover,
+.btn_submit:focus {
+	background-color: #666;
+	color: #fff;
+}
+/* お問い合わせ先 */
+.outline {
+	margin: 50px 0 20px 0;
+	border-right: 3px solid #eee;
+	border-bottom: 3px solid #eee;
+	border-left: 3px solid #eee;
+}
+.outline .outline-heading {
+	background-color: #eee;
+	padding: 7px 15px;
+	font-size: 1.285714em; /*18px */
+	font-weight: bold;
+}
+.outline .outline-heading_paragraph {
+	margin: 0 0 10px 0;
+	font-size: 1.5em; /* 21px */
+	font-weight: bold;
+}
+/* アドビリーダーダウンロード */
+.content .adobe_reader {
+	margin: 50px 0 20px;
+	padding: 15px 30px;
+	border: 3px solid #dcdcdc;
+}
+.content .adobe_reader p {
+	font-size: 1em; /* 14px */
+}
+.content .adobe_reader a[href^="http://"],
+.content .adobe_reader a[href^="https://"]{
+	background-image: none;
+	margin: 0;
+	padding: 0;
+}
+.content .adobe_reader-left { /* <p> */
+	float: left;
+	width: 75%;
+	margin: 0;
+	padding: 0 1.5% 0 0;
+}
+.content .adobe_reader-right { /* <p> */
+	float: right;
+	width: 25%;
+	margin: 0;
+	padding: 0;
+	text-align: right;
+}
+/* サイドタイトル */
+.content_right .side_title { /* <p> */
+	background-color: #f7e5e5;
+	margin: 0;
+	padding: 17px 20px;
+	font-size: 1.285714em; /*18px */
+}
+.content_right .side_menu { /* <ul> */
+	margin: 0 0 20px 0;
+	padding: 0;
+}
+.content_right .side_menu li {
+	background-image: none;
+	background-color: #f8f8f8;
+	margin: 0;
+	padding: 0;
+	border-top: 2px solid #fff;
+}
+.content_right .side_menu a {
+	display: block;
+	background-image: url(/j/shared_new/shared/images/icon_arrow1.png);
+	background-repeat: no-repeat;
+	background-position: 20px 1.25em;
+	padding: 14px 10px 14px 40px;
+}
+@media (max-width:959px) {
+	.content_right .side_menu a {
+		background-image: url(/j/shared_new/shared/images/icon_arrow1@2x.png);
+		background-size: 6px 9px;
+	}
+}
+@media (max-width: 767px) {
+.content .adobe_reader-left { /* <p> */
+              width: 55%;
+	}
+.content .adobe_reader-right { /* <p> */
+              width: 45%;
+	}
+}
+
+

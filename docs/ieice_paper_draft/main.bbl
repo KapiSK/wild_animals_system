@@ -1,0 +1,34 @@
+\begin{thebibliography}{99}
+
+\bibitem{SMC2024}
+S. Semba, H. Saito, Y. Tomioka, and Y. Kohira,
+``A Battery-Powered Wild Animal Tracking Device Using a PTZ Camera and Deep Learning,''
+Proc. 2024 IEEE SMC, pp. 2128--2133, 2024.
+
+\bibitem{IEICE2020}
+H. Saito, T. Otake, H. Kato, M. Tokutake, S. Semba, Y. Tomioka, and Y. Kohira,
+``Battery-Powered Wild Animal Detection Nodes with Deep Learning,''
+IEICE Trans. Commun., vol. E103-B, no. 12, pp. 1394--1402, 2020.
+
+\bibitem{Computers2025}
+M. A. Rahman, S. Giordano, and M. Pagano,
+``Smart Wildlife Monitoring: Real-Time Hybrid Tracking Using Kalman Filter and Local Binary Similarity Matching on Edge Network,''
+Computers, vol. 14, no. 8, p. 307, 2025.
+
+\bibitem{ArXiv2025}
+B. Adhikari, J. Li, E. S. Michel, J. Dykes, T. P. Tseng, M. L. Tagert, and D. Chen,
+``A Comprehensive Evaluation of YOLO-based Deer Detection Performance on Edge Devices,''
+arXiv preprint arXiv:2509.20318, 2025.
+
+\bibitem{RSSJ2016}
+大石 優,
+``人間と野生動物の軋轢軽減と生物多様性保全・管理に向けたリモートセンシングの利用,''
+日本リモートセンシング学会誌, vol. 36, no. 2, pp. 152--155, 2016.
+
+\bibitem{maff}
+農林水産省,
+``全国の野生鳥獣による農作物被害状況について（令和5年度）,''
+2024.
+\newblock Available: \url{https://www.maff.go.jp/j/press/nousin/tyozyu/241018.html}
+
+\end{thebibliography}
