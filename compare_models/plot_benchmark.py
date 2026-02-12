@@ -13,11 +13,28 @@ except ImportError:
 
 def main():
     parser = argparse.ArgumentParser(description='Plot benchmark results from CSV.')
-    parser.add_argument('--csv', type=str, required=True, help='Path to benchmark_summary.csv')
+    parser.add_argument('--csv', type=str, help='Path to benchmark_summary.csv. If not specified, uses the latest one in benchmark_results/')
     parser.add_argument('--output', type=str, default='benchmark_plots', help='Output directory for plots')
     args = parser.parse_args()
 
     csv_path = args.csv
+    
+    if not csv_path:
+        # User didn't specify file, try to find the latest
+        import glob
+        list_of_files = glob.glob('benchmark_results/benchmark_summary_*.csv') 
+        # Also check old name just in case
+        list_of_files.extend(glob.glob('benchmark_results/benchmark_summary.csv'))
+        
+        if not list_of_files:
+             print("Error: No CSV file specified and none found in benchmark_results/")
+             print("Usage: python compare_models/plot_benchmark.py --csv <path_to_csv>")
+             return
+        
+        # Determine latest
+        csv_path = max(list_of_files, key=os.path.getctime)
+        print(f"Using latest CSV found: {csv_path}")
+
     output_dir = args.output
     
     if not os.path.exists(csv_path):

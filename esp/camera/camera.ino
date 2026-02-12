@@ -58,6 +58,7 @@
 #include "mbedtls/sha256.h" // For SHA256 hashing
 #include "esp_bt.h"         // For disabling Bluetooth
 #include "driver/rtc_io.h"  // For deep sleep pin configuration
+#include "driver/gpio.h"    // For gpio_hold_en/dis
 #include <ESPmDNS.h>       // For mDNS hostname resolution
 #include <list>            // C++ STL list for managing cycle IDs
 #include <algorithm>       // C++ STL sort etc.W
@@ -91,7 +92,7 @@ namespace hw {
 namespace net {
   constexpr char WIFI_SSID[]    = "SLAB-g";       // Your Wi-Fi Network Name
   constexpr char WIFI_PASS[]    = "wakaW1sat0";   // Your Wi-Fi Password
-  constexpr uint32_t WIFI_TIMEOUT = 15000;        // Wi-Fi connection attempt timeout (ms)
+  constexpr uint32_t WIFI_TIMEOUT = 30000;        // Wi-Fi connection attempt timeout (ms)
   constexpr char PI_MDNS_HOST[] = "edge";    // mDNS hostname of your Pi server (e.g., "edge.local")
 
   // These will be populated after mDNS resolution
@@ -458,10 +459,10 @@ static bool initCamera() {
     config.pin_vsync = VSYNC_GPIO_NUM; config.pin_href = HREF_GPIO_NUM;
     config.pin_sscb_sda = SIOD_GPIO_NUM; config.pin_sscb_scl = SIOC_GPIO_NUM;
     config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;      // Camera clock frequency
+    config.xclk_freq_hz = 10000000;      // Camera clock frequency
     config.frame_size = FRAMESIZE_UXGA;  // Resolution (1600x1200)
     config.pixel_format = PIXFORMAT_JPEG; // Output format
-    config.jpeg_quality = 10;            // JPEG quality (0-63, lower is higher quality but larger size) - 10 is reasonable
+    config.jpeg_quality = 12;            // JPEG quality (0-63, lower is higher quality but larger size) - 12 is reasonable
     config.fb_count = 2;                 // Number of frame buffers (Increased to 2 for stability)
     config.fb_location = CAMERA_FB_IN_PSRAM; // Use PSRAM for frame buffer
     config.grab_mode = CAMERA_GRAB_LATEST; // Grab the latest frame, discard older ones
@@ -1293,6 +1294,11 @@ static void goDeepSleepNow() {
     esp_sleep_enable_timer_wakeup(sleepcfg::TIMER_US);
 
     LOG_PRINTLN("[SLEEP] Cooldown finished. Entering Deep Sleep NOW.");
+    
+    // Ensure flash is off and hold it
+    digitalWrite(hw::PIN_FLASH, LOW);
+    gpio_hold_en((gpio_num_t)hw::PIN_FLASH);
+
     esp_deep_sleep_start(); // Enter Deep Sleep
     // --- Code execution stops here until next wake up ---
 }
@@ -1433,6 +1439,7 @@ void setup() {
 
     // --- Initialize Hardware ---
     // Pin Modes
+    gpio_hold_dis((gpio_num_t)hw::PIN_FLASH); // Release hold from deep sleep
     pinMode(hw::PIN_FLAG, INPUT);
 // Wake pin
     pinMode(hw::PIN_FLASH, OUTPUT);    // Flash LED
@@ -1440,7 +1447,7 @@ void setup() {
 // Motor IN1
     pinMode(hw::PIN_MOTOR_IN2, OUTPUT); // Motor IN2 (GPIO 3)
     pinMode(hw::PIN_CDS, INPUT);
-// CDS Sensor
+    analogSetAttenuation(ADC_11db); // Use 11dB attenuation for full-range (0-3.3V) analog reading
     // Status LED (GPIO 4) pin mode is set within its task
 
     // Initial Pin States

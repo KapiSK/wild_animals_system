@@ -31,12 +31,10 @@
 - [x] ベンチマーク機能作成 (`benchmark_yolo.py`)
   - [x] YOLOの複数モデル/閾値を一括比較するスクリプト作成
   - [x] サイクル単位での取りこぼし率（Lost Cycle Rate）を集計
-  - [x] 結果をCSV/Markdownテーブルで出力
   - [x] `run_benchmark.sh` (モデルの自動DLと実行) 作成
   - [x] 複数YOLOバージョンのサポート強化
-  - [x] `run_benchmark.sh` に YOLOv9, v10, v11 などの例を追加
-  - [x] `setup.sh` で `ultralytics` を最新化する記述を確認
-  - [x] ドキュメントにバージョン指定方法を追記
+  - [x] 結果をCSV/Markdownテーブルで出力
+    - [x] Total Counts, TN, Timestamped Filename 対応
 
-- [x] 可視化スクリプト作成 (`plot_benchmark.py`) <!-- id: 80 -->
+- [x] 可視化スクリプト作成 (`plot_benchmark.py`)
   - [x] ベンチマークCSVからグラフ（Miss Rate vs Conf, etc.）を生成

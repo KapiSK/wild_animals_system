@@ -8,6 +8,8 @@ import time
 from collections import defaultdict
 import torch
 from ultralytics import YOLO
+import datetime
+from ultralytics import YOLO
 from tqdm import tqdm
 
 # Default paths (can be overridden by args)
@@ -175,6 +177,7 @@ def main():
     torch.cuda.empty_cache()
 
     # 3. Benchmark YOLO Models
+    run_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     benchmark_data = [] # List of dicts for CSV output
     
     for yolo_path in yolo_models:
@@ -228,6 +231,8 @@ def main():
             fp_count = len(fp_cycles)
             
             md_pos_count = len(md_positive_cycles)
+            total_cycles = len(cycle_map)
+            tn_cycles = total_cycles - md_pos_count - fp_count
             
             miss_rate = (fn_count / md_pos_count * 100) if md_pos_count > 0 else 0.0
             recall = (tp_count / md_pos_count * 100) if md_pos_count > 0 else 0.0
@@ -235,13 +240,17 @@ def main():
             print(f"    Conf {conf:.2f}: Miss Rate={miss_rate:.2f}% ({fn_count}/{md_pos_count}), FP={fp_count}")
             
             benchmark_data.append({
+                'Run_Date': run_date,
                 'Model': model_name,
                 'Threshold': conf,
+                'Total_Images': len(image_files),
+                'Total_Cycles': total_cycles,
                 'MD_Positive_Cycles': md_pos_count,
                 'YOLO_Detected_Cycles': len(yolo_detected_cycles),
                 'TP_Cycles': tp_count,
                 'FN_Cycles (Missed)': fn_count,
                 'FP_Cycles (Over)': fp_count,
+                'TN_Cycles': tn_cycles,
                 'Miss_Rate (%)': f"{miss_rate:.2f}",
                 'Recall (%)': f"{recall:.2f}"
             })
@@ -250,7 +259,8 @@ def main():
         torch.cuda.empty_cache()
 
     # 4. Save Results
-    csv_file = os.path.join(output_dir, 'benchmark_summary.csv')
+    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_file = os.path.join(output_dir, f'benchmark_summary_{timestamp_str}.csv')
     keys = benchmark_data[0].keys() if benchmark_data else []
     
     with open(csv_file, 'w', newline='', encoding='utf-8') as f:

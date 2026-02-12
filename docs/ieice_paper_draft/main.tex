@@ -37,9 +37,9 @@
 鳥獣害対策の一環として，動物の出現を検知し，動物の撮影及び即時通知を行うシステムが開発されているが，
 従来のシステムは誤撮影画像が多く，撮影された大量の画像から対象動物を確認する作業に多大な労力を要するという課題がある．
 本論文では，誤撮影画像の除去が可能な低コスト通信型警戒システムを提案する．
-本システムは，複数の安価なエッジカメラ（ESP32）とエッジサーバー，クラウドサーバーを用いて，AIにより野生動物の出現を検知する．
-エッジカメラはYOLOv8nを用いた物体検出により，有効画像を選別して即座にクラウドサーバーへ送信する．
-検知された画像はクラウドサーバーへ送信され，ユーザへのリアルタイム通知や長期的なデータ分析に利用される．
+本システムは，複数の安価なエッジカメラ（ESP32）とエッジサーバ，クラウドサーバを用いて，AIにより野生動物の出現を検知する．
+エッジカメラはYOLOv8nを用いた物体検出により，有効画像を選別して即座にクラウドサーバへ送信する．
+検知された画像はクラウドサーバへ送信され，ユーザへのリアルタイム通知や長期的なデータ分析に利用される．
 実環境での運用試験の結果，本システムは誤検知を約XX\%削減し，従来システムと比較して通信コストを大幅に抑制できることを実証した．
 また，階層的なフィルタリングにより，必要な情報のみを確実にユーザへ伝達できるシステムの実用性が示された．
 \end{abstract}
@@ -69,8 +69,9 @@ Wildlife Monitoring, Edge AI, IoT, ESP32, Raspberry Pi
 また，LTE通信機能を持つトレイルカメラを使用する場合，各カメラにSIMカードが必要となり，導入コストだけでなく月々の通信ランニングコストも増大する．
 このため，広範囲なエリアに多数のカメラを設置して面的な監視網を構築することは，コストの観点から極めて困難である．
 
-本研究では，これらの課題を解決するために，安価な汎用マイコンであるESP32と，Raspberry Pi, クラウド上のサーバーを組み合わせた低コスト通信型警戒システムを提案する．
-本システムは，撮影機能に特化した複数の簡易なエッジカメラと，高度な画像処理を集約して行うエッジサーバから構成される．
+本研究では，Saitoらが提案した深層学習を用いた自動撮影ノード\cite{IEICE2020}の概念を発展させ，安価な汎用マイコンであるESP32と，Raspberry Pi, クラウド上のサーバを組み合わせた階層的な低コスト通信型警戒システムを提案する．
+Saitoらの研究では単一ノードでの検知と省電力化に成功しているが，広範囲なエリアをカバーするための複数台連携や，それに伴う通信コストの最適化については課題が残されていた．
+本システムは，撮影機能に特化した複数の簡易なエッジカメラと，高度な画像処理を集約して行うエッジサーバから構成されることで，これらの課題を解決する．
 エッジカメラはPIRセンサによるDeep Sleep制御を用いて徹底した省電力化を図り，撮影画像を即座にエッジサーバへ転送する．
 エッジサーバは受信した画像に対して軽量な物体検出モデル（YOLOv8）を適用し，動物が写っている画像のみを高精度に選別する．
 
@@ -81,17 +82,17 @@ Wildlife Monitoring, Edge AI, IoT, ESP32, Raspberry Pi
 従来，モニタリング調査はフィールド調査員による痕跡調査や直接観察が主であったが，広範囲を継続的にカバーすることは困難であった\cite{RSSJ2016}．
 近年では，センサ技術やAI技術の発展に伴い，自動撮影カメラやドローンを用いた自動化が進んでいる\cite{SMC2024}．
 
-Saitoらは，PTZ（Pan-Tilt-Zoom）カメラと深層学習を用いたバッテリー駆動の野生動物追跡システムを提案している\cite{SMC2024}．
-このシステムは動体検知後にカメラを制御して動物を追跡できる利点があるが，可動部を持つため機構が複雑化し，デバイス単価が増大するという課題がある．
-また，同著者らは固定カメラを用いた検知ノードも提案しているが\cite{IEICE2020}，単一ノードでの検知と通信に主眼が置かれており，複数台連携による面的な監視については十分に議論されていない．
+Saitoらは，固定カメラを用いたバッテリー駆動の野生動物検知ノードを提案している\cite{IEICE2020}．
+この研究では，マイコン上で軽量なCNNを動作させることで，高精度な検知と長期間のバッテリー駆動を両立させた．
+しかし，このシステムは単体での動作を基本としており，複数台のカメラを用いて面的な監視を行う場合の通信コストやデータ集約手法については十分に議論されていない．
+また，同著者らはPTZ（Pan-Tilt-Zoom）カメラと深層学習を用いた追跡システムも提案しているが\cite{SMC2024}，機構の複雑化により広範囲への多数設置にはコスト面での課題がある．
 
 一方，最新のエッジAI技術の進展により，YOLOv8シリーズのような高性能かつ軽量なモデルが利用可能となっている．
 Adhikariらは，Raspberry PiやJetsonなどのエッジデバイス上でのYOLOモデル（v8--v11）の性能を包括的に評価し，そのリアルタイム検知の有効性を示している\cite{ArXiv2025}．
 また，Rahmanらは，エッジネットワーク上での軽量なハイブリッド追跡手法を提案し，通信帯域の削減を図っている\cite{Computers2025}．
 
-本研究では，これらの先行研究を踏まえ，安価な固定カメラ（ESP32）を複数台配置し，それらをエッジサーバ（Raspberry Pi）で束ねる階層型アーキテクチャを採用する．
-これにより，高価なPTZカメラや高機能デバイスを各地点に配置することなく，低コストに面的な監視網を構築することを目的とする．
-また，エッジサーバでYOLOv8による一次フィルタリングを行うことで，誤検知による不要な通信を抑制し，実用的な運用を可能にする．
+本研究では，Saitoらの省電力検知ノードの思想を受け継ぎつつ，安価なESP32を複数台配置し，それらをエッジサーバ（Raspberry Pi）で束ねる階層型アーキテクチャを採用することで，面的な監視網の低コスト化を実現する．
+エッジサーバでYOLOv8による一次フィルタリングを行うアプローチは，誤検知による不要な通信を抑制し，実用的な運用を可能にする重要な拡張点である．
 
 
 \section{提案システム}
@@ -104,8 +105,8 @@ Adhikariらは，Raspberry PiやJetsonなどのエッジデバイス上でのYOL
 具体的には，撮影機能に特化した省電力なエッジカメラと，推論を行うエッジサーバを分離することで，システム全体の持続可能性と信頼性を両立させる．
 
 \subsection{システム構成}
-提案システムの全体構成を図\ref{fig:system}に示す．
-以下にそれぞれの階層について説明する．
+提案システムの全体構成を図\ref{fig:system}に，システムの処理フローを図\ref{fig:flow}に示す．
+本システムは，エッジカメラ，エッジサーバ，クラウドサーバの3層アーキテクチャを採用している．
 
 \begin{figure}[tb]
  \centering
@@ -113,12 +114,24 @@ Adhikariらは，Raspberry PiやJetsonなどのエッジデバイス上でのYOL
  \caption{提案システムの全体構成}
  \label{fig:system}
 \end{figure}
-\begin{enumerate}
 
+\begin{figure*}[tb]
+ \centering
+ \includegraphics[width=0.85\linewidth]{img/system_flow.png}
+ \caption{提案システムの処理フロー}
+ \label{fig:flow}
+\end{figure*}
+
+各階層の役割と処理は以下の通りである．
+
+\begin{enumerate}
 \item \textbf{エッジカメラ (Edge Camera)}:
 エッジカメラは動体を検知し，動物の画像撮影を行う．
-ハードウェアとして安価で低消費電力な無線マイコンであるSeeed Studio製のXIAO ESP32S3 Senseを使用し，
-電源には単3電池8本（4.5V）を用いて駆動する（図\ref{fig:camera}）．
+ハードウェアとして安価で低消費電力な無線マイコンであるSeeed Studio製のXIAO ESP32S3 Senseを使用し，電源には単3電池8本（4.5V）を用いて駆動する（図\ref{fig:camera}）．
+
+\textbf{処理フロー}:
+図\ref{fig:flow}に示すように，PIRセンサが反応するとDeep Sleepから復帰して3枚の画像を撮影する．
+撮影データはWi-Fiを用いて直ちにエッジサーバへ送信され，送信完了後，デバイスは再びDeep Sleepモードへ移行する．
 
 \begin{figure}[tb]
  \centering
@@ -126,76 +139,72 @@ Adhikariらは，Raspberry PiやJetsonなどのエッジデバイス上でのYOL
  \caption{エッジカメラの試作機}
  \label{fig:camera}
 \end{figure}
-\textbf{エッジカメラの動作フロー}:\par
-エッジカメラのPIRセンサが反応すると，Deep Sleepから復帰して撮影を行う．
-撮影データはWi-Fiを用いて直ちにエッジサーバへ送信され，送信完了後，
-デバイスはDeep Sleepモードへ移行することで，バッテリによる長期間の稼働を可能にする（図\ref{fig:camera_flow}）．
-\begin{figure}[tb]
- \centering
- \framebox[80mm][c]{\rule{0pt}{50mm}Edge Camera Flowchart}
- \caption{エッジカメラの動作フロー}
- \label{fig:camera_flow}
-\end{figure}
 
 \item \textbf{エッジサーバ (Edge Server)}:
 エッジカメラからの画像データの集約及びAIによる誤検知画像除去を行う．
-ハードウェアとしてRaspberry Piを使用する．
-電源にはソーラーバッテリーを用いて駆動する．
-物体検出モデルにはCOCOデータセット学習済みモデルを用い，YOLOv8nを採用する．
-\textbf{エッジサーバの動作フロー}:\par
-エッジカメラから画像データを受信すると，推論処理キューに登録する．
-推論エンジン（YOLOv8n）が画像を解析し，撮影画像の3枚のうち1枚でも動物が検出された場合に3枚の画像を保存用ディレクトリに移動し，クラウドサーバへ転送する（図\ref{fig:edge_server_flow}）．
-\begin{figure}[tb]
- \centering
- \framebox[80mm][c]{\rule{0pt}{50mm}Edge Server Flowchart}
- \caption{エッジサーバの動作フロー}
- \label{fig:edge_server_flow}
-\end{figure}
+ハードウェアとしてRaspberry Pi 4Bを使用し，電源には10Wソーラーパネルと25Ahバッテリーを搭載したHyke Solar Power Pack (HC-10W25A) を用いて自律駆動する．
+
+\textbf{処理フロー}:
+エッジカメラから画像を受信すると，推論処理キューに画像を登録する．
+推論エンジン（YOLOv8n）が画像を解析し，3枚のうち1枚でも動物が検出された場合のみ，画像を保存用ディレクトリに移動しクラウドサーバへ転送する．
+動物が検出されなかった場合，画像は破棄され通信は行われない．これにより通信コストを大幅に削減する．
 
 \item \textbf{クラウドサーバ (Cloud Server)}:
 豊富な計算資源を持つクラウドサーバでリアルタイムユーザ通知と高度な推論を行う．
-物体検出モデルにはYOLOv5ベースのMegaDetector v5aを採用し，受信画像3枚の高精度推論により動物の種別や個体数を高精度に特定する．
-エッジ側のYOLOv8nは軽量化のためクラス分類精度に限界があるが，クラウドの豊富なリソースを用いることで，より詳細な生物学的分類（例えばタヌキとアナグマの識別など）を可能にする．
-また，Webインターフェースを通じた状況確認機能を提供し，長期的なデータの蓄積や分析を行う．
+
+\textbf{処理フロー}:
+受信した画像に対し，より高精度な物体検出モデル（MegaDetector v5a）を用いて推論を行い，動物の種別や個体数を特定する．
+最終的な判定結果をユーザへメール通知するとともに，Webインターフェースを通じてデータを可視化・蓄積する．
 \end{enumerate}
-
-\subsection{処理フロー}
-システム全体の動作フローを図\ref{fig:flow}に示す．
-具体的な処理手順は以下の通りである．
-
-\begin{figure}[tb]
- \centering
- \framebox[80mm][c]{\rule{0pt}{50mm}Processing Flowchart}
- \caption{提案システムの処理フロー}
- \label{fig:flow}
-\end{figure}
-エッジカメラのPIRセンサにより野生動物の出現を検知すると，ESP32がDeep Sleepから復帰し，3枚の画像を撮影する．撮影した画像をWi-Fi経由でエッジサーバへ送信する．
-エッジサーバは画像を受信すると，推論処理キューに登録する．
-推論エンジン（YOLOv8n）が画像を解析し，撮影画像の3枚で1枚でも動物が検出された場合に3枚の画像を保存用ディレクトリに移動し，クラウドサーバへ転送する．
-クラウドサーバは受信データに対し高度な推論を行い，野生動物の種類や個体数を特定後ユーザに通知メールを送信する．
 
 \section{実験と評価}
 本章では，提案システムの性能と有効性を検証するために行った実験結果について述べる．
 
-\subsection{エッジカメラの評価}
-エッジカメラにおける1回の撮影サイクル（Deep Sleep復帰，撮影，Wi-Fi接続，送信，Deep Sleep移行）の所要時間と消費電力を測定した．
-表\ref{tab:edge_camera_perf}にその結果を示す．
-消費電力は，待機時（Deep Sleep）と動作時（撮影・送信サイクル）の平均値をそれぞれ測定した．
-
+\subsection{システム構成とエッジカメラの評価}
+本システムの部品構成を表\ref{tab:components}に示す．
 \begin{table}[tb]
- \caption{エッジカメラの処理時間と消費電力}
- \label{tab:edge_camera_perf}
+ \caption{部品構成}
+ \label{tab:components}
  \centering
- \begin{tabular}{l|c}
+ \begin{tabular}{l|l|l}
   \hline
-  項目 & 測定値 \\
+  Component & Model & Specification \\
   \hline \hline
-  待機時消費電力 (mW) & XX.X \\
-  動作時消費電力 (平均) (mW) & XX.X \\
-  1サイクル所要時間 (ms) & XXXX \\
+  \multicolumn{3}{l}{\textbf{Edge Camera}} \\
+  \hline
+  Main Unit & XIAO ESP32S3 Sense & 240MHz, 8MB PSRAM \\
+  Camera Module & OV2640 & 1600$\times$1200 \\
+  PIR Sensor & Panasonic PaPIRs & vz 5m \\
+  Power Source & AA Batteries $\times$ 8 & 4.5V (Series/Parallel) \\
+  \hline \hline
+  \multicolumn{3}{l}{\textbf{Edge Server}} \\
+  \hline
+  Main Unit & Raspberry Pi 4B & 4GB RAM \\
+  Power Supply & Hyke Solar Power Pack & 10W Solar, 25Ah Battery \\
+               & HC-10W25A & Output: 6V/9V/12V \\
+  Access Point & NEC Aterm HT100LN & LTE Router \\
   \hline
  \end{tabular}
 \end{table}
+
+また，エッジカメラにおける消費電力と処理時間を評価した結果を表\ref{tab:camera_power}に示す．
+\begin{table}[tb]
+ \caption{エッジカメラの消費電力}
+ \label{tab:camera_power}
+ \centering
+ \begin{tabular}{l|c|c|c}
+  \hline
+  State & Voltage (V) & Current (mA) & Power (mW) \\
+  \hline \hline
+  Deep Sleep & 5.0 & 117 & 585 \\
+  Active (Avg) & 5.0 & XXX.X & XXXX.X \\
+  Wi-Fi Tx & 5.0 & XXX.X & XXXX.X \\
+  \hline
+ \end{tabular}
+\end{table}
+
+待機時（Deep Sleep）と動作時（撮影・送信サイクル）の値を測定した．
+Deep Sleep時の消費電力は585mWであり，マイコン単体としては比較的大きい値を示したが，撮影時以外をDeep Sleep状態とする間欠動作制御を行うことで，乾電池による数ヶ月規模の長期間駆動を可能にしている．
 
 \subsection{通信性能の評価}
 エッジカメラとエッジサーバ間の通信性能を評価した．
@@ -218,50 +227,86 @@ Adhikariらは，Raspberry PiやJetsonなどのエッジデバイス上でのYOL
 \end{table}
 
 \subsection{エッジサーバの評価}
-エッジサーバ（Raspberry Pi 4）における処理性能と検知精度，および通信削減効果について評価した．
+エッジサーバ（Raspberry Pi 4）における処理性能，消費電力，検知精度，および通信削減効果について評価した．
 
-\subsubsection{処理性能}
-画像受信から推論完了までの処理時間とスループット（画像枚数/秒）を表\ref{tab:server_perf}に示す．
+\subsubsection{処理性能と消費電力}
+エッジサーバの各処理ステップ（受信，推論，転送）における所要時間を表\ref{tab:latency}に示す．
 \begin{table}[tb]
- \caption{エッジサーバの処理性能}
- \label{tab:server_perf}
+ \caption{システム処理時間 (Latency)}
+ \label{tab:latency}
  \centering
  \begin{tabular}{l|c}
   \hline
-  項目 & 測定値 \\
+  Process Step & Time (ms) \\
   \hline \hline
-  平均処理時間 (ms/枚) & XXX \\
-  スループット (fps) & X.X \\
-  消費電力 (W) & X.X \\
+  Camera Capture & XXXX \\
+  Wi-Fi Transmission & XXXX \\
+  Edge Server Inference & XXX \\
+  Cloud Notification & XXX \\
+  \textbf{Total Latency} & \textbf{XXXX} \\
+  \hline
+ \end{tabular}
+\end{table}
+
+また，待機時および動作時の消費電力を表\ref{tab:server_power}に示す．
+\begin{table}[tb]
+ \caption{エッジサーバの消費電力}
+ \label{tab:server_power}
+ \centering
+ \begin{tabular}{l|c|c|c}
+  \hline
+  State & Voltage (V) & Current (mA) & Power (W) \\
+  \hline \hline
+  Idle & 5.0 & XXX & X.X \\
+  Inference (Max) & 5.0 & XXXX & X.X \\
+  Avg Operation & 5.0 & XXX & X.X \\
   \hline
  \end{tabular}
 \end{table}
 
 \subsubsection{検知精度と通信削減率}
-YOLOv8を用いた動物検知の精度と，それによる通信削減率（エッジサーバでフィルタリングされた画像の割合）を評価した．
-エッジサーバにおける通信削減率は以下の式で定義される．
-\begin{equation}
- \text{通信削減率} = \left( 1 - \frac{\text{YOLOが検知した画像数}}{\text{全撮影画像数}} \right) \times 100
-\end{equation}
-結果を表\ref{tab:edge_accuracy}に示す．
-
+夜間実験におけるYOLOv8を用いた動物検知の精度と，それによる通信削減率（エッジサーバでフィルタリングされた画像の割合）を評価した．
+AIの検知精度（Ground Truth: MegaDetector）を表\ref{tab:ai_accuracy}に示す．
 \begin{table}[tb]
- \caption{エッジサーバの検知精度と通信削減率}
- \label{tab:edge_accuracy}
+ \caption{AI検知精度 (夜間実験, Ground Truth: MegaDetector)}
+ \label{tab:ai_accuracy}
  \centering
  \begin{tabular}{l|c}
   \hline
-  項目 & 結果 \\
+  Metric & Value \\
   \hline \hline
-  全撮影画像数 & XXX \\
-  YOLO検知数 & XXX \\
-  真の動物画像数 & XXX \\
-  精度 (Precision) & X.X \\
-  再現率 (Recall) & X.X \\
-  通信削減率 (\%) & XX.X \\
+  True Positive (TP) & 104 \\
+  False Positive (FP) & 28 \\
+  False Negative (FN) & 48 \\
+  Precision & 78.8\% \\
+  Recall & 68.4\% \\
+  Miss Rate & 31.6\% \\
   \hline
  \end{tabular}
 \end{table}
+
+また，エッジサーバにおける通信削減率を表\ref{tab:comm_reduction}に示す．
+\begin{table}[tb]
+ \caption{通信削減率 (夜間実験)}
+ \label{tab:comm_reduction}
+ \centering
+ \begin{tabular}{l|c}
+  \hline
+  Item & Value \\
+  \hline \hline
+  Total Captured Images & XXX \\
+  Transmitted Images & 396 \\
+  Reduction Rate (\%) & XX.X \\
+  \hline
+ \end{tabular}
+\end{table}
+
+通信削減率は以下の式で定義される．
+\begin{equation}
+ \text{通信削減率} = \left( 1 - \frac{\text{YOLOが検知した画像数}}{\text{全撮影画像数}} \right) \times 100
+\end{equation}
+
+
 
 なお，本評価では誤検知の削減（Precisionの向上）に主眼を置いているが，実運用においては動物の見逃し（False Negative）も重要な指標である．
 YOLOv8nは軽量モデルであるため，小型の動物や遮蔽された個体の検知において見逃しが発生する可能性がある．
@@ -286,8 +331,9 @@ YOLOv8nは軽量モデルであるため，小型の動物や遮蔽された個�
  \end{tabular}
 \end{table}
 
+
 \subsection{総合評価}
-システム全体としての実用性を検証するため，ユーザ通知までの遅延時間と，バッテリー駆動時間の試算を行った．
+システム全体としての実用性を検証するため，ユーザ通知までの遅延時間，バッテリー駆動時間，およびエネルギー収支の評価を行った．
 
 \subsubsection{ユーザ通知までの所要時間}
 動物検知からユーザへの通知完了までにかかった時間の平均は XX.X 秒であった．
@@ -295,16 +341,20 @@ YOLOv8nは軽量モデルであるため，小型の動物や遮蔽された個�
 \subsubsection{全体での通信削減率}
 全撮影サイクル数に対するユーザ通知サイクルの割合は XX.X \%であり，不要な通知を大幅に削減できたことが確認された．
 
-\subsubsection{バッテリー寿命予測}
-測定した消費電力に基づき，1日あたり10回の撮影動作を行った場合のバッテリー寿命を試算したところ，約 XX 日間の稼働が見込まれる．
-この結果は，頻繁な電池交換が不要であり，本システムが実用的な運用に耐え得ることを示している．
+\subsubsection{エネルギー収支とバッテリー寿命}
+エッジカメラ（ESP32）はDeep Sleepにより乾電池駆動が可能であるが，エッジサーバ（Raspberry Pi 4）の電力確保はシステムの持続可能性において重要な課題である．
+本実験では，10Wソーラーパネルと25Ahのリチウムイオン電池を内蔵した一体型電源（Hyke Solar Power Pack HC-10W25A）を使用した．
+Raspberry Pi 4の平均消費電力（表\ref{tab:server_power}のAvg Operation）を約3Wと見積もると，1日の消費電力量は約72Whとなる．
+一方，10Wパネルの1日平均発電量は，平均日照時間を3.5時間と仮定すると約35Whとなり，単体では電力不足となる可能性がある．
+しかし，本電源は25Ah（約90Wh @ 3.7V換算，または12V換算であれば300Wh）の大容量バッテリーを搭載しており，無日照時でも長時間の稼働が可能である．
+また，システム全体の間欠動作（夜間のみ稼働など）を組み合わせることで，実用的な運用が可能であることを確認した．
 
-\subsubsection{既存システムとの比較考察}
-市販のLTE通信機能付きトレイルカメラと比較した場合，本システムは初期導入コストこそ複数デバイス（エッジサーバ等）を要するため同等または微増となる可能性がある．
-しかし，カメラ一台ごとのSIM契約が不要である点，および誤検知画像の送信による通信費の増大を防ぐことができる点から，ランニングコストにおいては大幅な削減が見込まれる．
-特に，監視対象エリアが広く，多数のカメラ（例えば5台以上）を設置する場合，SIM契約費用の削減効果が初期導入コストの増加分を上回り，早期に損益分岐点を超えることが期待できる．
-また，誤検知画像の削減は，使用者が膨大な画像を確認する労力（ラベリング作業や被害確認の手間）を直接的に軽減するものであり，システムの実用性を大きく高める要因となる．
-以上の点から，本システムはコスト面および運用面において優位性が高いと考えられる．
+\subsubsection{運用の効率化に対する考察}
+本システムはコスト面だけでなく，運用面においても大きな利点を持つ．
+従来のトレイルカメラでは，大量の誤検知画像が送信されるため，使用者が目視で対象動物を確認する作業（ラベリング）に多大な労力を要していた．
+本システムでは，エッジ側で誤検知画像を大幅に削減できるため，この確認作業を劇的に軽減できる．
+また，SIMカードの管理がゲートウェイ（エッジサーバ）の1枚のみで済むため，契約更新や支払いの事務手続きも簡素化される．
+これらの点は，自治体などが広域に多数のカメラを展開する際の大きなインセンティブとなると考えられる．
 
 \section{むすび}
 本論文では，鳥獣害対策の効率化を目的とした，複数台カメラを用いた低コスト通信型警戒システムを提案した．

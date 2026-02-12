@@ -145,17 +145,17 @@ bash compare_models/run_benchmark.sh
 
 ### 結果の見方
 
-`benchmark_results/benchmark_summary.csv` に結果が出力されます。
+`benchmark_results/benchmark_summary_YYYYMMDD_HHMMSS.csv` に結果が出力されます（ファイル名に日時がつきます）。
 
-| Model | Threshold | MD_Positive_Cycles | FN_Cycles (Missed) | Miss_Rate (%) |
-| :--- | :--- | :--- | :--- | :--- |
-| yolov8n.pt | 0.1 | 20 | 2 | 10.00 |
-| yolov8n.pt | 0.2 | 20 | 5 | 25.00 |
-| yolov8s.pt | 0.1 | 20 | 1 | 5.00 |
+| Run_Date | Model | Threshold | Total_Images | Total_Cycles | MD_Positive_Cycles | FN_Cycles | TN_Cycles | Miss_Rate (%) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 2026-02-12... | yolov8n.pt | 0.1 | 1000 | 500 | 20 | 2 | 450 | 10.00 |
 
-- **Miss_Rate (%)**: 取りこぼし率。低いほど良いです。
-- **FN_Cycles**: 取りこぼしたサイクルの数。
-- **MD_Positive_Cycles**: MegaDetectorが検知した（正解）サイクルの総数。
+- **Run_Date**: 実行日時。
+- **Total_Cycles**: 全サイクル数。
+- **MD_Positive_Cycles**: MegaDetectorが検知した（正解）サイクルの総数（TP + FN）。
+- **TN_Cycles**: 正解なし・YOLO検知なしのサイクル数（True Negative）。
+- **Miss_Rate (%)**: 取りこぼし率（FN / MD_Positive * 100）。
 
 ### 結果の可視化 (`plot_benchmark.py`)
 
