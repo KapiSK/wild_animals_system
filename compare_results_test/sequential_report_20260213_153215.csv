@@ -1,0 +1,4 @@
+Filename,CycleID,Stage1_YOLO_Result,Stage2_MD_Result,Final_Status,YOLO_Conf,MD_Conf,YOLO_Label,MD_Label
+img1.jpg,unknown,Missed,Detected,Recovered_by_MD,0.0000,0.8939,,animal
+img2.jpg,unknown,Detected,Skipped,Found_by_YOLO,0.4075,,horse,
+img3.jpg,unknown,Detected,Skipped,Found_by_YOLO,0.5945,,cow,

@@ -483,6 +483,55 @@ static bool initCamera() {
 }
 
 /**
+ * @brief Powers down camera pins to reduce leakage during deep sleep/light sleep.
+ */
+static void powerDownCameraPins() {
+    LOG_PRINTLN("[PWR ] Powering down camera pins...");
+    
+    // 1. If PWDN pin is available, assert it (High usually powers down)
+    #if defined(PWDN_GPIO_NUM) && PWDN_GPIO_NUM != -1
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    digitalWrite(PWDN_GPIO_NUM, HIGH); 
+    #endif
+
+    // 2. Set data and control pins to INPUT_PULLDOWN to prevent floating/leakage
+    // Array of pins to disable
+    int camPins[] = {
+        Y2_GPIO_NUM, Y3_GPIO_NUM, Y4_GPIO_NUM, Y5_GPIO_NUM,
+        Y6_GPIO_NUM, Y7_GPIO_NUM, Y8_GPIO_NUM, Y9_GPIO_NUM,
+        XCLK_GPIO_NUM, PCLK_GPIO_NUM, VSYNC_GPIO_NUM, HREF_GPIO_NUM,
+        SIOD_GPIO_NUM, SIOC_GPIO_NUM
+    };
+    
+    for (int pin : camPins) {
+        if (pin != -1) {
+            pinMode(pin, INPUT_PULLDOWN);
+        }
+    }
+    
+    // RESET pin - usually active low, so keeping it low might hold it in reset?
+    // Or just set to input to float/weak pull.
+    // For now, let's treat it like others.
+    #if defined(RESET_GPIO_NUM) && RESET_GPIO_NUM != -1
+    pinMode(RESET_GPIO_NUM, INPUT_PULLDOWN); 
+    #endif
+
+    LOG_PRINTLN("[PWR ] Camera pins powered down.");
+}
+
+/**
+ * @brief Powers down SD card pins to reduce leakage.
+ */
+static void powerDownSdCardPins() {
+    LOG_PRINTLN("[PWR ] Powering down SD card pins...");
+    int sdPins[] = {hw::SD_CS, hw::SD_MOSI, hw::SD_MISO, hw::SD_SCK};
+    for (int pin : sdPins) {
+        pinMode(pin, INPUT_PULLDOWN);
+    }
+    LOG_PRINTLN("[PWR ] SD card pins powered down.");
+}
+
+/**
  * @brief Captures an image, discards if it's the first, saves otherwise.
  * @param captureIndex The index of this capture in the sequence (1-based).
  * @param saveIndex The index to use for saving the file (1-based, 0 if discard).
@@ -1266,11 +1315,21 @@ static void goDeepSleepNow() {
         initialWaitTime = param::SLEEP_COOLDOWN_MS - ledWarningTime;
     }
 
-    // 1. 最初の待機 (LEDはローパワー状態)
+    // 1. 最初の待機 (LEDはローパワー状態) - Light Sleepを使用
     if (initialWaitTime > 0) {
         digitalWrite(hw::PIN_STATUS, LOW);
         pinMode(hw::PIN_STATUS, INPUT_PULLDOWN);
-        delay(initialWaitTime);
+
+        LOG_PRINTF("[SLEEP] Light Sleep waiting for %u ms...\n", initialWaitTime);
+        
+        // Timer Wakeup for Light Sleep
+        esp_sleep_enable_timer_wakeup((uint64_t)initialWaitTime * 1000ULL);
+        
+        // Enter Light Sleep to save power compared to delay()
+        // CPU stops, RAM is retained, peripherals are gated.
+        esp_light_sleep_start();
+        
+        LOG_PRINTLN("[SLEEP] Woke up from Light Sleep.");
     }
 
     // 2. 5秒間のスリープ前警告 (LED点灯)
@@ -1298,6 +1357,9 @@ static void goDeepSleepNow() {
     // Ensure flash is off and hold it
     digitalWrite(hw::PIN_FLASH, LOW);
     gpio_hold_en((gpio_num_t)hw::PIN_FLASH);
+
+    // Power down SD card pins just before sleep
+    powerDownSdCardPins();
 
     esp_deep_sleep_start(); // Enter Deep Sleep
     // --- Code execution stops here until next wake up ---
@@ -1403,6 +1465,10 @@ static void beginCapture() {
     // --- Cleanup after capture ---
     digitalWrite(hw::PIN_FLASH, LOW); // Turn off flash LED
     motorStop();                      // Stop motor
+    
+    // Explicitly power down camera interface to save power during WiFi/Upload
+    esp_camera_deinit(); 
+    powerDownCameraPins();
 
     // Log final status of the capture sequence
     if (captureOk && savedCount == param::NUM_SHOTS_SAVE) {
