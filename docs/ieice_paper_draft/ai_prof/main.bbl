@@ -5,12 +5,6 @@
 ``全国の野生鳥獣による農作物被害状況について（令和5年度）,''
 \url{https://www.maff.go.jp/j/press/nousin/tyozyu/241018.html}，2024．
 
-\bibitem{IEICE2020}
-H. Saito, T. Otake, H. Kato, M. Tokutake, S. Semba, Y. Tomioka, and Y. Kohira,
-``Battery-powered wild animal detection nodes with deep learning,''
-IEICE Trans.\ Commun.,
-vol.E103-B, no.12, pp.1394--1402, 2020.
-
 \bibitem{Tabak2019}
 M.A. Tabak, M.S. Norouzzadeh, D.W. Wolfson, S.J. Sweeney, K.C. VerCauteren,
   N.P. Snow, J.M. Halseth, P.A. Di~Salvo, J.S. Lewis, M.D. White, B. Teton,
@@ -49,5 +43,11 @@ M.A. Rahman, S. Giordano, and M. Pagano,
   local binary similarity matching on edge network,''
 Computers,
 vol.14, no.8, p.307, 2025.
+
+\bibitem{IEICE2020}
+H. Saito, T. Otake, H. Kato, M. Tokutake, S. Semba, Y. Tomioka, and Y. Kohira,
+``Battery-powered wild animal detection nodes with deep learning,''
+IEICE Trans.\ Commun.,
+vol.E103-B, no.12, pp.1394--1402, 2020.
 
 \end{thebibliography}
