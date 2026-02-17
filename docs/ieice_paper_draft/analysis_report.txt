@@ -1,0 +1,63 @@
+Session 0:
+  Time: 12:00:28 - 12:01:31 (63.2s)
+  Seq: 86 - 103 (Exp: 18, Recv: 18)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -33.5, Min -65, Max -22
+  Throughput: 1167.05 kbps
+------------------------------
+Session 1:
+  Time: 12:08:13 - 12:13:50 (337.2s)
+  Seq: 2 - 69 (Exp: 68, Recv: 68)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -68.7, Min -81, Max -56
+  Throughput: 826.02 kbps
+------------------------------
+Session 2:
+  Time: 12:16:35 - 12:16:55 (19.7s)
+  Seq: 127 - 131 (Exp: 5, Recv: 5)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -62.4, Min -77, Max -56
+  Throughput: 1040.09 kbps
+------------------------------
+Session 3:
+  Time: 12:19:04 - 12:20:34 (89.3s)
+  Seq: 1 - 12 (Exp: 12, Recv: 12)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -63.0, Min -87, Max -51
+  Throughput: 550.27 kbps
+------------------------------
+Session 4:
+  Time: 12:21:38 - 12:23:52 (134.4s)
+  Seq: 13 - 35 (Exp: 23, Recv: 23)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -67.4, Min -75, Max -54
+  Throughput: 701.03 kbps
+------------------------------
+Session 5:
+  Time: 12:24:43 - 12:25:54 (71.2s)
+  Seq: 36 - 51 (Exp: 16, Recv: 16)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -65.2, Min -81, Max -44
+  Throughput: 920.71 kbps
+------------------------------
+Session 6:
+  Time: 12:28:37 - 12:28:59 (21.9s)
+  Seq: 1 - 7 (Exp: 7, Recv: 7)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -25.7, Min -46, Max -17
+  Throughput: 1309.87 kbps
+------------------------------
+Session 7:
+  Time: 12:35:26 - 12:36:24 (58.8s)
+  Seq: 144 - 152 (Exp: 9, Recv: 9)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -71.8, Min -80, Max -63
+  Throughput: 627.13 kbps
+------------------------------
+Session 8:
+  Time: 12:37:32 - 12:38:31 (58.5s)
+  Seq: 165 - 171 (Exp: 7, Recv: 7)
+  Loss: 0.00% (0 packets)
+  RSSI: Avg -72.6, Min -77, Max -67
+  Throughput: 489.94 kbps
+------------------------------

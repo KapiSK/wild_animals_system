@@ -28,10 +28,10 @@
 // Configurations
 // ==========================================
 // WiFi Credentials
-//const char* WIFI_SSID = "aterm-e1ab3a";
-//const char* WIFI_PASS = "7cac2cfd46f83";
-const char* WIFI_SSID = "SLAB-g";
-const char* WIFI_PASS = "wakaW1sat0";
+const char* WIFI_SSID = "aterm-e1ab3a";
+const char* WIFI_PASS = "7cac2cfd46f83";
+//const char* WIFI_SSID = "SLAB-g";
+//const char* WIFI_PASS = "wakaW1sat0";
 
 // Server Configuration
 // Hostname to resolve (e.g., "edge" for edge.local)

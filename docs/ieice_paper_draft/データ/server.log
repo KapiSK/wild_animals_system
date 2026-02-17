@@ -1,0 +1,334 @@
+2026-02-17 12:00:28,513 [INFO] Received upload request. Seq: 86, RSSI: -65, IP: 192.168.179.4
+2026-02-17 12:00:30,522 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:32,808 [INFO] Received upload request. Seq: 87, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:00:34,230 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:36,394 [INFO] Received upload request. Seq: 88, RSSI: -59, IP: 192.168.179.4
+2026-02-17 12:00:38,093 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:40,383 [INFO] Received upload request. Seq: 89, RSSI: -33, IP: 192.168.179.4
+2026-02-17 12:00:41,993 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:44,276 [INFO] Received upload request. Seq: 90, RSSI: -39, IP: 192.168.179.4
+2026-02-17 12:00:45,839 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:47,977 [INFO] Received upload request. Seq: 91, RSSI: -29, IP: 192.168.179.4
+2026-02-17 12:00:49,383 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:51,510 [INFO] Received upload request. Seq: 92, RSSI: -27, IP: 192.168.179.4
+2026-02-17 12:00:52,941 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:55,231 [INFO] Received upload request. Seq: 93, RSSI: -27, IP: 192.168.179.4
+2026-02-17 12:00:56,487 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:00:58,821 [INFO] Received upload request. Seq: 94, RSSI: -22, IP: 192.168.179.4
+2026-02-17 12:01:00,443 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:02,580 [INFO] Received upload request. Seq: 95, RSSI: -23, IP: 192.168.179.4
+2026-02-17 12:01:04,044 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:06,192 [INFO] Received upload request. Seq: 96, RSSI: -22, IP: 192.168.179.4
+2026-02-17 12:01:07,679 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:09,984 [INFO] Received upload request. Seq: 97, RSSI: -33, IP: 192.168.179.4
+2026-02-17 12:01:11,580 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:13,875 [INFO] Received upload request. Seq: 98, RSSI: -27, IP: 192.168.179.4
+2026-02-17 12:01:15,290 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:17,427 [INFO] Received upload request. Seq: 99, RSSI: -29, IP: 192.168.179.4
+2026-02-17 12:01:18,788 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:20,939 [INFO] Received upload request. Seq: 100, RSSI: -27, IP: 192.168.179.4
+2026-02-17 12:01:22,122 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:24,249 [INFO] Received upload request. Seq: 101, RSSI: -27, IP: 192.168.179.4
+2026-02-17 12:01:25,736 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:27,900 [INFO] Received upload request. Seq: 102, RSSI: -29, IP: 192.168.179.4
+2026-02-17 12:01:29,374 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:31,687 [INFO] Received upload request. Seq: 103, RSSI: -28, IP: 192.168.179.4
+2026-02-17 12:01:32,969 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:01:35,270 [INFO] Received upload request. Seq: 104, RSSI: -47, IP: 192.168.179.4
+2026-02-17 12:08:13,048 [INFO] Received upload request. Seq: 2, RSSI: -65, IP: 192.168.179.4
+2026-02-17 12:08:15,540 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:17,840 [INFO] Received upload request. Seq: 3, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:08:20,270 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:22,461 [INFO] Received upload request. Seq: 4, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:08:24,671 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:26,807 [INFO] Received upload request. Seq: 5, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:08:28,785 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:31,465 [INFO] Received upload request. Seq: 6, RSSI: -60, IP: 192.168.179.4
+2026-02-17 12:08:35,157 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:37,509 [INFO] Received upload request. Seq: 7, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:08:40,045 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:42,213 [INFO] Received upload request. Seq: 8, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:08:44,029 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:46,307 [INFO] Received upload request. Seq: 9, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:08:48,120 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:50,279 [INFO] Received upload request. Seq: 10, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:08:51,948 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:54,106 [INFO] Received upload request. Seq: 11, RSSI: -59, IP: 192.168.179.4
+2026-02-17 12:08:55,741 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:08:58,080 [INFO] Received upload request. Seq: 12, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:08:59,580 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:01,869 [INFO] Received upload request. Seq: 13, RSSI: -59, IP: 192.168.179.4
+2026-02-17 12:09:03,484 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:05,664 [INFO] Received upload request. Seq: 14, RSSI: -56, IP: 192.168.179.4
+2026-02-17 12:09:07,502 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:09,657 [INFO] Received upload request. Seq: 15, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:09:11,342 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:13,650 [INFO] Received upload request. Seq: 16, RSSI: -61, IP: 192.168.179.4
+2026-02-17 12:09:16,237 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:18,566 [INFO] Received upload request. Seq: 17, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:09:21,231 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:23,595 [INFO] Received upload request. Seq: 18, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:09:25,649 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:28,102 [INFO] Received upload request. Seq: 19, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:09:30,287 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:32,605 [INFO] Received upload request. Seq: 20, RSSI: -60, IP: 192.168.179.4
+2026-02-17 12:09:34,440 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:36,598 [INFO] Received upload request. Seq: 21, RSSI: -58, IP: 192.168.179.4
+2026-02-17 12:09:38,203 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:40,374 [INFO] Received upload request. Seq: 22, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:09:42,100 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:44,497 [INFO] Received upload request. Seq: 23, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:09:54,492 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:09:56,642 [INFO] Received upload request. Seq: 24, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:10:00,640 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:02,812 [INFO] Received upload request. Seq: 25, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:10:05,311 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:07,625 [INFO] Received upload request. Seq: 26, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:10:09,360 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:11,505 [INFO] Received upload request. Seq: 27, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:10:13,369 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:15,706 [INFO] Received upload request. Seq: 28, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:10:17,476 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:19,801 [INFO] Received upload request. Seq: 29, RSSI: -65, IP: 192.168.179.4
+2026-02-17 12:10:21,377 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:23,690 [INFO] Received upload request. Seq: 30, RSSI: -71, IP: 192.168.179.4
+2026-02-17 12:10:26,397 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:28,721 [INFO] Received upload request. Seq: 31, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:10:30,808 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:33,111 [INFO] Received upload request. Seq: 32, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:10:34,984 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:37,315 [INFO] Received upload request. Seq: 33, RSSI: -69, IP: 192.168.179.4
+2026-02-17 12:10:38,694 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:40,996 [INFO] Received upload request. Seq: 34, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:10:42,992 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:45,302 [INFO] Received upload request. Seq: 35, RSSI: -71, IP: 192.168.179.4
+2026-02-17 12:10:47,295 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:49,604 [INFO] Received upload request. Seq: 36, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:10:52,258 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:10:54,409 [INFO] Received upload request. Seq: 37, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:10:59,051 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:01,793 [INFO] Received upload request. Seq: 38, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:11:05,227 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:07,415 [INFO] Received upload request. Seq: 39, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:11:09,804 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:12,126 [INFO] Received upload request. Seq: 40, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:11:14,274 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:16,628 [INFO] Received upload request. Seq: 41, RSSI: -70, IP: 192.168.179.4
+2026-02-17 12:11:18,682 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:20,865 [INFO] Received upload request. Seq: 42, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:11:23,650 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:25,850 [INFO] Received upload request. Seq: 43, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:11:28,445 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:30,774 [INFO] Received upload request. Seq: 44, RSSI: -71, IP: 192.168.179.4
+2026-02-17 12:11:38,823 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:41,043 [INFO] Received upload request. Seq: 45, RSSI: -81, IP: 192.168.179.4
+2026-02-17 12:11:47,476 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:50,180 [INFO] Received upload request. Seq: 46, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:11:56,600 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:11:58,946 [INFO] Received upload request. Seq: 47, RSSI: -80, IP: 192.168.179.4
+2026-02-17 12:12:02,685 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:05,065 [INFO] Received upload request. Seq: 48, RSSI: -80, IP: 192.168.179.4
+2026-02-17 12:12:07,735 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:10,083 [INFO] Received upload request. Seq: 49, RSSI: -69, IP: 192.168.179.4
+2026-02-17 12:12:12,287 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:14,587 [INFO] Received upload request. Seq: 50, RSSI: -66, IP: 192.168.179.4
+2026-02-17 12:12:16,407 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:18,682 [INFO] Received upload request. Seq: 51, RSSI: -66, IP: 192.168.179.4
+2026-02-17 12:12:21,216 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:23,384 [INFO] Received upload request. Seq: 52, RSSI: -79, IP: 192.168.179.4
+2026-02-17 12:12:29,040 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:31,392 [INFO] Received upload request. Seq: 53, RSSI: -79, IP: 192.168.179.4
+2026-02-17 12:12:34,064 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:36,401 [INFO] Received upload request. Seq: 54, RSSI: -70, IP: 192.168.179.4
+2026-02-17 12:12:38,320 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:40,500 [INFO] Received upload request. Seq: 55, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:12:42,640 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:44,821 [INFO] Received upload request. Seq: 56, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:12:50,119 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:52,258 [INFO] Received upload request. Seq: 57, RSSI: -78, IP: 192.168.179.4
+2026-02-17 12:12:54,955 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:12:57,288 [INFO] Received upload request. Seq: 58, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:12:59,596 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:01,896 [INFO] Received upload request. Seq: 59, RSSI: -70, IP: 192.168.179.4
+2026-02-17 12:13:04,153 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:06,320 [INFO] Received upload request. Seq: 60, RSSI: -66, IP: 192.168.179.4
+2026-02-17 12:13:08,324 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:10,502 [INFO] Received upload request. Seq: 61, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:13:13,755 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:15,935 [INFO] Received upload request. Seq: 62, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:13:18,213 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:20,640 [INFO] Received upload request. Seq: 63, RSSI: -74, IP: 192.168.179.4
+2026-02-17 12:13:22,850 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:25,361 [INFO] Received upload request. Seq: 64, RSSI: -74, IP: 192.168.179.4
+2026-02-17 12:13:27,787 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:29,959 [INFO] Received upload request. Seq: 65, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:13:32,055 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:34,779 [INFO] Received upload request. Seq: 66, RSSI: -76, IP: 192.168.179.4
+2026-02-17 12:13:38,168 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:40,298 [INFO] Received upload request. Seq: 67, RSSI: -71, IP: 192.168.179.4
+2026-02-17 12:13:43,343 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:45,831 [INFO] Received upload request. Seq: 68, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:13:48,056 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:13:50,239 [INFO] Received upload request. Seq: 69, RSSI: -71, IP: 192.168.179.4
+2026-02-17 12:13:53,125 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:16:35,914 [INFO] Received upload request. Seq: 127, RSSI: -56, IP: 192.168.179.4
+2026-02-17 12:16:37,826 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:16:40,423 [INFO] Received upload request. Seq: 128, RSSI: -60, IP: 192.168.179.4
+2026-02-17 12:16:42,505 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:16:44,845 [INFO] Received upload request. Seq: 129, RSSI: -56, IP: 192.168.179.4
+2026-02-17 12:16:46,813 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:16:49,145 [INFO] Received upload request. Seq: 130, RSSI: -63, IP: 192.168.179.4
+2026-02-17 12:16:53,371 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:16:55,605 [INFO] Received upload request. Seq: 131, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:17:09,203 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:17:11,776 [INFO] Received upload request. Seq: 132, RSSI: -81, IP: 192.168.179.4
+2026-02-17 12:19:04,952 [INFO] Received upload request. Seq: 1, RSSI: -52, IP: 192.168.179.4
+2026-02-17 12:19:08,805 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:10,963 [INFO] Received upload request. Seq: 2, RSSI: -54, IP: 192.168.179.4
+2026-02-17 12:19:12,926 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:15,272 [INFO] Received upload request. Seq: 3, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:19:17,407 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:19,578 [INFO] Received upload request. Seq: 4, RSSI: -56, IP: 192.168.179.4
+2026-02-17 12:19:21,528 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:23,861 [INFO] Received upload request. Seq: 5, RSSI: -51, IP: 192.168.179.4
+2026-02-17 12:19:25,701 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:27,856 [INFO] Received upload request. Seq: 6, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:19:30,105 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:32,272 [INFO] Received upload request. Seq: 7, RSSI: -60, IP: 192.168.179.4
+2026-02-17 12:19:34,654 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:37,391 [INFO] Received upload request. Seq: 8, RSSI: -68, IP: 192.168.179.4
+2026-02-17 12:19:39,470 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:41,615 [INFO] Received upload request. Seq: 9, RSSI: -61, IP: 192.168.179.4
+2026-02-17 12:19:44,598 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:19:46,867 [INFO] Received upload request. Seq: 10, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:20:06,698 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:20:10,890 [INFO] Received upload request. Seq: 11, RSSI: -87, IP: 192.168.179.4
+2026-02-17 12:20:27,818 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:20:34,276 [INFO] Received upload request. Seq: 12, RSSI: -81, IP: 192.168.179.4
+2026-02-17 12:21:36,003 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:21:38,304 [INFO] Received upload request. Seq: 13, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:21:41,551 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:21:43,838 [INFO] Received upload request. Seq: 14, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:21:46,231 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:21:48,545 [INFO] Received upload request. Seq: 15, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:21:51,013 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:21:53,356 [INFO] Received upload request. Seq: 16, RSSI: -69, IP: 192.168.179.4
+2026-02-17 12:21:55,259 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:21:57,400 [INFO] Received upload request. Seq: 17, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:21:59,047 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:01,363 [INFO] Received upload request. Seq: 18, RSSI: -59, IP: 192.168.179.4
+2026-02-17 12:22:03,096 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:05,239 [INFO] Received upload request. Seq: 19, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:22:07,166 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:09,349 [INFO] Received upload request. Seq: 20, RSSI: -63, IP: 192.168.179.4
+2026-02-17 12:22:10,902 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:13,221 [INFO] Received upload request. Seq: 21, RSSI: -69, IP: 192.168.179.4
+2026-02-17 12:22:14,774 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:17,111 [INFO] Received upload request. Seq: 22, RSSI: -54, IP: 192.168.179.4
+2026-02-17 12:22:18,673 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:21,003 [INFO] Received upload request. Seq: 23, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:22:23,508 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:25,817 [INFO] Received upload request. Seq: 24, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:22:28,110 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:30,427 [INFO] Received upload request. Seq: 25, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:22:32,820 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:35,147 [INFO] Received upload request. Seq: 26, RSSI: -61, IP: 192.168.179.4
+2026-02-17 12:22:36,899 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:39,255 [INFO] Received upload request. Seq: 27, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:22:41,067 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:43,279 [INFO] Received upload request. Seq: 28, RSSI: -63, IP: 192.168.179.4
+2026-02-17 12:22:45,554 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:47,835 [INFO] Received upload request. Seq: 29, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:22:49,555 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:51,736 [INFO] Received upload request. Seq: 30, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:22:53,894 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:22:57,214 [INFO] Received upload request. Seq: 31, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:23:04,545 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:23:08,229 [INFO] Received upload request. Seq: 32, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:23:17,867 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:23:21,231 [INFO] Received upload request. Seq: 33, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:23:39,863 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:23:43,195 [INFO] Received upload request. Seq: 34, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:23:47,582 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:23:52,689 [INFO] Received upload request. Seq: 35, RSSI: -75, IP: 192.168.179.4
+2026-02-17 12:24:41,287 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:24:43,436 [INFO] Received upload request. Seq: 36, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:24:48,465 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:24:50,926 [INFO] Received upload request. Seq: 37, RSSI: -81, IP: 192.168.179.4
+2026-02-17 12:24:55,842 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:24:58,001 [INFO] Received upload request. Seq: 38, RSSI: -70, IP: 192.168.179.4
+2026-02-17 12:25:01,764 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:03,899 [INFO] Received upload request. Seq: 39, RSSI: -69, IP: 192.168.179.4
+2026-02-17 12:25:07,168 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:09,360 [INFO] Received upload request. Seq: 40, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:25:11,959 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:14,265 [INFO] Received upload request. Seq: 41, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:25:16,231 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:18,569 [INFO] Received upload request. Seq: 42, RSSI: -61, IP: 192.168.179.4
+2026-02-17 12:25:20,271 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:22,566 [INFO] Received upload request. Seq: 43, RSSI: -69, IP: 192.168.179.4
+2026-02-17 12:25:24,508 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:26,660 [INFO] Received upload request. Seq: 44, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:25:28,321 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:30,651 [INFO] Received upload request. Seq: 45, RSSI: -58, IP: 192.168.179.4
+2026-02-17 12:25:31,912 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:34,066 [INFO] Received upload request. Seq: 46, RSSI: -57, IP: 192.168.179.4
+2026-02-17 12:25:35,594 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:37,919 [INFO] Received upload request. Seq: 47, RSSI: -44, IP: 192.168.179.4
+2026-02-17 12:25:39,707 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:42,019 [INFO] Received upload request. Seq: 48, RSSI: -60, IP: 192.168.179.4
+2026-02-17 12:25:43,675 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:46,011 [INFO] Received upload request. Seq: 49, RSSI: -65, IP: 192.168.179.4
+2026-02-17 12:25:47,879 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:50,208 [INFO] Received upload request. Seq: 50, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:25:52,316 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:25:54,616 [INFO] Received upload request. Seq: 51, RSSI: -62, IP: 192.168.179.4
+2026-02-17 12:25:56,403 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:37,248 [INFO] Received upload request. Seq: 1, RSSI: -20, IP: 192.168.179.4
+2026-02-17 12:28:38,724 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:41,012 [INFO] Received upload request. Seq: 2, RSSI: -17, IP: 192.168.179.4
+2026-02-17 12:28:42,601 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:44,903 [INFO] Received upload request. Seq: 3, RSSI: -46, IP: 192.168.179.4
+2026-02-17 12:28:46,328 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:48,505 [INFO] Received upload request. Seq: 4, RSSI: -30, IP: 192.168.179.4
+2026-02-17 12:28:49,945 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:52,277 [INFO] Received upload request. Seq: 5, RSSI: -25, IP: 192.168.179.4
+2026-02-17 12:28:53,499 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:55,658 [INFO] Received upload request. Seq: 6, RSSI: -22, IP: 192.168.179.4
+2026-02-17 12:28:56,801 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:28:59,137 [INFO] Received upload request. Seq: 7, RSSI: -20, IP: 192.168.179.4
+2026-02-17 12:29:00,564 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:35:26,035 [INFO] Received upload request. Seq: 144, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:35:32,151 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:35:34,326 [INFO] Received upload request. Seq: 145, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:35:39,096 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:35:41,274 [INFO] Received upload request. Seq: 146, RSSI: -65, IP: 192.168.179.4
+2026-02-17 12:35:45,144 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:35:47,332 [INFO] Received upload request. Seq: 147, RSSI: -70, IP: 192.168.179.4
+2026-02-17 12:35:53,469 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:35:56,245 [INFO] Received upload request. Seq: 148, RSSI: -80, IP: 192.168.179.4
+2026-02-17 12:36:07,835 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:36:09,982 [INFO] Received upload request. Seq: 149, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:36:13,589 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:36:15,785 [INFO] Received upload request. Seq: 150, RSSI: -63, IP: 192.168.179.4
+2026-02-17 12:36:17,898 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:36:20,186 [INFO] Received upload request. Seq: 151, RSSI: -64, IP: 192.168.179.4
+2026-02-17 12:36:22,627 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:36:24,818 [INFO] Received upload request. Seq: 152, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:36:48,613 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:36:51,010 [INFO] Received upload request. Seq: 153, RSSI: -78, IP: 192.168.179.4
+2026-02-17 12:37:32,947 [INFO] Received upload request. Seq: 165, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:37:40,443 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:37:42,619 [INFO] Received upload request. Seq: 166, RSSI: -67, IP: 192.168.179.4
+2026-02-17 12:37:47,132 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:37:49,595 [INFO] Received upload request. Seq: 167, RSSI: -70, IP: 192.168.179.4
+2026-02-17 12:37:53,712 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:37:55,932 [INFO] Received upload request. Seq: 168, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:38:05,436 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:38:07,608 [INFO] Received upload request. Seq: 169, RSSI: -77, IP: 192.168.179.4
+2026-02-17 12:38:13,276 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:38:15,711 [INFO] Received upload request. Seq: 170, RSSI: -73, IP: 192.168.179.4
+2026-02-17 12:38:28,972 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:38:31,469 [INFO] Received upload request. Seq: 171, RSSI: -72, IP: 192.168.179.4
+2026-02-17 12:38:35,283 [INFO] Received 512000 bytes. Status: success
+2026-02-17 12:38:37,509 [INFO] Received upload request. Seq: 172, RSSI: -79, IP: 192.168.179.4
