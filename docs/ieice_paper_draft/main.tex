@@ -8,8 +8,9 @@
 %\usepackage[dvips]{graphicx}
 \usepackage[dvipdfmx]{graphicx,xcolor}
 \usepackage[fleqn]{amsmath}
-\usepackage{newtxtext}% 英数字フォントの設定を変更しないでください
-\usepackage[varg]{newtxmath}% % 英数字フォントの設定を変更しないでください
+%\usepackage{newtxtext}% 英数字フォントの設定を変更しないでください
+%\usepackage[varg]{newtxmath}% % 英数字フォントの設定を変更しないでください
+%\usepackage{mathptmx} %Fallback font package
 \usepackage{latexsym}
 \usepackage{url}
 %\usepackage{amssymb}
@@ -26,7 +27,7 @@
  \authorentry{松尾 大輔}{Daisuke Matsuo}{aff1}\MembershipNumber{}
  \authorentry{佐藤 真平}{Shimpei Sato}{aff1}\MembershipNumber{}
 }
-\affiliate[aff1]{信州大学工学部\\ 〒380-8553 長野県長野市若里4-17-1\\ E-mail: xxxx@gmail.com}{Faculty of Engineering, Shinshu University\\ 4-17-1 Wakasato, Nagano, 380-8553 Japan}
+\affiliate[aff1]{信州大学工学部\\ 〒380-8553 長野県長野市若里4-17-1\\ E-mail: 25w6039c@shinshu-u.ac.jp}{Faculty of Engineering, Shinshu University\\ 4-17-1 Wakasato, Nagano, 380-8553 Japan}
 %\paffiliate[]{}
 %\paffiliate[現在の所属ラベル]{和文所属}
 \jalcdoi{???????????}% ← このままにしておいてください
@@ -34,27 +35,28 @@
 \begin{document}
 \begin{abstract}
     %和文あらまし 500字以内
-    近年，野生鳥獣による農作物被害が深刻化しており，その対策としてICTを用いた監視システムの導入が進められている．
-    しかし，従来のPIRセンサを用いた自動撮影カメラ（トレイルカメラ）は，風による草木の揺れなどを誤検知し，大量の無駄な画像を撮影・送信するという課題を抱えている．
-    これにより，通信コストの増大や，撮影画像から対象動物を目視選別する人的労力が大きな障壁となっている．
+    近年，野生鳥獣による農作物被害が深刻化しており，動物の出現を検知し，撮影画像を即時に通知するトレイルカメラシステムの開発が進められている．
+    しかし，従来のシステムは初期導入費や通信費（ランニングコスト）が高価であるという課題に加え，風による草木の揺れ等に起因する誤検知（空撮影）が多く，撮影画像から対象動物を目視で選別する人的労力が大きな障壁となっている．
     本論文では，これらの課題を解決するため，階層的な処理構造を持つ低コスト通信型警戒システムを提案する．
-    本システムは，安価で省電力な複数のエッジカメラ（ESP32）と，高度な画像処理を行うエッジサーバ（Raspberry Pi），およびクラウドサーバから構成される．
-    エッジサーバにおいてYOLOv8を用いた物体検出を行い，動物が写っている画像のみを選別して送信することで，通信量の大幅な削減を実現する．
-    実フィールドにおける運用試験の結果，本システムは誤検知等による不要な画像の送信を約80\%削減し，従来システムと比較して通信コストおよび運用労力を大幅に抑制可能であることを実証した．
+    本システムは，安価な複数のエッジカメラ（ESP32），エッジサーバ（Raspberry Pi），およびクラウドサーバの3層から構成される．
+    エッジサーバにおいて撮影画像を集約し，YOLOv8を用いた物体検出により動物が写っている画像のみを選別してクラウドへ送信することで，必要な回線契約数と通信量の削減と人的労力の削減を実現する．
+    実証実験の結果，本システムは誤検知等による不要な画像の送信を約80\%削減し，従来システムと比較して通信コストおよび運用労力を大幅に抑制可能であることを示した．
 \end{abstract}
 \begin{keyword}
-    鳥獣害対策, 低コスト通信型警戒システム, エッジAI, ESP32, Raspberry Pi
+    鳥獣被害対策, トレイルカメラ, YOLOv8, ESP32, Raspberry Pi
 \end{keyword}
 \begin{eabstract}
-    %英文アブストラクト 100 words
-    This paper proposes a hierarchical edge AI system for power-efficient and high-precision wildlife monitoring to mitigate agricultural damage.
-    Conventional camera traps suffer from high false-positive rates due to environmental noise, leading to excessive communication costs and manual labor for image sorting.
-    To address these issues, we developed a system consisting of low-power ESP32-based edge cameras and a Raspberry Pi edge server.
-    The edge server filters images using YOLOv8-based object detection, transmitting only valid animal images to the cloud.
-    Field operational tests demonstrated that the proposed system reduces unnecessary image transmission by approximately 80\%, significantly lowering communication costs and improving operational efficiency.
+    In recent years, agricultural damage caused by wildlife has become a serious issue, leading to the development of trail camera systems that detect animal presence and immediately notify users.
+    However, conventional systems face challenges such as high initial and running costs, as well as frequent false positives (empty shots) caused by environmental factors like wind-blown vegetation.
+    These false positives create a significant barrier due to the manual labor required to sort images visually.
+    To address these issues, this paper proposes a low-cost, communication-based monitoring system with a hierarchical processing structure.
+    The system consists of three layers: multiple low-cost edge cameras (ESP32), an edge server (Raspberry Pi), and a cloud server.
+    The edge server aggregates images from cameras and filters them using YOLOv8-based object detection, transmitting only images containing animals to the cloud.
+    This approach reduces the number of required cellular contracts, data traffic, and manual labor.
+    Field experiments demonstrated that the proposed system reduces unnecessary image transmission by approximately 80\%, verifying its ability to significantly lower communication costs and operational workload compared to conventional systems.
 \end{eabstract}
 \begin{ekeyword}
-    Wildlife Monitoring, Edge AI, IoT, ESP32, Raspberry Pi
+    Wildlife Damage Control, Trail Camera, YOLOv8, ESP32, Raspberry Pi
 \end{ekeyword}
 \maketitle
 
@@ -63,18 +65,25 @@
 農林水産省の統計によると，令和6年度の野生鳥獣による農作物被害金額は180億円を超え，営農意欲の減退や耕作放棄地の拡大を招く要因となっている\cite{maff}．
 効果的な鳥獣害対策を講じるためには，対象動物の出没日時や場所，個体数などの生態情報を正確かつリアルタイムに把握することが不可欠である．
 
-従来，このようなモニタリングにはPIR（Passive Infrared Ray）センサを搭載した自動撮影カメラ（トレイルカメラ）が広く利用されてきた．
-しかし，市販のトレイルカメラには主に二つの課題が存在する．
-第一に，誤検知（False Positive）による弊害である．
-PIRセンサは温度変化を検知するため，風による草木の揺れや日射による地面の温度変化にも反応し，動物が写っていない空画像を大量に撮影してしまう．
-これにより，ユーザは数千枚に及ぶ撮影画像の中から対象動物が写っている画像を目視で選別する必要があり，多大な労力を要する．
-第二に，ランニングコストの問題である．
-リアルタイムな通知を行うためにLTE通信機能付きカメラを利用する場合，カメラ1台ごとに回線契約が必要となるため，広範囲を面でカバーしようとすると通信費が肥大化する．
+これまでの研究や現場でのモニタリングにおいては，PIR（Passive Infrared Ray）センサを搭載した自動撮影カメラ（トレイルカメラ）が広く利用されてきた．
+従来のトレイルカメラは通信機能を持たず, 撮影画像をSDカードに記録し，後に回収して確認するのが一般的であったが，近年ではTabakら\cite{Tabak2019}のように深層学習を用いて自動で動物種を識別する試みや，LTE通信機能を用いて撮影画像を即時にユーザへ通知するシステムも実用化されている．
 
-本論文では，これらの課題を解決するために，階層的な処理アーキテクチャを持つ低コスト通信型警戒システムを提案する．
-本システムは，安価なマイコンを用いた複数の撮影ノード（エッジカメラ）と，画像処理機能を持つ集約ノード（エッジサーバ），およびクラウドサーバを連携させる構成をとる．
-エッジサーバにおいて深層学習を用いたフィルタリング処理を行うことで，誤検知画像を送信前に破棄し，通信量とユーザの確認作業を大幅に削減する．
-また，エッジサーバが集約ゲートウェイとして機能することで，複数のカメラに対して一つの回線契約での運用を可能とし，システム全体の導入・維持コストを最小化する．
+しかし，既存の技術や市販のトレイルカメラには，未だ解決されていない大きな課題が存在する．
+第一に，空撮影による弊害である．
+PIRセンサは熱源の移動を検知するため，風による草木の揺れ等にも反応し，動物が写っていない空画像を大量に撮影してしまう．
+これにより，ユーザは膨大な撮影画像の中から対象動物が写っている画像を目視で選別する必要があり，多大な労力を要する．
+第二に，導入・運用コストの問題である．
+リアルタイムな通知を行うためにLTE通信機能付きカメラを利用する場合，カメラ自体の価格が高価であることに加え，カメラ1台ごとに回線契約が必要となる．
+そのため，広範囲を面的に監視しようとすると，初期導入コストおよびランニングコストが著しく増大し，一般の農家や自治体にとって導入の障壁となっている．
+
+本研究では，低コストかつ広範囲をカバーできる鳥獣監視システムの構築を目的とする．
+具体的には，安価なマイコンを用いた複数のエッジカメラと，高度な画像処理機能を持つエッジサーバ，およびクラウドサーバを階層的に連携させたシステムを提案する．
+本システムでは，エッジサーバにおいて画像を集約し，深層学習（YOLOv8）を用いたフィルタリングを行うことで，誤検知画像を送信前に破棄し，通信量とユーザの確認作業を大幅に削減する．
+また，エッジサーバが集約ゲートウェイとして機能することで，複数のカメラに対して一つの回線契約での運用を可能とし，システム全体のコストを最小化する．
+
+本論文の構成は以下の通りである．
+第2章では関連研究について述べ，第3章では提案システムの詳細について説明する．
+第4章では実フィールドにおける評価実験を行い，最後に第5章で本論文を締めくくる．
 
 \section{関連研究}
 野生動物モニタリングの効率化において，深層学習の適用は近年注目されているアプローチである．
@@ -107,7 +116,7 @@ Tabakら\cite{Tabak2019}は，大規模なカメラトラップ画像データ�
 
 \begin{figure}[tb]
     \centering
-    \framebox[80mm][c]{\rule{0pt}{50mm}System Configuration Diagram}
+    \includegraphics[width=\linewidth]{img/system_structure.png}
     \caption{提案システムの全体構成}
     \label{fig:system}
 \end{figure}
@@ -153,7 +162,7 @@ AWS等のクラウド環境上に構築されたサーバは，受信した画�
 
 \begin{figure}[tb]
     \centering
-    \framebox[80mm][c]{\rule{0pt}{50mm}Edge Camera Prototype}
+    \includegraphics[width=0.6\linewidth]{img/prototype_camera.jpeg}
     \caption{エッジカメラの試作機}
     \label{fig:camera}
 \end{figure}
@@ -177,7 +186,7 @@ AWS等のクラウド環境上に構築されたサーバは，受信した画�
         \multicolumn{3}{l}{\textbf{Edge Camera}}                          \\
         \hline
         Main Unit     & XIAO ESP32S3 Sense      & 240MHz, 8MB PSRAM       \\
-        Camera Module & OV2640                  & 1600$\times$1200        \\
+        Camera Module & OV5640                  & 2592$\times$1944        \\
         PIR Sensor    & Panasonic PaPIRs        & Detection range $\sim$5m \\
         Power Source  & AA Batteries $\times$ 8 & 6V / 12V Config         \\
         \hline \hline
@@ -191,23 +200,30 @@ AWS等のクラウド環境上に構築されたサーバは，受信した画�
 \end{table}
 
 \subsection{エッジカメラの消費電力評価}
-エッジカメラの持続可能性を評価するため，Deep Sleep時における消費電力を測定した（表\ref{tab:camera_power}）．
-Deep Sleep時の消費電力は0.000585Wと極めて低く抑えられており，これは待機時間が長くなる野生動物監視において非常に有利である．
+エッジカメラの各動作状態における消費電力を測定した（表\ref{tab:camera_power}）．
+電源電圧5.0Vにおいて，待機時の電流は114mA，起動時の最大ピーク電流は946mAであった．
+また，30秒間隔で連続動作させた場合の平均消費電流は約120mAとなった．
 
 \begin{table}[tb]
-    \caption{エッジカメラの消費電力測定結果}
+    \caption{エッジカメラの消費電力測定結果 (5.0V)}
     \label{tab:camera_power}
     \centering
-    \begin{tabular}{l|c|c|c}
+    \begin{tabular}{l|c|c}
         \hline
-        State        & Voltage (V) & Current (A) & Power (W) \\
+        State        & Current (mA) & Power (W) \\
         \hline \hline
-        Deep Sleep   & 5.0         & 0.000117    & 0.000585  \\
-        % Active (Avg) & 5.0         & XXX.X       & XXXX.X    \\
-        % Wi-Fi Tx     & 5.0         & XXX.X       & XXXX.X    \\
+        Standby      & 114          & 0.57      \\
+        Boot (Max)   & 946          & 4.73      \\
+        Wi-Fi Tx     & 250          & 1.25      \\
+        30s Interval & 120          & 0.60      \\
         \hline
     \end{tabular}
 \end{table}
+
+\subsection{エッジサーバの消費電力評価}
+エッジサーバ（Raspberry Pi 4B）についても同様に消費電力を測定した．
+電源電圧5.0Vにおいて，システム起動後の安定状態（アイドル時）における消費電流は405$\sim$410mAで推移し，平均消費電力は約2.05Wであった．
+なお，Raspberry Piの仕様上，安定駆動には3A以上の電源供給能力が推奨されているため，本システムではこの要件を満たす電源回路およびバッテリーを選定している．
 
 \subsection{エッジカメラ・サーバ間の通信性能}
 見通しの良い環境下において，エッジカメラとサーバ間の距離を変えながら通信安定性を評価した．
@@ -221,13 +237,13 @@ Deep Sleep時の消費電力は0.000585Wと極めて低く抑えられており�
     \caption{通信性能評価結果 (見通し環境)}
     \label{tab:comm_perf}
     \centering
-    \begin{tabular}{c|c|c}
+    \begin{tabular}{c|c}
         \hline
-        距離 (m) & RSSI (dBm) & 通信結果 \\
+        距離 (m) & RSSI (dBm) \\
         \hline \hline
-        $\approx$ 1 & -30 $\sim$ -35 & 成功 \\
-        $\approx$ 100 & -60 $\sim$ -65 & 成功 \\
-        $\approx$ 200 & -77 $\sim$ -80 & 成功 \\
+        $\approx$ 1 & -30 $\sim$ -35 \\
+        $\approx$ 100 & -60 $\sim$ -65 \\
+        $\approx$ 200 & -77 $\sim$ -80 \\
         \hline
     \end{tabular}
 \end{table}
@@ -291,6 +307,18 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 また，クラウド側での処理（受信からメール通知完了まで）には約11秒を要した．
 結果として，動物を検知してからユーザへの通知が完了するまでの合計所要時間は約36秒となり，鳥獣害対策において求められる即時性を一定水準で満たしていることを確認した．
 
+\subsection{導入コストの比較}
+本システムの有用性を検証するため，市販の鳥獣被害対策用LTEカメラ（従来機）と提案システムの導入コストを試算し比較した．
+試算条件として，広範囲を監視するために5地点にカメラを設置する場合を想定する．
+
+従来機は1台あたり約80,000円であり，5台導入する場合の初期費用は400,000円となる．また，各カメラにSIMカードが必要となるため，ランニングコストとして5回線分の通信費が発生する．
+
+一方，提案システムにおける機材費の内訳は，エッジカメラが1台あたり約8,000円，エッジサーバ本体が約14,000円，サーバ用電源システムが約33,000円，LTEルーターが約13,000円である．
+カメラ5台構成の場合，初期費用はカメラ5台分（40,000円）と，エッジサーバ・電源・ルーターの一式（60,000円）を合わせ，合計100,000円となる．
+これは従来機の導入コストと比較して約75\%の削減に相当する．
+さらに，通信契約はエッジサーバに接続されたルーターの1回線分のみで済むため，月々の通信費も5分の1に圧縮可能である．
+以上のことから，提案システムは導入・運用の両面において極めて高い経済的優位性を有しているといえる．
+
 \section{むすび}
 本論文では，鳥獣害対策の現場における通信コストと運用労力の削減を目的とし，エッジカメラとエッジサーバを階層的に組み合わせた低コスト通信型警戒システムを提案した．
 提案システムは，エッジサーバ上でのYOLOv8による推論を用いることで，PIRセンサ特有の誤検知によって生じる大量の不要画像を送信前に破棄することを可能にした．
@@ -301,7 +329,8 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 学習データの拡充や，サーマルカメラ等の異種センサとのフュージョンにより，見逃しを低減しつつ誤検知を抑制する手法を検討していく．
 
 \ack
-本研究の一部は，XXXXXの助成を受けて行われた．関係各位に感謝の意を表する．
+本研究を遂行するにあたり，有益な助言を頂いた信州大学の佐藤真平先生に深く感謝する．
+また，実証実験のフィールド提供および多大なる協力を頂いた長野県木曽町役場の関係各位に心より感謝の意を表する．
 
 \bibliographystyle{sieicej}
 \bibliography{refs}

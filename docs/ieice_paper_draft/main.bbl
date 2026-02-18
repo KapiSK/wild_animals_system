@@ -1,0 +1,53 @@
+\begin{thebibliography}{1}
+
+\bibitem{maff}
+農林水産省，
+``全国の野生鳥獣による農作物被害状況について（令和5年度）,''
+\url{https://www.maff.go.jp/j/press/nousin/tyozyu/241018.html}，2024．
+
+\bibitem{Tabak2019}
+M.A. Tabak, M.S. Norouzzadeh, D.W. Wolfson, S.J. Sweeney, K.C. VerCauteren,
+  N.P. Snow, J.M. Halseth, P.A. Di~Salvo, J.S. Lewis, M.D. White, B. Teton,
+  J.C. Beasley, P.E. Schlichting, R.K. Boughton, B. Wight, E.S. Newkirk, J.S.
+  Ivan, E.A. Odell, R.K. Brook, and R.S. Miller,
+``Machine learning to classify animal species in camera trap images:
+  Applications in ecology,''
+Methods in Ecology and Evolution,
+vol.10, no.4, pp.585--590, 2019.
+
+\bibitem{Fennell2022}
+M. Fennell, C. Beirne, and A.C. Burton,
+``Use of object detection in camera trap image identification: Assessing a
+  method to rapidly and accurately classify human and animal detections for
+  research and application in recreation ecology,''
+Global Ecology and Conservation,
+vol.35, p.e02104, 2022.
+
+\bibitem{Whytock2023}
+R.C. Whytock, J.-G. Sual, L.E. Pardo, H. Sterlin, D.J. Morgan, K. Abernethy, C.
+  Beirne, A.C. Burton, and N. Bunnefeld,
+``Real-time alerts from ai-enabled camera traps using the iridium satellite
+  network: A case-study in gabon, central africa,''
+Methods in Ecology and Evolution,
+vol.14, no.3, pp.823--830, 2023.
+
+\bibitem{Patkar2025}
+A. Patkar, P. Hole, and L. Salvi,
+``Real-time wildlife intrusion detection system using iot and yolov8,''
+Journal of Smart Sensors and Computing,
+vol.1, no.2, p.25209, 2025.
+
+\bibitem{Computers2025}
+M.A. Rahman, S. Giordano, and M. Pagano,
+``Smart wildlife monitoring: Real-time hybrid tracking using kalman filter and
+  local binary similarity matching on edge network,''
+Computers,
+vol.14, no.8, p.307, 2025.
+
+\bibitem{IEICE2020}
+H. Saito, T. Otake, H. Kato, M. Tokutake, S. Semba, Y. Tomioka, and Y. Kohira,
+``Battery-powered wild animal detection nodes with deep learning,''
+IEICE Trans.\ Commun.,
+vol.E103-B, no.12, pp.1394--1402, 2020.
+
+\end{thebibliography}
