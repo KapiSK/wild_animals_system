@@ -1,4 +1,4 @@
-This is e-upTeX, Version 3.141592653-p4.1.2-u2.00-250202-2.6 (utf8.uptex) (TeX Live 2025) (preloaded format=uplatex 2026.2.17)  18 FEB 2026 17:24
+This is e-upTeX, Version 3.141592653-p4.1.2-u2.00-250202-2.6 (utf8.uptex) (TeX Live 2025) (preloaded format=uplatex 2026.2.17)  19 FEB 2026 16:12
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -218,34 +218,34 @@ LaTeX Font Info:    Font shape `JT2/gt/m/n' will be
 LaTeX Font Info:    Font shape `JY2/mc/bx/n' in size <10> not available
 (Font)              Font shape `JY2/gt/m/n' tried instead on input line 36.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 6.73553pt on input line 60.
+(Font)              scaled to size 6.73553pt on input line 61.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 15.39551pt on input line 60.
+(Font)              scaled to size 15.39551pt on input line 61.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 11.54663pt on input line 60.
+(Font)              scaled to size 11.54663pt on input line 61.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 10.1033pt on input line 60.
-LaTeX Font Info:    Calculating math sizes for size <10.5> on input line 60.
+(Font)              scaled to size 10.1033pt on input line 61.
+LaTeX Font Info:    Calculating math sizes for size <10.5> on input line 61.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 10.53629pt on input line 62.
+(Font)              scaled to size 10.53629pt on input line 63.
 LaTeX Font Info:    Font shape `JT2/mc/bx/n' in size <10.95> not available
-(Font)              Font shape `JT2/gt/m/n' tried instead on input line 62.
+(Font)              Font shape `JT2/gt/m/n' tried instead on input line 63.
 LaTeX Font Info:    Font shape `JT2/gt/m/n' will be
-(Font)              scaled to size 10.53629pt on input line 62.
+(Font)              scaled to size 10.53629pt on input line 63.
 LaTeX Font Info:    Font shape `JY2/mc/bx/n' in size <10.95> not available
-(Font)              Font shape `JY2/gt/m/n' tried instead on input line 62.
+(Font)              Font shape `JY2/gt/m/n' tried instead on input line 63.
  [1
 
 
 ]
 LaTeX Font Info:    Font shape `JT2/mc/bx/n' in size <9> not available
-(Font)              Font shape `JT2/gt/m/n' tried instead on input line 99.
+(Font)              Font shape `JT2/gt/m/n' tried instead on input line 108.
 LaTeX Font Info:    Font shape `JT2/gt/m/n' will be
-(Font)              scaled to size 8.65997pt on input line 99.
+(Font)              scaled to size 8.65997pt on input line 108.
 LaTeX Font Info:    Font shape `JY2/mc/bx/n' in size <9> not available
-(Font)              Font shape `JY2/gt/m/n' tried instead on input line 99.
+(Font)              Font shape `JY2/gt/m/n' tried instead on input line 108.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 7.69775pt on input line 109.
+(Font)              scaled to size 7.69775pt on input line 118.
 File: img/system_structure.png Graphic file (type bmp)
 <img/system_structure.png>
 File: img/system_flow.png Graphic file (type bmp)
@@ -254,22 +254,24 @@ File: img/system_flow.png Graphic file (type bmp)
 File: img/prototype_camera.jpeg Graphic file (type bmp)
 <img/prototype_camera.jpeg>
 LaTeX Font Info:    Font shape `JT2/mc/bx/n' in size <8> not available
-(Font)              Font shape `JT2/gt/m/n' tried instead on input line 178.
+(Font)              Font shape `JT2/gt/m/n' tried instead on input line 193.
 LaTeX Font Info:    Font shape `JT2/gt/m/n' will be
-(Font)              scaled to size 7.69775pt on input line 178.
+(Font)              scaled to size 7.69775pt on input line 193.
 LaTeX Font Info:    Font shape `JY2/mc/bx/n' in size <8> not available
-(Font)              Font shape `JY2/gt/m/n' tried instead on input line 178.
+(Font)              Font shape `JY2/gt/m/n' tried instead on input line 193.
 
-Overfull \hbox (17.67993pt too wide) in paragraph at lines 174--192
+Overfull \hbox (46.82979pt too wide) in paragraph at lines 189--207
  [][][][] 
  []
 
 [3]
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 5.77332pt on input line 269.
+(Font)              scaled to size 5.77332pt on input line 284.
 LaTeX Font Info:    Font shape `JT2/mc/m/n' will be
-(Font)              scaled to size 4.8111pt on input line 269.
- [4] (./main.bbl) [5] (./main.aux)
+(Font)              scaled to size 4.8111pt on input line 284.
+ [4] (./main.bbl [5]) [6
+
+] (./main.aux)
  ***********
 pLaTeX2e <2023-02-14u04>+1, based on
 LaTeX2e <2025-11-01>
@@ -279,10 +281,10 @@ L3 programming layer <2026-01-19>
 Here is how much of TeX's memory you used:
  2753 strings out of 469642
  39904 string characters out of 5472156
- 474287 words of memory out of 5000000
+ 469287 words of memory out of 5000000
  31547 multiletter control sequences out of 15000+600000
  645796 words of font info for 130 fonts, out of 8000000 for 9000
  36 hyphenation exceptions out of 8191
- 57i,9n,65p,322b,390s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 57i,9n,65p,483b,390s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.dvi (5 pages, 39108 bytes).
+Output written on main.dvi (6 pages, 44512 bytes).

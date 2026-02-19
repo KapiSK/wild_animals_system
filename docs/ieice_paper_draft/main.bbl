@@ -15,14 +15,6 @@ M.A. Tabak, M.S. Norouzzadeh, D.W. Wolfson, S.J. Sweeney, K.C. VerCauteren,
 Methods in Ecology and Evolution,
 vol.10, no.4, pp.585--590, 2019.
 
-\bibitem{Fennell2022}
-M. Fennell, C. Beirne, and A.C. Burton,
-``Use of object detection in camera trap image identification: Assessing a
-  method to rapidly and accurately classify human and animal detections for
-  research and application in recreation ecology,''
-Global Ecology and Conservation,
-vol.35, p.e02104, 2022.
-
 \bibitem{Whytock2023}
 R.C. Whytock, J.-G. Sual, L.E. Pardo, H. Sterlin, D.J. Morgan, K. Abernethy, C.
   Beirne, A.C. Burton, and N. Bunnefeld,
@@ -36,6 +28,14 @@ A. Patkar, P. Hole, and L. Salvi,
 ``Real-time wildlife intrusion detection system using iot and yolov8,''
 Journal of Smart Sensors and Computing,
 vol.1, no.2, p.25209, 2025.
+
+\bibitem{Fennell2022}
+M. Fennell, C. Beirne, and A.C. Burton,
+``Use of object detection in camera trap image identification: Assessing a
+  method to rapidly and accurately classify human and animal detections for
+  research and application in recreation ecology,''
+Global Ecology and Conservation,
+vol.35, p.e02104, 2022.
 
 \bibitem{Computers2025}
 M.A. Rahman, S. Giordano, and M. Pagano,
