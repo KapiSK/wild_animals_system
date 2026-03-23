@@ -43,8 +43,10 @@
     しかし，従来のシステムは初期導入費や通信費（ランニングコスト）が高価であるという課題に加え，風による草木の揺れ等に起因する空撮影が多く，撮影画像から対象動物を目視で選別する人的労力が大きな障壁となっている．
     本論文では，これらの課題を解決するための，低コスト通信型警戒システムを提案する．
     本システムは，安価な複数のエッジカメラ（ESP32），エッジサーバ（Raspberry Pi），およびクラウドサーバの3層から構成される．
-    エッジサーバにおいて撮影画像を集約し，YOLOv8を用いた物体検出により動物が写っている画像のみを選別してクラウドへ送信することで，必要な回線契約数と通信量の削減と人的労力の削減を実現する．
-    実証実験の結果，本システムは空撮影による不要な画像の送信を約80\%削減し，従来システムと比較してコストおよび画像の選別にかかる労力を抑制できることを示す．
+    エッジサーバにおいて撮影画像を集約することで，必要な回線契約数を削減する．
+    さらに，YOLOv8を用いた物体検出により動物が写っている画像のみを選別してクラウドへ送信することで，通信量と人的労力を削減する．
+    実証実験の結果，本システムは空撮影による不要な画像の送信を約80\%削減する．
+    また，試算により従来システムと比較してコストが削減されることを示す．
 \end{abstract}
 \begin{keyword}
     鳥獣被害対策, トレイルカメラ, YOLOv8, ESP32, Raspberry Pi
@@ -55,9 +57,10 @@
     These false positives create a significant barrier due to the manual labor required to sort images visually.
     To address these issues, this paper proposes a low-cost, communication-based monitoring system.
     The system consists of three layers: multiple low-cost edge cameras (ESP32), an edge server (Raspberry Pi), and a cloud server.
-    The edge server aggregates images from cameras and filters them using YOLOv8-based object detection, transmitting only images containing animals to the cloud.
-    This approach reduces the number of required cellular contracts, data traffic, and manual labor.
-    Field experiments demonstrated that the proposed system reduces unnecessary image transmission by approximately 80\%, verifying its ability to lower costs and the workload associated with image sorting compared to conventional systems.
+    The edge server aggregates images from multiple cameras, reducing the number of required cellular contracts.
+    Furthermore, it filters images using YOLOv8-based object detection and transmits only those containing animals to the cloud, thereby reducing data traffic and manual labor.
+    Field experiments showed that the proposed system reduced unnecessary image transmission by approximately 80\%.
+    Additionally, cost estimation showed that the system reduces costs compared to conventional systems.
 \end{eabstract}
 \begin{ekeyword}
     Wildlife Damage Control, Trail Camera, YOLOv8, ESP32, Raspberry Pi
@@ -91,7 +94,7 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
 第4章では提案システムの実験評価を行い，第5章で実験結果に対する考察を述べる．最後に第6章で本論文を締めくくる．
 
 \section{関連研究}
-野生動物モニタリングの効率化において，深層学習の適用は近年注目されているアプローチである． Tabakら\cite{Tabak2019}は，大規模なカメラトラップ画像データセットを用いてCNN（Convolutional Neural Networks）モデルを学習させ，98\%以上の精度で動物種の自動識別が可能であることを示した． また，Fennellら\cite{Fennell2022}は，物体検出モデル（MegaDetector）の検証において，動物の見逃しを最小限に抑える能力が高く，動物画像に対して高い精度で検出が可能であることを実証している． 
+野生動物モニタリングの効率化において，深層学習の適用は近年注目されているアプローチである． Tabakら\cite{Tabak2019}は，大規模なカメラトラップ画像データセットを用いてCNN（Convolutional Neural Networks）モデルを学習させ，98\%以上の精度で動物種の自動識別が可能であることを示した． また，Fennellら\cite{Fennell2022}は，物体検出モデル（MegaDetector\cite{Beery2019}）の検証において，動物の見逃しを最小限に抑える能力が高く，動物画像に対して高い精度で検出が可能であることを実証している．
 リアルタイム性を重視した研究として，Whytockら\cite{Whytock2023}は衛星通信を利用した即時アラートシステムを開発したが，通信コストが極めて高く，一般の農家や自治体が広範囲に導入するには障壁が高い． エッジデバイス上で推論を行う試みとして，Patkarら\cite{Patkar2025}やRahmanら\cite{Computers2025}はRaspberry Pi等のシングルボードコンピュータを用いた高性能な監視システムを提案している． 特にPatkarらの研究では，エッジ側でYOLOv8nを用いた空撮影画像の除去が行われており，Raspberry Piのような安価なシングルボードコンピュータ上でも高速な推論が可能であることが示されている． しかし，これらのデバイスは消費電力が比較的大きく，商用電源が得られない山間部等での長期運用には，大型のバッテリーやソーラーパネルが必要となり，機材コストと設置の難易度を増大させる．
 省電力化のアプローチとして，Saitoら\cite{IEICE2020}は省電力マイコンと高性能なシングルボードコンピュータ（Raspberry Pi）を組み合わせた階層的な制御手法を提案し，待機電力を削減するノード構築の可能性を示した． また，Sembaら\cite{SMC2024}はPTZカメラと深層学習を用いた自動追跡デバイスを開発している． しかし，彼らの研究は単体ノードでの検証に留まり，複数ノードの連携や，実際のフィールド環境における通信網の構築，および環境ノイズによる空撮影画像の実践的なフィルタリング効果については十分に検証されていない．
 
@@ -171,12 +174,18 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
 \end{figure}
 
 \section{実験結果}
-本章では，提案システムの実用性を検証するために行った以下の3つの実験について述べる．
-1) 各ノードの稼働時における消費電力の測定，2) 見通しの良い屋外環境における通信性能の評価，および 3) 長野県木曽町で収集したデータセットを用いたAI検知精度の検証である．
-
+本章では，提案システムの実用性を検証するために行った以下の4つの実験について述べる．
+\begin{enumerate}
+    \item 各ノードの稼働時における消費電力の測定
+    \item 見通しの良い屋外環境における通信性能の評価
+    \item 長野県木曽町で収集したデータセットを用いたAI精度の検証
+    \item システム処理時間の計測
+\end{enumerate}
+以上に加え，コストの試算も行う．
 \subsection{実験環境とパラメータ}
 実験に使用した機材構成は表\ref{tab:components}の通りである．
 エッジカメラとエッジサーバの通信テストは，晴天時の見通しの良い屋外環境で実施する．
+
 \begin{table}[tb]
     \caption{システム構成部品}
     \label{tab:components}
@@ -184,20 +193,20 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
     \footnotesize
     \begin{tabular}{l|l|l}
         \hline
-        構成要素     & モデル                   & 仕様           \\
+        構成要素     & モデル                   & 仕様                      \\
         \hline \hline
-        \multicolumn{3}{l}{\textbf{エッジカメラ}}                          \\
+        \multicolumn{3}{l}{\textbf{エッジカメラ}}                        \\
         \hline
-        メインユニット     & XIAO ESP32S3 Sense      & 8MB PSRAM, 2.4GHz Wi-Fi       \\
-        カメラモジュール & OV5640                  & 2592$\times$1944        \\
-        PIRセンサ    & Panasonic PaPIRs        & 検知範囲 $\sim$14m \\
-        電源  & 単3電池 $\times$ 8 & 6V         \\
+        メインユニット  & XIAO ESP32S3 Sense    & 8MB PSRAM, 2.4GHz Wi-Fi \\
+        カメラモジュール & OV5640                & 2592$\times$1944        \\
+        PIRセンサ   & Panasonic PaPIRs      & 検知範囲 $\sim$14m          \\
+        電源       & 単3電池 $\times$ 8       & 6V                      \\
         \hline \hline
-        \multicolumn{3}{l}{\textbf{エッジサーバ}}                          \\
+        \multicolumn{3}{l}{\textbf{エッジサーバ}}                        \\
         \hline
-        メインユニット     & Raspberry Pi 4B         & 4GB RAM                 \\
-        電源   & Hyke Solar Power Pack   & 10W 25Ah \\
-        通信モジュール  & NEC Aterm HT100LN       & LTEルーター              \\
+        メインユニット  & Raspberry Pi 4B       & 4GB RAM                 \\
+        電源       & Hyke Solar Power Pack & 10W 25Ah                \\
+        通信モジュール  & NEC Aterm HT100LN     & LTEルーター                 \\
         \hline
     \end{tabular}
 \end{table}
@@ -212,11 +221,11 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
     \centering
     \begin{tabular}{l|r|r}
         \hline
-        動作状態        & 消費電流 (mA) & 消費電力 (W) \\
+        動作状態     & 消費電流 (mA) & 消費電力 (W) \\
         \hline \hline
-        待機時      & 114          & 0.57      \\
-        起動時 (最大)   & 946          & 4.73      \\
-        Wi-Fi送信時     & 250          & 1.25      \\
+        待機時      & 114       & 0.57     \\
+        起動時 (最大) & 946       & 4.73     \\
+        Wi-Fi送信時 & 250       & 1.25     \\
         \hline
     \end{tabular}
 \end{table}
@@ -231,7 +240,7 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
 表\ref{tab:comm_perf}に実験結果を示す．
 近距離（約1m）ではRSSI -30$\sim$-35dBm程度で安定して推移する．
 距離を100mとした場合，RSSIは-60$\sim$-65dBm程度となり，最大距離である200m地点においては-77$\sim$-80dBmまで低下する．
-しかし，いずれの条件下においてもコネクションの確立および画像の転送は問題なく完了することを確認できる．
+距離100mまではコネクションの確立及び画像転送は問題なく完了するが、200m地点に近づくと、RSSIが-75dBm未満になり、明らかな遅延や通信不安定が発生する.
 
 \begin{table}[tb]
     \caption{通信性能評価結果 (見通し環境)}
@@ -239,9 +248,9 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
     \centering
     \begin{tabular}{c|c}
         \hline
-        距離 (m) & RSSI (dBm) \\
+        距離 (m)        & RSSI (dBm)     \\
         \hline \hline
-        $\approx$ 1 & -30 $\sim$ -35 \\
+        $\approx$ 1   & -30 $\sim$ -35 \\
         $\approx$ 100 & -60 $\sim$ -65 \\
         $\approx$ 200 & -77 $\sim$ -80 \\
         \hline
@@ -249,36 +258,42 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
 \end{table}
 
 \subsection{エッジサーバによるフィルタリング効果}
-エッジサーバ上のYOLOv8による動物検知精度と，それによる通信量削減効果を評価する．
+エッジサーバ上のYOLOv8による物体検出精度と，それによる通信量削減効果を評価する．
 木曽町にて2025年6月から11月に取得された画像について，高精度モデル（MegaDetector）による判定を正解ラベル（Ground Truth）として，エッジサーバの判定精度を算出する（表\ref{tab:ai_accuracy_night}, \ref{tab:ai_accuracy_day}）．
-ここで，適合率（Precision）はAIが「動物あり」と判定した画像のうち実際に動物が含まれていた割合を，再現率（Recall）は実際に動物が含まれている画像のうちAIが正しく検知できた割合を表す．
+ここで，適合率(Precision)はAIが「動物あり」と判定した画像のうち実際に動物が含まれていた割合を，再現率(Recall)は実際に動物が含まれている画像のうちAIが正しく検出できた割合を表す．
 
 \begin{table}[tb]
-    \caption{AI検知精度 (夜間, 閾値: 0.05)}
+    \caption{AI検出精度 (夜間, 閾値: 0.05)}
     \label{tab:ai_accuracy_night}
     \centering
     \begin{tabular}{cl|rr}
         \hline
-         & & \multicolumn{2}{c}{YOLOv8n} \\
-         & & \multicolumn{1}{c}{Positive} & \multicolumn{1}{c}{Negative} \\
+                                                  &                            & \multicolumn{2}{c}{YOLOv8n}                                 \\
+                                                  &                            & \multicolumn{1}{c}{Positive} & \multicolumn{1}{c}{Negative} \\
         \hline \hline
-        \raisebox{-1.5em}{\rotatebox{90}{MD}} & True & \textbf{104} (TP) & 48 (FN) \\
-         & False & 28 (FP)  & \textbf{88} (TN) \\
+        \raisebox{-1.5em}{\rotatebox{90}{GT(MD)}} & True                       & \textbf{104} (TP)            & 48 (FN)                      \\
+                                                  & False                      & 28 (FP)                      & \textbf{88} (TN)             \\
+        \hline
+        \multicolumn{2}{c|}{Precision}            & \multicolumn{2}{c}{78.8\%}                                                               \\
+        \multicolumn{2}{c|}{Recall}               & \multicolumn{2}{c}{68.4\%}                                                               \\
         \hline
     \end{tabular}
 \end{table}
 
 \begin{table}[tb]
-    \caption{AI検知精度 (昼間, 閾値: 0.05)}
+    \caption{AI検出精度 (昼間, 閾値: 0.05)}
     \label{tab:ai_accuracy_day}
     \centering
     \begin{tabular}{cl|rr}
         \hline
-         & & \multicolumn{2}{c}{YOLOv8n} \\
-         & & \multicolumn{1}{c}{Positive} & \multicolumn{1}{c}{Negative} \\
+                                                  &                            & \multicolumn{2}{c}{YOLOv8n}                                 \\
+                                                  &                            & \multicolumn{1}{c}{Positive} & \multicolumn{1}{c}{Negative} \\
         \hline \hline
-        \raisebox{-1.5em}{\rotatebox{90}{MD}} & True & \textbf{195} (TP) & 13 (FN) \\
-         & False & 73 (FP)  & \textbf{1,147} (TN) \\
+        \raisebox{-1.5em}{\rotatebox{90}{GT(MD)}} & True                       & \textbf{195} (TP)            & 13 (FN)                      \\
+                                                  & False                      & 73 (FP)                      & \textbf{1,147} (TN)          \\
+        \hline
+        \multicolumn{2}{c|}{Precision}            & \multicolumn{2}{c}{72.8\%}                                                               \\
+        \multicolumn{2}{c|}{Recall}               & \multicolumn{2}{c}{93.8\%}                                                               \\
         \hline
     \end{tabular}
 \end{table}
@@ -286,7 +301,7 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
 表\ref{tab:comm_reduction}に通信削減率を示す．ここで通信削減率は，全トリガー数（PIRセンサが反応した回数）に対し，サーバが「送信不要（動物なし）」と判断し，送信しない画像の割合を示す．
 
 \begin{equation}
-    \text{通信削減率} = \left( 1 - \frac{\text{送信サイクル数}}{\text{全検知サイクル数}} \right) \times 100
+    \text{通信削減率} = \left( 1 - \frac{\text{送信サイクル回数}}{\text{全サイクル回数}} \right) \times 100
 \end{equation}
 
 \begin{table}[tb]
@@ -295,22 +310,24 @@ PIRセンサは熱源の移動を検知するため，風による草木の揺�
     \centering
     \begin{tabular}{l|r|r}
         \hline
-        項目                   & 夜間 & 昼間  \\
+        項目       & 夜間   & 昼間    \\
         \hline \hline
-        全検知回数 & 268   & 1,428 \\
-        送信回数     & 132   & 268  \\
-        削減率 (\%)    & 50.7  & 81.2 \\
+        全検出回数    & 268  & 1,428 \\
+        送信回数     & 132  & 268   \\
+        削減率 (\%) & 50.7 & 81.2  \\
         \hline
     \end{tabular}
 \end{table}
 
 結果として，昼間において，再現率93.8\%，適合率72.8\%で，約81.2\%という通信削減率を達成する．
+
+\subsection{システム全体の処理時間}
 RSSI -35dBm程度の良好な通信環境において，システム全体の処理時間を計測する．
 エッジ側（カメラ撮影からエッジサーバでの送信処理完了まで）の処理時間は約33秒（カメラ処理約20秒，エッジサーバ処理約13秒の合計）である．
-また，クラウド側での処理（受信からメール通知完了まで）には約11秒を要する．
+クラウド側での処理（受信からメール通知完了まで）には約11秒を要する．
 結果として，動物を検知してからユーザへのメール通知が確定するまでの合計所要時間は約44秒である．
 
-\subsection{導入コストの比較}
+\subsection{コスト試算}
 本システムの有用性を検証するため，市販の鳥獣被害対策用LTEカメラ（従来機）と提案システムの導入コストを試算し比較する．
 試算条件として，広範囲を監視するために5地点にカメラを設置する場合を想定する．
 
@@ -333,11 +350,12 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 鳥獣害対策においては見逃しを防ぐことも重要であるため，モデル学習や画像処理などで夜間画像に対しても再現率を向上させる必要がある．
 
 \subsection{システムの実用性とコスト優位性}
-通信性能の実験結果より，見通し環境下では100mの距離でも安定した通信が可能である．
+通信性能の実験結果より，見通し環境下では100m以内の距離であれば安定した通信が可能である．
 これは，一般的な農地やある程度開けた山林環境において，システムが十分なエリアカバー能力を有していることを示唆する．
 また，システム全体の遅延は約44秒であり，鳥獣害対策において求められる即時性を一定水準で満たしている．
-コスト面に関しては，導入コストで計算上最大75\%の削減が可能であり，ランニングコストも大幅に削減できる．
-これらにより，本システムは低コストかつ広範囲な展開が可能であり，実用性の高い監視網を構築できるといえる．
+コスト面に関しては，5台設置する場合の試算において最大約75\%の初期コスト削減が可能であり，ランニングコストも大幅に削減できることを示した．
+エッジカメラの台数を増やすことで，1台あたりのコスト削減効果はさらに高まると期待できる．
+これらにより，本システムは費用対効果が高く，広範囲な監視網を構築できるといえる．
 
 \subsection{エネルギー持続性と運用負荷}
 エッジカメラの待機電力は0.57W（114mA）であり，乾電池8本による数ヶ月の長期間駆動は見込めない．
@@ -355,7 +373,7 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 一方で，長期運用に向けた課題も明らかとなった．
 エッジカメラに関しては，Deep Sleep時の待機電力削減だけでは不十分であり，カメラモジュールへの給電制御を含むハードウェアの改良が不可欠である．
 また，エッジサーバについても，LTEルーターを含む消費電力を現状の電源構成では賄いきれず，持続的な稼働が困難であった．
-今後は，夜間の検知精度向上に向けたAIモデルの改善に加え，より大型の電源システムの導入や間欠動作の採用など，エッジノード側全体のエネルギー持続性を高めるための改良に取り組む予定である．
+今後は，夜間の検出精度向上に向けたAIモデルの改善に加え，より大型の電源システムの導入や間欠動作の採用など，エッジノード側全体のエネルギー持続性を高めるための改良に取り組む予定である．
 さらに，監視エリアの拡大と障害物が多い環境での通信安定性確保に向けたLPWA (Low Power Wide Area) 通信の導入や，エッジ側のAIモデルの転移学習による削減率と再現率の向上，収集データの付加価値を高めるクラウド側での動物種判別機能の実装，およびユーザが任意に撮影リクエストやデータ閲覧を行えるWebインターフェースの構築など，システムの実用性と利便性を高める機能拡充も進めていく．
 
 \ack
