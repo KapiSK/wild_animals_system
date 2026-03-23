@@ -6,6 +6,8 @@ import logging
 import re
 from collections import defaultdict
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import aiofiles
 import httpx
@@ -40,6 +42,10 @@ logger = logging.getLogger(__name__)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI()
+
+# Mount the static directory to serve images
+app.mount("/images", StaticFiles(directory=UPLOAD_DIR), name="images")
+
 detector = Detector()
 
 # Semaphore to limit concurrent inference
@@ -370,3 +376,103 @@ async def upload_esp_log(request: Request):
     except Exception as e:
         logger.error(f"Failed to save ESP log: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/api/images")
+async def get_images():
+    """
+    Return a list of images in the upload directory, sorted by newest first.
+    """
+    try:
+        files = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+        # Sort by modification time descending (newest first)
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
+        return {"status": "ok", "images": files}
+    except Exception as e:
+        logger.error(f"Failed to get image list: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/gallery", response_class=HTMLResponse)
+async def gallery():
+    """
+    Serve a simple HTML page to view the uploaded images.
+    """
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Edge Server Gallery</title>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+            body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
+            h1 { text-align: center; color: #1c4532; margin-bottom: 10px; font-weight: 600; letter-spacing: -0.5px; font-size: 2.2rem; }
+            h2 { color: #276749; font-weight: 500; font-size: 1.2rem; margin-bottom: 20px; text-align: center; }
+            .header-accent { display: block; width: 60px; height: 4px; background: #38a169; margin: 0 auto 40px auto; border-radius: 2px; }
+            .latest-container { margin: 0 auto 50px auto; max-width: 900px; text-align: center; }
+            .latest-item { background: #ffffff; border-radius: 16px; box-shadow: 0 20px 40px rgba(39, 103, 73, 0.08); overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; border: 1px solid #e2e8f0; transition: transform 0.3s ease, box-shadow 0.3s ease; }
+            .latest-item:hover { transform: translateY(-5px); box-shadow: 0 25px 50px rgba(39, 103, 73, 0.12); }
+            .latest-item img { width: 100%; max-height: 550px; object-fit: contain; cursor: pointer; background: #f8fafc; border-bottom: 1px solid #edf2f7; }
+            .latest-item span { padding: 18px; font-size: 15px; color: #4a5568; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; }
+            .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+            .item { background: #ffffff; border-radius: 14px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025); overflow: hidden; display: flex; flex-direction: column; align-items: center; transition: all 0.3s ease; border: 1px solid #edf2f7; }
+            .item:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(39, 103, 73, 0.1), 0 10px 10px -5px rgba(39, 103, 73, 0.04); border-color: #c6f6d5; }
+            .item .img-wrapper { width: 100%; height: 220px; overflow: hidden; background: #edf2f7; cursor: pointer; }
+            .item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
+            .item img:hover { transform: scale(1.05); }
+            .item span { padding: 16px 12px; font-size: 13px; color: #718096; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; text-align: center; }
+            .empty-msg { text-align: center; color: #718096; font-size: 16px; margin-top: 50px; font-weight: 500; }
+        </style>
+    </head>
+    <body>
+        <h1>Edge Server Gallery</h1>
+        <div class="header-accent"></div>
+        <div class="gallery" id="gallery"></div>
+        <script>
+            fetch('/api/images')
+                .then(response => response.json())
+                .then(data => {
+                    const gallery = document.getElementById('gallery');
+                    if (data.status === 'ok' && data.images && data.images.length > 0) {
+                        const images = data.images;
+                        const latestImg = images[0];
+                        
+                        let html = `
+                            <div class="latest-container">
+                                <h2>Latest Capture</h2>
+                                <div class="latest-item">
+                                    <img src="/images/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                    <span>${latestImg}</span>
+                                </div>
+                            </div>
+                        `;
+                        
+                        if (images.length > 1) {
+                            html += '<div class="gallery">';
+                            for (let i = 1; i < images.length; i++) {
+                                html += `
+                                    <div class="item">
+                                        <div class="img-wrapper" onclick="window.open('/images/${images[i]}', '_blank')">
+                                            <img src="/images/${images[i]}" title="クリックしてフルサイズの画像を表示">
+                                        </div>
+                                        <span>${images[i]}</span>
+                                    </div>
+                                `;
+                            }
+                            html += '</div>';
+                        }
+                        
+                        // Replace the empty gallery div entirely
+                        gallery.outerHTML = html;
+                    } else {
+                        gallery.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('gallery').innerHTML = '<div class="empty-msg" style="color:#e53e3e;">エラーが発生しました: ' + err.message + '</div>';
+                });
+        </script>
+    </body>
+    </html>
+    """
+    return html_content

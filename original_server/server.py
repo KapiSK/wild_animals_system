@@ -4,6 +4,8 @@ import smtplib
 from email.message import EmailMessage
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import yolov5
 import cv2
@@ -44,6 +46,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Mount the static directories to serve images
+app.mount("/images/raw", StaticFiles(directory=UPLOAD_DIR), name="raw_images")
+app.mount("/images/processed", StaticFiles(directory=PROCESSED_DIR), name="processed_images")
 
 def download_model_if_needed():
     """Download MegaDetector model if not present."""
@@ -375,6 +381,134 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     except Exception as e:
         logger.error(f"Failed to save image: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/api/images")
+async def get_images():
+    """
+    Return a list of raw and processed images.
+    """
+    try:
+        raw_files = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+        raw_files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
+        
+        proc_files = [f for f in os.listdir(PROCESSED_DIR) if os.path.isfile(os.path.join(PROCESSED_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+        proc_files.sort(key=lambda x: os.path.getmtime(os.path.join(PROCESSED_DIR, x)), reverse=True)
+        
+        return {"status": "ok", "raw": raw_files, "processed": proc_files}
+    except Exception as e:
+        logger.error(f"Failed to get image list: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/gallery", response_class=HTMLResponse)
+async def gallery():
+    """
+    Serve a simple HTML page to view raw and processed images.
+    """
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Cloud Server Gallery</title>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+            body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
+            h1 { text-align: center; color: #1c4532; margin-bottom: 10px; font-weight: 600; letter-spacing: -0.5px; font-size: 2.2rem; }
+            h2 { color: #276749; font-weight: 500; font-size: 1.2rem; margin-bottom: 20px; text-align: center; }
+            .header-accent { display: block; width: 60px; height: 4px; background: #38a169; margin: 0 auto 30px auto; border-radius: 2px; }
+            .tabs { display: flex; justify-content: center; margin-bottom: 40px; gap: 12px; }
+            .tab { padding: 12px 24px; background: #e2e8f0; color: #4a5568; border: none; cursor: pointer; font-size: 15px; font-weight: 500; border-radius: 30px; transition: all 0.2s ease; }
+            .tab:hover { background: #cbd5e0; }
+            .tab.active { background: #2f855a; color: white; box-shadow: 0 4px 6px rgba(47, 133, 90, 0.2); }
+            .gallery-container { display: none; margin: 0 auto; max-width: 1200px; padding-bottom: 60px; }
+            .gallery-container.active { display: block; }
+            .latest-container { margin: 0 auto 50px auto; max-width: 900px; text-align: center; }
+            .latest-item { background: #ffffff; border-radius: 16px; box-shadow: 0 20px 40px rgba(39, 103, 73, 0.08); overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; border: 1px solid #e2e8f0; transition: transform 0.3s ease, box-shadow 0.3s ease; }
+            .latest-item:hover { transform: translateY(-5px); box-shadow: 0 25px 50px rgba(39, 103, 73, 0.12); }
+            .latest-item img { width: 100%; max-height: 550px; object-fit: contain; cursor: pointer; background: #f8fafc; border-bottom: 1px solid #edf2f7; }
+            .latest-item span { padding: 18px; font-size: 15px; color: #4a5568; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; }
+            .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; padding: 0 20px; }
+            .item { background: #ffffff; border-radius: 14px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025); overflow: hidden; display: flex; flex-direction: column; align-items: center; transition: all 0.3s ease; border: 1px solid #edf2f7; }
+            .item:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(39, 103, 73, 0.1), 0 10px 10px -5px rgba(39, 103, 73, 0.04); border-color: #c6f6d5; }
+            .item .img-wrapper { width: 100%; height: 220px; overflow: hidden; background: #edf2f7; cursor: pointer; }
+            .item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
+            .item img:hover { transform: scale(1.05); }
+            .item span { padding: 16px 12px; font-size: 13px; color: #718096; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; text-align: center; }
+            .empty-msg { text-align: center; color: #718096; font-size: 16px; margin-top: 50px; font-weight: 500; }
+        </style>
+    </head>
+    <body>
+        <h1>Cloud Server Gallery</h1>
+        <div class="header-accent"></div>
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('processed')">処理済み画像 (Processed)</button>
+            <button class="tab" onclick="showTab('raw')">元画像 (Raw)</button>
+        </div>
+        
+        <div class="gallery-container active" id="gallery-processed"></div>
+        <div class="gallery-container" id="gallery-raw"></div>
+        
+        <script>
+            function showTab(type) {
+                document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.gallery-container').forEach(el => el.classList.remove('active'));
+                event.target.classList.add('active');
+                document.getElementById('gallery-' + type).classList.add('active');
+            }
+
+            function renderGallery(containerId, images, basePath) {
+                const container = document.getElementById(containerId);
+                if (images && images.length > 0) {
+                    const latestImg = images[0];
+                    let html = `
+                        <div class="latest-container">
+                            <h2>Latest Capture</h2>
+                            <div class="latest-item">
+                                <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                <span>${latestImg}</span>
+                            </div>
+                        </div>
+                    `;
+
+                    if (images.length > 1) {
+                        html += '<div class="gallery-grid">';
+                        for (let i = 1; i < images.length; i++) {
+                            html += `
+                                <div class="item">
+                                    <div class="img-wrapper" onclick="window.open('${basePath}/${images[i]}', '_blank')">
+                                        <img src="${basePath}/${images[i]}" title="クリックしてフルサイズの画像を表示">
+                                    </div>
+                                    <span>${images[i]}</span>
+                                </div>
+                            `;
+                        }
+                        html += '</div>';
+                    }
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
+                }
+            }
+
+            fetch('/api/images')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        renderGallery('gallery-processed', data.processed, '/images/processed');
+                        renderGallery('gallery-raw', data.raw, '/images/raw');
+                    } else {
+                        document.body.innerHTML += '<div class="empty-msg" style="color:#e53e3e;">エラー: ' + data.message + '</div>';
+                    }
+                })
+                .catch(err => {
+                    document.body.innerHTML += '<div class="empty-msg" style="color:#e53e3e;">リクエストエラー: ' + err.message + '</div>';
+                });
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
 
 if __name__ == "__main__":
     import uvicorn
