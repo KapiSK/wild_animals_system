@@ -979,8 +979,11 @@ static void uploadPendingData() {
         status::setLed(status::LedState::BLINK_FAST);
 
         bool ok1 = uploadFile(net::PI_UPLOAD_URL, p1, "image/jpeg", cid, 1);
+        delay(1000); // 電圧降下(Brownout)対策: 次の送信まで待機してバッテリー電圧を回復させる
         bool ok2 = uploadFile(net::PI_UPLOAD_URL, p2, "image/jpeg", cid, 2);
+        delay(1000);
         bool ok3 = uploadFile(net::PI_UPLOAD_URL, p3, "image/jpeg", cid, 3);
+        delay(500);
         bool okLog = uploadFile(net::PI_ESPLOG_URL, pLog, "text/plain", cid, 0);
 
         status::setLed(status::LedState::ON);
