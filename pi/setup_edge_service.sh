@@ -22,7 +22,7 @@ echo "Base Directory: $SCRIPT_DIR"
 # OpenCVなどに必要なライブラリを含める
 echo "Installing system dependencies..."
 sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv libgl1-mesa-glx libglib2.0-0 git
+sudo apt-get install -y python3-pip python3-venv libgl1 libglib2.0-0 git
 
 # 2. 仮想環境の作成
 if [ ! -d "$VENV_DIR" ]; then
