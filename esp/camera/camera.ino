@@ -93,7 +93,7 @@ namespace net {
   constexpr char WIFI_SSID[]    = "SLAB-g";       // Your Wi-Fi Network Name
   constexpr char WIFI_PASS[]    = "wakaW1sat0";   // Your Wi-Fi Password
   constexpr uint32_t WIFI_TIMEOUT = 30000;        // Wi-Fi connection attempt timeout (ms)
-  constexpr char PI_MDNS_HOST[] = "edge";    // mDNS hostname of your Pi server (e.g., "edge.local")
+  constexpr char PI_MDNS_HOST[] = "edge-ex";    // mDNS hostname of your Pi server (e.g., "edge.local")
 
   // These will be populated after mDNS resolution
   String PI_HOST;                                 // Base URL (e.g., "http://192.168.1.10:5000")
@@ -1047,8 +1047,8 @@ namespace daynight {
     constexpr bool LED_ON_AT_NIGHT = true; // Turn flash ON at night
     constexpr bool LED_ON_AT_DAY   = false; // Turn flash OFF during day
     enum class Dir { FWD, REV, STOP };     // Motor direction states
-    constexpr Dir MOTOR_DIR_NIGHT = Dir::FWD; // Motor direction at night
-    constexpr Dir MOTOR_DIR_DAY   = Dir::REV; // Motor direction during day
+    constexpr Dir MOTOR_DIR_NIGHT = Dir::REV; // Motor direction at night
+    constexpr Dir MOTOR_DIR_DAY   = Dir::FWD; // Motor direction during day
 }
 
 // --- Motor Control Functions ---

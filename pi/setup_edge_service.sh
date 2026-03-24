@@ -9,8 +9,8 @@ USER_NAME=$USER
 # スクリプトがあるディレクトリを起点にする
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 VENV_DIR="$SCRIPT_DIR/venv"
-# Uvicornのパス (venv内)
-UVICORN_EXEC="$VENV_DIR/bin/uvicorn"
+# Pythonのパス (venv内)
+PYTHON_EXEC="$VENV_DIR/bin/python"
 
 echo "=== Wild Animal Edge Server Setup ==="
 echo "Service Name: $SERVICE_NAME"
@@ -55,7 +55,7 @@ WorkingDirectory=$SCRIPT_DIR
 Environment="PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin"
 # ポート8000で起動 (外部サーバーとポートが被る場合は注意が必要だがPi単体動作ならOK)
 # 外部公開用に --host 0.0.0.0 を指定
-ExecStart=$UVICORN_EXEC main:app --host 0.0.0.0 --port 8000
+ExecStart=$PYTHON_EXEC -m uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 
