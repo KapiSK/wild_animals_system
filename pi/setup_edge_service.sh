@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Edge Server (Pi) Service Setup Script
 # Works on Raspberry Pi OS / Debian / Ubuntu
