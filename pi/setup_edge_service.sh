@@ -34,8 +34,15 @@ fi
 
 # 3. 依存ライブラリのインストール
 echo "Installing Python requirements..."
-"$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
+# /tmp が tmpfs (RAM) になっていて容量不足になるのを防ぐため、SDカード上に一時ディレクトリを作る
+export TMPDIR="$SCRIPT_DIR/pip_tmp"
+mkdir -p "$TMPDIR"
+
+"$VENV_DIR/bin/pip" install --no-cache-dir --upgrade pip
+"$VENV_DIR/bin/pip" install --no-cache-dir -r "$SCRIPT_DIR/requirements.txt"
+
+# インストール成功後に一時ディレクトリを削除
+rm -rf "$TMPDIR"
 
 # 4. サービス定義ファイルの作成
 LOCAL_SERVICE_FILE="$SCRIPT_DIR/$SERVICE_NAME.service"
