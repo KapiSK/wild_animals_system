@@ -23,7 +23,7 @@
  * 8. 現在サイクルのログ保存:
  * - メモリ上のログバッファを `/archive/[サイクルID]/esp_chunk.log` に保存
  * - `/logs/esp.log` にも追記 (ローテーションあり)
- * 9. 30秒間の待機 (クールダウン)
+ * 9. 15秒間の待機 (クールダウン)
  * 10. Deep Sleepへ移行
  *
  * ハードウェア接続:
@@ -93,7 +93,7 @@ namespace net {
   constexpr char WIFI_SSID[]    = "SLAB-g";       // Your Wi-Fi Network Name
   constexpr char WIFI_PASS[]    = "wakaW1sat0";   // Your Wi-Fi Password
   constexpr uint32_t WIFI_TIMEOUT = 30000;        // Wi-Fi connection attempt timeout (ms)
-  constexpr char PI_MDNS_HOST[] = "edge-ex";    // mDNS hostname of your Pi server (e.g., "edge.local")
+  constexpr char PI_MDNS_HOST[] = "edge";    // mDNS hostname of your Pi server (e.g., "edge.local")
 
   // These will be populated after mDNS resolution
   String PI_HOST;                                 // Base URL (e.g., "http://192.168.1.10:5000")
@@ -113,7 +113,7 @@ namespace param {
   constexpr uint32_t SHOT_INTERVAL_MS    = 500;    // Interval between shots (ms)
   constexpr int      MAX_ARCHIVE_CYCLES  = 100;    // Maximum number of cycles to keep in /archive
   constexpr uint8_t  UPLOAD_RETRY_WINDOW = 3;      // How many recent cycles (relative to current) to retry uploading
-  constexpr uint32_t SLEEP_COOLDOWN_MS   = 30000;  // Mandatory wait time before entering deep sleep (ms)
+  constexpr uint32_t SLEEP_COOLDOWN_MS   = 15000;  // Mandatory wait time before entering deep sleep (ms)
   constexpr uint32_t MIN_FREE_SPACE_MB = 30;
 }
 
@@ -979,12 +979,10 @@ static void uploadPendingData() {
         status::setLed(status::LedState::BLINK_FAST);
 
         bool ok1 = uploadFile(net::PI_UPLOAD_URL, p1, "image/jpeg", cid, 1);
-        delay(1000); // 電圧降下(Brownout)対策: 次の送信まで待機してバッテリー電圧を回復させる
         bool ok2 = uploadFile(net::PI_UPLOAD_URL, p2, "image/jpeg", cid, 2);
-        delay(1000);
         bool ok3 = uploadFile(net::PI_UPLOAD_URL, p3, "image/jpeg", cid, 3);
-        delay(500);
         bool okLog = uploadFile(net::PI_ESPLOG_URL, pLog, "text/plain", cid, 0);
+        
 
         status::setLed(status::LedState::ON);
 
@@ -1325,6 +1323,9 @@ static void goDeepSleepNow() {
 
         LOG_PRINTF("[SLEEP] Light Sleep waiting for %u ms...\n", initialWaitTime);
         
+        // PIRセンサー等がHighのままの場合に即時WakeUpするのを防ぐため、一旦すべて無効化
+        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+
         // Timer Wakeup for Light Sleep
         esp_sleep_enable_timer_wakeup((uint64_t)initialWaitTime * 1000ULL);
         
