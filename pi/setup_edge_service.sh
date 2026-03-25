@@ -18,6 +18,17 @@ echo "Service Name: $SERVICE_NAME"
 echo "User: $USER_NAME"
 echo "Base Directory: $SCRIPT_DIR"
 
+if [ "$(uname -m)" != "aarch64" ]; then
+    echo "WARNING: This script is optimized for 64-bit Raspberry Pi OS (aarch64)."
+    echo "Current architecture is $(uname -m)."
+    echo "ultralytics (PyTorch) may fail to install or run very slowly."
+    read -p "Do you want to continue anyway? [y/N]: " ans
+    if [ "$ans" != "y" ] && [ "$ans" != "Y" ]; then
+        echo "Setup aborted."
+        exit 1
+    fi
+fi
+
 # 1. システムパッケージの更新とインストール
 # OpenCVなどに必要なライブラリを含める
 echo "Installing system dependencies..."

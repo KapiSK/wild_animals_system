@@ -5,6 +5,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -41,12 +42,47 @@ logger = logging.getLogger(__name__)
 # Ensure upload directory exists
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-app = FastAPI()
+detector = None
+
+async def cleanup_old_files(days=7):
+    logger.info(f"Running cleanup for files older than {days} days")
+    now = time.time()
+    cutoff = now - (days * 86400)
+    try:
+        files = os.listdir(UPLOAD_DIR)
+        for f in files:
+            filepath = os.path.join(UPLOAD_DIR, f)
+            if os.path.isfile(filepath):
+                mtime = os.path.getmtime(filepath)
+                if mtime < cutoff:
+                    os.remove(filepath)
+                    logger.info(f"Deleted old file: {f}")
+    except Exception as e:
+        logger.error(f"Failed to cleanup files: {e}")
+
+async def periodic_cleanup():
+    while True:
+        try:
+            await cleanup_old_files()
+        except Exception as e:
+            logger.error(f"Periodic cleanup error: {e}")
+        await asyncio.sleep(86400) # Run daily
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global detector
+    logger.info("Initializing YOLO Detector...")
+    # Initialize in background to avoid blocking startup (downloads yolov8n.pt if missing)
+    detector = await asyncio.to_thread(Detector)
+    logger.info("Detector initialized.")
+    cleanup_task = asyncio.create_task(periodic_cleanup())
+    yield
+    cleanup_task.cancel()
+
+app = FastAPI(lifespan=lifespan)
 
 # Mount the static directory to serve images
 app.mount("/images", StaticFiles(directory=UPLOAD_DIR), name="images")
-
-detector = Detector()
 
 # Semaphore to limit concurrent inference
 # Setting to 1 ensures we process one image at a time to save resources (CPU/RAM) on Pi
@@ -128,12 +164,12 @@ class CycleManager:
                 try:
                     csv_file = "edge_metrics.csv"
                     file_exists = os.path.isfile(csv_file)
-                    with open(csv_file, "a") as f:
+                    async with aiofiles.open(csv_file, "a") as f:
                         if not file_exists:
-                            f.write("timestamp,cycle_id,total_time_ms,total_recv_save_ms,total_inference_ms,forward_ms,wait_overhead_ms,animal_count,forwarded\n")
+                            await f.write("timestamp,cycle_id,total_time_ms,total_recv_save_ms,total_inference_ms,forward_ms,wait_overhead_ms,animal_count,forwarded\n")
                         
                         do_forward = (animal_count >= 1)
-                        f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.0f},{total_receive_save:.0f},{total_inference:.0f},{forward_duration:.0f},{wait_overhead:.0f},{animal_count},{do_forward}\n")
+                        await f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.0f},{total_receive_save:.0f},{total_inference:.0f},{forward_duration:.0f},{wait_overhead:.0f},{animal_count},{do_forward}\n")
                 except Exception as e:
                     logger.error(f"Failed to write to {csv_file}: {e}")
                 
@@ -164,85 +200,16 @@ class CycleManager:
 cycle_manager = CycleManager()
 
 
-def extract_cycle_id(filename: str):
-    # Expected filename formats from upload:
-    # "TIMESTAMP_{CycleID}-{Index}{Suffix}.jpg" e.g. "20250101_120000_MAC123-1.jpg"
-    # or just "{CycleID}-{Index}.jpg" if not prefixed (but our upload prepends timestamp)
-    # Strategy: Look for the pattern containing the CycleID.
-    # CycleID usually looks like "MAC-SEQ" or similar.
-    # Filename on ESP32: "{CycleID}-{Index}.jpg"
-    # CycleID = "MAC-SEQUENCE"
-    # e.g. "AABBCCDDEEFF-00000001-1.jpg"
-    # Just split by last '-'?
-    # Cycle ID might contain dashes (MAC address).
-    # The suffix is "-{1,2,3}{n,d}.jpg"
-    # So we want everything before the last dash (that precedes the index).
-    
-    # Remove the timestamp prefix first (YYYYMMDD_HHMMSS_ffffff_)
-    # 26 chars? 
-    # Let's rely on finding the "-{Index}" pattern at the end.
-    
-    # Remove extension
-    stem = os.path.splitext(filename)[0]
-    
-    # Finding the index part: "-1", "-2", "-3" optionally followed by "n" or "d"
-    # Regex: r"-(1|2|3)[nd]?$"
+def extract_cycle_id(original_filename: str):
+    # original_filename from ESP32 is expected to be e.g. "MAC-SEQUENCE-1.jpg"
+    stem = os.path.splitext(original_filename)[0]
     match = re.search(r"-(1|2|3)[nd]?$", stem)
     if match:
-        # The Cycle ID is everything before this match
-        # But wait, main.py PREPENDS timestamp "TIMESTAMP_"
-        # We should iterate past the timestamp if present.
-        # CycleID starts after the first few underscores?
-        # Actually, CycleID itself is unique.
-        
-        # If we take everything before the index, it includes the timestamp.
-        # "20250101_..._MAC-001-1" -> ID "20250101_..._MAC-001"
-        # Is this ID unique per cycle? Yes, definitely.
-        # Is it the SAME for all 3 images of the cycle? 
-        # The timestamp is generated at UPLOAD receive time.
-        # If 3 images are uploaded in separate requests, they get DIFFERENT timestamps!
-        # CRITICAL ISSUE: We cannot use the prepended timestamp as part of the Cycle ID.
-        # We MUST extract the original Cycle ID from the filename.
-        
-        # The original filename is after the FIRST "timestamp_" block.
-        # The code does: `filename = f"{timestamp}_{file.filename}"`
-        # file.filename is what ESP32 sent.
-        # So we just need to parse `file.filename`.
-        # However, `process_image` receives `filename` (the full saved one).
-        # We can reconstruct or parse.
-        
-        # Let's strip the timestamp prefix we added. 
-        # It's fixed length? "YYYYMMDD_HHMMSS_%f" -> 15+1+6+1+6 = ~29 chars.
-        # Format: "%Y%m%d_%H%M%S_%f" -> 8+1+6+1+6 = 22 chars?
-        # Let's just look for the `_` separator? The user might upload files with underscores.
-        # Safe bet: We know `file.filename` is passed to `upload_image`. 
-        # Just pass `file.filename` (original) to `process_image` too? 
-        # Yes, let's modify `upload_image` to pass `original_filename` or parsing logic.
-        
-        # Better: Extract the CycleID from the *end* of the string, ignoring the timestamp prefix.
-        # ESP32 Filename: `[CycleID]-[Index][Suffix].jpg`
-        # We need `[CycleID]`.
-        # So we look for the suffix match, and take the string before it, 
-        # AND remove the timestamp prefix?
-        # If we just group by "everything before suffix", and the timestamp differs, we fail to group.
-        # SO: We MUST strip the timestamp.
-        
-        parts = filename.split('_', 3) # Split by underscores
-        # timestamp format has 2 underscores? 20250101_120000_123456_Original.jpg
-        # Wait, strftime("%Y%m%d_%H%M%S_%f") -> 20230101_120000_123456
-        # So it creates "DATE_TIME_MS_OriginalFilename".
-        # So 3 splits.
-        if len(parts) >= 4:
-            original_filename = parts[3]
-            stem_orig = os.path.splitext(original_filename)[0]
-            match_orig = re.search(r"-(1|2|3)[nd]?$", stem_orig)
-            if match_orig:
-                 return stem_orig[:match_orig.start()]
-        
+        return stem[:match.start()]
     return "unknown"
 
 
-async def process_image(file_path: str, filename: str, receive_start: float, save_duration: float):
+async def process_image(file_path: str, filename: str, original_filename: str, receive_start: float, save_duration: float):
     """
     Background task to process the image:
     1. Run object detection
@@ -264,8 +231,8 @@ async def process_image(file_path: str, filename: str, receive_start: float, sav
                 logger.info(f"No target detected in {filename}")
 
             # Extract Cycle ID
-            cycle_id = extract_cycle_id(filename)
-            logger.info(f"Cycle ID for {filename}: {cycle_id}")
+            cycle_id = extract_cycle_id(original_filename)
+            logger.info(f"Cycle ID for {original_filename}: {cycle_id}")
             
             timing_info = {
                 'receive_start': receive_start,
@@ -339,7 +306,7 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"Saved {filename}")
         
         # Schedule background processing
-        background_tasks.add_task(process_image, file_path, filename, receive_start, save_duration)
+        background_tasks.add_task(process_image, file_path, filename, original_filename, receive_start, save_duration)
         
         return {"status": "ok", "filename": filename, "message": "Image received and queued for processing"}
         
