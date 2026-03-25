@@ -450,10 +450,25 @@ async def gallery():
         <div class="gallery-container" id="gallery-raw"></div>
         
         <script>
+            let currentProcessed = null;
+            let currentRaw = null;
+
+            function arraysEqual(a, b) {
+                if (a === b) return true;
+                if (a == null || b == null) return false;
+                if (a.length !== b.length) return false;
+                for (let i = 0; i < a.length; ++i) {
+                    if (a[i] !== b[i]) return false;
+                }
+                return true;
+            }
+
             function showTab(type) {
                 document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.gallery-container').forEach(el => el.classList.remove('active'));
-                event.target.classList.add('active');
+                if (event && event.target) {
+                    event.target.classList.add('active');
+                }
                 document.getElementById('gallery-' + type).classList.add('active');
             }
 
@@ -491,19 +506,34 @@ async def gallery():
                 }
             }
 
-            fetch('/api/images')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'ok') {
-                        renderGallery('gallery-processed', data.processed, '/images/processed');
-                        renderGallery('gallery-raw', data.raw, '/images/raw');
-                    } else {
-                        document.body.innerHTML += '<div class="empty-msg" style="color:#e53e3e;">エラー: ' + data.message + '</div>';
-                    }
-                })
-                .catch(err => {
-                    document.body.innerHTML += '<div class="empty-msg" style="color:#e53e3e;">リクエストエラー: ' + err.message + '</div>';
-                });
+            function fetchImages() {
+                fetch('/api/images')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'ok') {
+                            const processedChanged = !arraysEqual(currentProcessed, data.processed);
+                            const rawChanged = !arraysEqual(currentRaw, data.raw);
+                            
+                            if (processedChanged || rawChanged) {
+                                currentProcessed = data.processed;
+                                currentRaw = data.raw;
+                                renderGallery('gallery-processed', data.processed, '/images/processed');
+                                renderGallery('gallery-raw', data.raw, '/images/raw');
+                            }
+                        } else {
+                            console.error('API Error:', data.message);
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Fetch Error:', err.message);
+                    });
+            }
+
+            // Initial load
+            fetchImages();
+            
+            // Poll every 5 seconds to auto-update
+            setInterval(fetchImages, 5000);
         </script>
     </body>
     </html>

@@ -394,50 +394,73 @@ async def gallery():
     <body>
         <h1>Edge Server Gallery</h1>
         <div class="header-accent"></div>
-        <div class="gallery" id="gallery"></div>
+        <div id="gallery-wrapper"></div>
         <script>
-            fetch('/api/images')
-                .then(response => response.json())
-                .then(data => {
-                    const gallery = document.getElementById('gallery');
-                    if (data.status === 'ok' && data.images && data.images.length > 0) {
-                        const images = data.images;
-                        const latestImg = images[0];
-                        
-                        let html = `
-                            <div class="latest-container">
-                                <h2>Latest Capture</h2>
-                                <div class="latest-item">
-                                    <img src="/images/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
-                                    <span>${latestImg}</span>
-                                </div>
-                            </div>
-                        `;
-                        
-                        if (images.length > 1) {
-                            html += '<div class="gallery">';
-                            for (let i = 1; i < images.length; i++) {
-                                html += `
-                                    <div class="item">
-                                        <div class="img-wrapper" onclick="window.open('/images/${images[i]}', '_blank')">
-                                            <img src="/images/${images[i]}" title="クリックしてフルサイズの画像を表示">
-                                        </div>
-                                        <span>${images[i]}</span>
-                                    </div>
-                                `;
+            let currentImages = null;
+
+            function arraysEqual(a, b) {
+                if (a === b) return true;
+                if (a == null || b == null) return false;
+                if (a.length !== b.length) return false;
+                for (let i = 0; i < a.length; ++i) {
+                    if (a[i] !== b[i]) return false;
+                }
+                return true;
+            }
+
+            function fetchImages() {
+                fetch('/api/images')
+                    .then(response => response.json())
+                    .then(data => {
+                        const wrapper = document.getElementById('gallery-wrapper');
+                        if (data.status === 'ok' && data.images && data.images.length > 0) {
+                            if (arraysEqual(currentImages, data.images)) {
+                                return; // No changes
                             }
-                            html += '</div>';
+                            currentImages = data.images;
+                            const images = data.images;
+                            const latestImg = images[0];
+                            
+                            let html = `
+                                <div class="latest-container">
+                                    <h2>Latest Capture</h2>
+                                    <div class="latest-item">
+                                        <img src="/images/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                        <span>${latestImg}</span>
+                                    </div>
+                                </div>
+                            `;
+                            
+                            if (images.length > 1) {
+                                html += '<div class="gallery">';
+                                for (let i = 1; i < images.length; i++) {
+                                    html += `
+                                        <div class="item">
+                                            <div class="img-wrapper" onclick="window.open('/images/${images[i]}', '_blank')">
+                                                <img src="/images/${images[i]}" title="クリックしてフルサイズの画像を表示">
+                                            </div>
+                                            <span>${images[i]}</span>
+                                        </div>
+                                    `;
+                                }
+                                html += '</div>';
+                            }
+                            
+                            wrapper.innerHTML = html;
+                        } else {
+                            wrapper.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
                         }
-                        
-                        // Replace the empty gallery div entirely
-                        gallery.outerHTML = html;
-                    } else {
-                        gallery.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
-                    }
-                })
-                .catch(err => {
-                    document.getElementById('gallery').innerHTML = '<div class="empty-msg" style="color:#e53e3e;">エラーが発生しました: ' + err.message + '</div>';
-                });
+                    })
+                    .catch(err => {
+                        document.getElementById('gallery-wrapper').innerHTML = '<div class="empty-msg" style="color:#e53e3e;">エラーが発生しました: ' + err.message + '</div>';
+                    });
+            }
+
+            // Initial load
+            fetchImages();
+
+            // Poll every 5 seconds to auto-update
+            setInterval(fetchImages, 5000);
         </script>
     </body>
     </html>
