@@ -307,11 +307,15 @@ class CycleManager:
         # ユーザー指定の件名フォーマット（案3 個体数なしver）
         subject = f"【検知】CAM-{raw_id} ｜ {short_time} ｜ {labels_part}"
         
-        # 3. Send Email
-        email_start = time.perf_counter()
-        send_email(subject, body, best_data['annotated_path'])
-        email_duration = (time.perf_counter() - email_start) * 1000
-        logger.info(f"Aggregated email sent for Cycle {cycle_id}")
+        # 3. Send Email (Skip if no detections)
+        email_duration = 0.0
+        if detected_images_count > 0:
+            email_start = time.perf_counter()
+            send_email(subject, body, best_data['annotated_path'])
+            email_duration = (time.perf_counter() - email_start) * 1000
+            logger.info(f"Aggregated email sent for Cycle {cycle_id}")
+        else:
+            logger.info(f"Cycle {cycle_id} complete. No targets detected. Skipping email notification.")
 
         # Log Performance Metrics
         logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
