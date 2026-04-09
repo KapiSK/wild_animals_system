@@ -3,8 +3,11 @@ import logging
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import yolov5
@@ -13,6 +16,8 @@ import asyncio
 import time
 from collections import defaultdict
 import re
+import json
+import secrets
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +30,50 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "your_email@example.com")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "your_password")
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "recipient@example.com")
+
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
+
+security = HTTPBasic()
+
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+    current_username_bytes = credentials.username.encode("utf8")
+    correct_username_bytes = ADMIN_USERNAME.encode("utf8")
+    is_correct_username = secrets.compare_digest(current_username_bytes, correct_username_bytes)
+    
+    current_password_bytes = credentials.password.encode("utf8")
+    correct_password_bytes = ADMIN_PASSWORD.encode("utf8")
+    is_correct_password = secrets.compare_digest(current_password_bytes, correct_password_bytes)
+    
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+MAC_MAPPING_FILE = os.getenv("MAC_MAPPING_FILE", "mac_mapping.json")
+
+def get_camera_id(mac_address: str) -> str:
+    try:
+        if os.path.exists(MAC_MAPPING_FILE):
+            with open(MAC_MAPPING_FILE, 'r') as f:
+                mapping = json.load(f)
+                return mapping.get(mac_address, mac_address)
+    except Exception as e:
+        logger.error(f"Failed to read mac mapping: {e}")
+    return mac_address
+
+def replace_mac_in_filename(original: str) -> str:
+    # 12桁の16進数（MACアドレス）を検索
+    match = re.search(r"([A-Fa-f0-9]{12})", original)
+    if match:
+        mac = match.group(1)
+        cam_id = get_camera_id(mac)
+        if cam_id != mac:
+            return original.replace(mac, cam_id)
+    return original
 
 # MegaDetector v5a Configuration
 MODEL_URL = "https://github.com/agentmorris/MegaDetector/releases/download/v5.0/md_v5a.0.0.pt"
@@ -188,22 +237,75 @@ class CycleManager:
         # 1. Identify best image (High target count > High confidence)
         best_data = sorted(files, key=lambda x: (x['target_count'], x['max_conf']), reverse=True)[0]
         
+        # 抽出: IDと日時をファイル名から取得
+        best_filename = best_data['filename']
+        cam_id = "Unknown"
+        cycle_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        
+        # 新フォーマット: CAM_01_20260409150849_00000005_1n.jpg
+        # または旧フォーマット: 20260409150849_CAM_01-00000005-1n.jpg
+        match_new = re.search(r"^(.*?)_(\d{14})_", best_filename)
+        match_old = re.search(r"^\d{14}_(.*?(?:-|$))", best_filename)
+        
+        if match_new:
+            cam_id = match_new.group(1)
+            time_raw = match_new.group(2)
+            cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+        elif match_old:
+            cam_id = re.sub(r"-$", "", match_old.group(1)) # Remove trailing dash if present
+            time_raw = best_filename[:14]
+            cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+
+        # ID部分をパースし、「CAM-{ID}」の形式にするための整理
+        raw_id = cam_id
+        if raw_id.upper().startswith("CAM-"):
+            raw_id = raw_id[4:]
+        elif raw_id.upper().startswith("CAM_"):
+            raw_id = raw_id[4:]
+        elif raw_id.upper().startswith("CAM"):
+            raw_id = raw_id[3:]
+
+        # 個体数を省いたラベルのみを取得 ("person: 1, animal: 2" -> "person, animal")
+        labels_part = best_data['summary_text']
+        if ":" in labels_part:
+            labels_part = ", ".join([item.split(':')[0].strip() for item in labels_part.split(',')])
+            
+        # 時間表記を見やすく秒抜きにする (例: "2026/04/09 15:08")
+        short_time = cycle_time.rsplit(':', 1)[0]
+
         # 2. Compose Email Body
         detected_images_count = sum(1 for f in files if f['target_count'] > 0)
         
         body_lines = [
-            f"Cycle ID: {cycle_id}",
-            f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Detections: Found targets in {detected_images_count} out of {len(files)} images.",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f" 🚨 CAM-{raw_id} 検知レポート",
+            "━━━━━━━━━━━━━━━━━━━━",
+            "■ 検知サマリー",
+            f"・カメラ　：CAM-{raw_id}",
+            f"・検知日時：{cycle_time}",
+            f"・対象物　：{labels_part} ({len(files)}枚中 {detected_images_count}枚で検知)",
             "",
-            "Details per image:"
+            "■ 解析ログ (画像ごと)"
         ]
         
-        for f in files:
-            body_lines.append(f"- {f['filename']}: {f['summary_text']}")
+        for i, f in enumerate(files, 1):
+            f_summary = f['summary_text']
+            if f_summary == "No targets":
+                f_summary = "検知なし (No targets)"
+            body_lines.append(f" [画像{i}] {f_summary}")
+            
+        body_lines.extend([
+            "",
+            "■ システム情報",
+            f"・Cycle ID: {cycle_id}",
+            "",
+            "※判定スコアが最も高かった1枚を添付画像として送信しています。"
+        ])
             
         body = "\n".join(body_lines)
-        subject = f"Target Cycle Detected: {best_data['summary_text']}"
+        
+        # ユーザー指定の件名フォーマット（案3 個体数なしver）
+        subject = f"【検知】CAM-{raw_id} ｜ {short_time} ｜ {labels_part}"
         
         # 3. Send Email
         email_start = time.perf_counter()
@@ -257,11 +359,19 @@ def extract_cycle_id(filename: str) -> str:
     Extract Cycle ID from filename.
     """
     try:
+        # 新フォーマット: {cam_id}_{time_str}_{seq}_{idx}.jpg
+        # 例: CAM_01_20260409150849_00000005_1n.jpg
+        match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
+        if match_new:
+            # サイクルIDは、カメラIDとシーケンス番号の組み合わせとする
+            return f"{match_new.group(1)}_{match_new.group(2)}"
+
+        # 旧フォーマットのフォールバック
         match = re.search(r"^(.*)-(\d+)[nd]?\.jpg$", filename, re.IGNORECASE)
         if match:
             full_stem = match.group(1) 
             if '_' in full_stem:
-                return full_stem.split('_')[-1]
+                return full_stem.split('_', 1)[-1]
             return full_stem
         return filename.rsplit('-', 1)[0]
     except Exception as e:
@@ -359,8 +469,22 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     """
     Receive image, save it, and trigger processing.
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    filename = f"{timestamp}_{file.filename}"
+    # エッジ側(Pi)が付与した冗長なタイムスタンプ(YYYYMMDD_HHMMSS_microseconds_)を削除
+    clean_original = re.sub(r"^\d{8}_\d{6}_\d+_", "", file.filename)
+    
+    mapped_filename = replace_mac_in_filename(clean_original)
+    
+    time_str = datetime.now().strftime("%Y%m%d%H%M%S")
+    # ESP32のオリジナル形式(ID-SEQ-IDXn.jpg)から、ご要望の(id_日時_シーケンス_インデックス.jpg)へ変換
+    match = re.search(r"^(.*?)-(\d+)-([1-3][nd]?)\.jpg$", mapped_filename, re.IGNORECASE)
+    if match:
+        cam_id = match.group(1)
+        seq = match.group(2)
+        idx = match.group(3)
+        filename = f"{cam_id}_{time_str}_{seq}_{idx}.jpg"
+    else:
+        # フォーマット外のファイルの場合のフォールバック
+        filename = f"{time_str}_{mapped_filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
     
     logger.info(f"Receiving image: {filename}")
@@ -398,6 +522,365 @@ async def get_images():
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.get("/api/config/mapping")
+async def get_mapping(username: str = Depends(verify_credentials)):
+    if os.path.exists(MAC_MAPPING_FILE):
+        with open(MAC_MAPPING_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+@app.post("/api/config/mapping")
+async def update_mapping(mapping: dict, username: str = Depends(verify_credentials)):
+    try:
+        with open(MAC_MAPPING_FILE, 'w') as f:
+            json.dump(mapping, f, indent=4)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/config/env")
+async def get_env(username: str = Depends(verify_credentials)):
+    return {
+        "SENDER_EMAIL": SENDER_EMAIL,
+        "RECIPIENT_EMAIL": RECIPIENT_EMAIL
+    }
+
+class EnvConfig(BaseModel):
+    RECIPIENT_EMAIL: str
+    SENDER_EMAIL: str
+
+@app.post("/api/config/env")
+async def update_env(config: EnvConfig, username: str = Depends(verify_credentials)):
+    global RECIPIENT_EMAIL, SENDER_EMAIL
+    env_path = ".env"
+    try:
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        else:
+            lines = []
+            
+        updated_recipient = False
+        updated_sender = False
+        
+        for i, line in enumerate(lines):
+            if line.startswith("RECIPIENT_EMAIL="):
+                lines[i] = f"RECIPIENT_EMAIL='{config.RECIPIENT_EMAIL}'\n"
+                updated_recipient = True
+            elif line.startswith("SENDER_EMAIL="):
+                lines[i] = f"SENDER_EMAIL='{config.SENDER_EMAIL}'\n"
+                updated_sender = True
+                
+        if not updated_recipient:
+            lines.append(f"RECIPIENT_EMAIL='{config.RECIPIENT_EMAIL}'\n")
+        if not updated_sender:
+            lines.append(f"SENDER_EMAIL='{config.SENDER_EMAIL}'\n")
+            
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+            
+        os.environ["RECIPIENT_EMAIL"] = config.RECIPIENT_EMAIL
+        os.environ["SENDER_EMAIL"] = config.SENDER_EMAIL
+        RECIPIENT_EMAIL = config.RECIPIENT_EMAIL
+        SENDER_EMAIL = config.SENDER_EMAIL
+        
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(username: str = Depends(verify_credentials)):
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>System Admin & Settings</title>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Inter:wght@400;500;600&display=swap');
+            
+            :root {
+                --glass-bg: rgba(255, 255, 255, 0.75);
+                --glass-border: rgba(255, 255, 255, 0.5);
+                --primary: #4f46e5;
+                --primary-hover: #4338ca;
+                --text-main: #1e293b;
+                --text-sub: #64748b;
+            }
+
+            body {
+                font-family: 'Inter', sans-serif;
+                margin: 0;
+                padding: 40px 20px;
+                color: var(--text-main);
+                min-height: 100vh;
+                background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+                background-attachment: fixed;
+            }
+
+            .blob {
+                position: fixed;
+                width: 600px;
+                height: 600px;
+                background: linear-gradient(135deg, rgba(168,237,234,0.6), rgba(254,214,227,0.6));
+                border-radius: 50%;
+                filter: blur(80px);
+                z-index: -1;
+                animation: float 15s infinite ease-in-out alternate;
+            }
+            
+            @keyframes float {
+                0% { transform: translate(-100px, -100px) scale(0.9); }
+                100% { transform: translate(50vw, 50vh) scale(1.1); }
+            }
+
+            .container { max-width: 900px; margin: 0 auto; }
+
+            h1 {
+                font-family: 'Outfit', sans-serif;
+                font-size: 2.5rem;
+                font-weight: 600;
+                margin-bottom: 30px;
+                text-align: center;
+                color: #1e293b;
+                text-shadow: 0 2px 10px rgba(255,255,255,0.5);
+            }
+
+            .glass-card {
+                background: var(--glass-bg);
+                backdrop-filter: blur(25px);
+                -webkit-backdrop-filter: blur(25px);
+                border: 1px solid var(--glass-border);
+                border-radius: 20px;
+                padding: 30px;
+                margin-bottom: 30px;
+                box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            
+            .glass-card:hover { box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.08); }
+
+            .card-header {
+                margin-bottom: 25px;
+                border-bottom: 1px solid rgba(0,0,0,0.05);
+                padding-bottom: 15px;
+            }
+
+            h2 {
+                font-family: 'Outfit', sans-serif;
+                margin: 0;
+                font-size: 1.5rem;
+                color: var(--text-main);
+            }
+
+            .btn {
+                background: var(--primary);
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 12px;
+                font-family: 'Inter', sans-serif;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
+            }
+            .btn:hover { background: var(--primary-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4); }
+
+            .btn-danger { background: #ef4444; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
+            .btn-danger:hover { background: #dc2626; box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4); }
+
+            table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+            th, td { text-align: left; padding: 15px; }
+            th { color: var(--text-sub); font-weight: 500; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+            tr.row-item { background: rgba(255, 255, 255, 0.5); transition: all 0.2s; }
+            tr.row-item:hover { background: rgba(255, 255, 255, 0.8); transform: scale(1.01); }
+
+            tr.row-item td:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 1.05rem;}
+            tr.row-item td:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; text-align: right;}
+
+            .form-group { margin-bottom: 20px; }
+            label { display: block; margin-bottom: 8px; color: var(--text-sub); font-weight: 500; font-size: 0.9rem; }
+
+            input[type="text"], input[type="email"] {
+                width: 100%; padding: 12px 15px; border: 1px solid rgba(0,0,0,0.1); border-radius: 12px;
+                background: rgba(255,255,255,0.8); font-family: 'Inter', sans-serif; font-size: 1rem;
+                transition: all 0.2s; box-sizing: border-box;
+            }
+
+            input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); background: #fff; }
+
+            #toast {
+                position: fixed; bottom: 30px; right: 30px; background: #10b981; color: white;
+                padding: 15px 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+                font-weight: 500; transform: translateY(100px); opacity: 0; transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); z-index: 1000;
+            }
+            #toast.show { transform: translateY(0); opacity: 1; }
+            
+            .add-row { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: 15px; margin-bottom: 20px; align-items: end; }
+            
+            .nav-link { text-align: center; margin-top: 20px; display: block; color: var(--primary); text-decoration: none; font-weight: 500; }
+            .nav-link:hover { text-decoration: underline; }
+        </style>
+    </head>
+    <body>
+        <div class="blob"></div>
+        <div class="container">
+            <h1>Admin Dashboard</h1>
+            
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2>Camera Edge Mapping</h2>
+                </div>
+                
+                <div class="add-row">
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>MAC Address (12 chars)</label>
+                        <input type="text" id="new-mac" placeholder="ex: AABBCCDDEEFF">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Assigned ID</label>
+                        <input type="text" id="new-id" placeholder="ex: CAM_01">
+                    </div>
+                    <button class="btn" onclick="addMapping()">+ Add</button>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Hardware MAC</th>
+                            <th>Display ID</th>
+                            <th style="text-align: right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mapping-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2>System Email Configuration</h2>
+                </div>
+                
+                <div class="form-group">
+                    <label>Alert Recipients (Comma separated)</label>
+                    <input type="text" id="env-recipient" placeholder="alert@example.com">
+                </div>
+                <div class="form-group">
+                    <label>System Sender Email</label>
+                    <input type="email" id="env-sender" placeholder="system@gmail.com">
+                </div>
+                
+                <div style="text-align: right">
+                    <button class="btn" onclick="saveEnv()">Save Changes</button>
+                </div>
+            </div>
+            
+            <a href="/gallery" class="nav-link">← Go back to Image Gallery</a>
+        </div>
+
+        <div id="toast">✅ Settings saved successfully!</div>
+
+        <script>
+            let currentMapping = {};
+
+            async function fetchConfig() {
+                try {
+                    const mapRes = await fetch('/api/config/mapping');
+                    currentMapping = await mapRes.json();
+                    renderMapping();
+
+                    const envRes = await fetch('/api/config/env');
+                    const envData = await envRes.json();
+                    document.getElementById('env-recipient').value = envData.RECIPIENT_EMAIL || '';
+                    document.getElementById('env-sender').value = envData.SENDER_EMAIL || '';
+                } catch (e) {
+                    console.error("Failed to load config", e);
+                }
+            }
+
+            function renderMapping() {
+                const tbody = document.getElementById('mapping-body');
+                tbody.innerHTML = '';
+                for (const [mac, id] of Object.entries(currentMapping)) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'row-item';
+                    tr.innerHTML = `
+                        <td>${mac}</td>
+                        <td><span style="background: rgba(79, 70, 229, 0.1); color: #4338ca; padding: 4px 12px; border-radius: 20px; font-weight: 500;">${id}</span></td>
+                        <td style="text-align: right">
+                            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85rem;" onclick="deleteMapping('${mac}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            }
+
+            async function saveMappingToServer() {
+                try {
+                    await fetch('/api/config/mapping', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(currentMapping)
+                    });
+                    showToast("Camera Mapping Updated! 📸");
+                } catch(e) {
+                    alert("Error saving mapping");
+                }
+            }
+
+            function addMapping() {
+                const mac = document.getElementById('new-mac').value.trim();
+                const id = document.getElementById('new-id').value.trim();
+                if (!mac || !id) return;
+                
+                currentMapping[mac] = id;
+                document.getElementById('new-mac').value = '';
+                document.getElementById('new-id').value = '';
+                renderMapping();
+                saveMappingToServer();
+            }
+
+            function deleteMapping(mac) {
+                delete currentMapping[mac];
+                renderMapping();
+                saveMappingToServer();
+            }
+
+            async function saveEnv() {
+                const recipient = document.getElementById('env-recipient').value.trim();
+                const sender = document.getElementById('env-sender').value.trim();
+                
+                try {
+                    await fetch('/api/config/env', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({RECIPIENT_EMAIL: recipient, SENDER_EMAIL: sender})
+                    });
+                    showToast("Email Settings Saved! 📧");
+                } catch(e) {
+                    alert("Error saving env settings");
+                }
+            }
+
+            function showToast(msg) {
+                const toast = document.getElementById('toast');
+                toast.innerText = msg;
+                toast.classList.add('show');
+                setTimeout(() => { toast.classList.remove('show'); }, 3000);
+            }
+
+            fetchConfig();
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
 
 @app.get("/gallery", response_class=HTMLResponse)
 async def gallery():

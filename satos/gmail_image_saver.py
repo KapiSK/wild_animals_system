@@ -1,0 +1,538 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import email
+import imaplib
+import logging
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from email.header import decode_header, make_header
+from email.message import Message
+from pathlib import Path
+from typing import Optional, Sequence, Set, Tuple
+
+MOV_MIME_TYPES = {"video/quicktime"}
+MOV_EXTENSIONS = {".mov"}
+DEFAULT_FILE_NAME_TEMPLATE = "{date}_{uid}_{part}_{filename}"
+DEFAULT_FRAME_CAPTURE_OFFSETS_SECONDS = (0, 1, 2)
+DEFAULT_FRAME_IMAGE_FORMAT = "jpg"
+
+
+class ShutdownRequested(Exception):
+    pass
+
+
+@dataclass
+class Config:
+    gmail_address: str
+    gmail_app_password: str
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    imap_folder: str = "INBOX"
+    imap_readonly: bool = False
+    mark_as_seen_on_success: bool = True
+    poll_interval_seconds: int = 60
+    search_criteria: str = "UNSEEN"
+    save_dir: Path = Path("./saved_videos")
+    frame_save_dir: Path = Path("./saved_frames")
+    state_file: Path = Path("./state.json")
+    file_name_template: str = DEFAULT_FILE_NAME_TEMPLATE
+    create_sender_subdir: bool = False
+    log_level: str = "INFO"
+    ffmpeg_path: str = "ffmpeg"
+    frame_capture_offsets_seconds: Tuple[int, ...] = DEFAULT_FRAME_CAPTURE_OFFSETS_SECONDS
+    frame_image_format: str = DEFAULT_FRAME_IMAGE_FORMAT
+
+    @staticmethod
+    def _get_bool(name: str, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    @staticmethod
+    def _get_int(name: str, default: int) -> int:
+        raw = os.getenv(name)
+        if raw is None or raw.strip() == "":
+            return default
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an integer: {raw!r}") from exc
+        if value <= 0:
+            raise ValueError(f"{name} must be > 0: {value}")
+        return value
+
+    @staticmethod
+    def _parse_offsets(raw: str) -> Tuple[int, ...]:
+        if not raw.strip():
+            return DEFAULT_FRAME_CAPTURE_OFFSETS_SECONDS
+        values = []
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                value = int(token)
+            except ValueError as exc:
+                raise ValueError(
+                    f"FRAME_CAPTURE_OFFSETS_SECONDS must be comma-separated integers: {raw!r}"
+                ) from exc
+            if value < 0:
+                raise ValueError(
+                    f"FRAME_CAPTURE_OFFSETS_SECONDS cannot contain negative values: {raw!r}"
+                )
+            values.append(value)
+        if not values:
+            raise ValueError("FRAME_CAPTURE_OFFSETS_SECONDS must contain at least one value")
+        return tuple(values)
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        gmail_address = os.getenv("GMAIL_ADDRESS", "").strip()
+        gmail_app_password = os.getenv("GMAIL_APP_PASSWORD", "").strip().replace(" ", "")
+        if not gmail_address:
+            raise ValueError("GMAIL_ADDRESS is required")
+        if not gmail_app_password:
+            raise ValueError("GMAIL_APP_PASSWORD is required")
+
+        frame_image_format = (
+            os.getenv("FRAME_IMAGE_FORMAT", DEFAULT_FRAME_IMAGE_FORMAT).strip().lower()
+            or DEFAULT_FRAME_IMAGE_FORMAT
+        )
+        if frame_image_format not in {"jpg", "jpeg", "png"}:
+            raise ValueError("FRAME_IMAGE_FORMAT must be one of: jpg, jpeg, png")
+
+        config = cls(
+            gmail_address=gmail_address,
+            gmail_app_password=gmail_app_password,
+            imap_host=os.getenv("IMAP_HOST", "imap.gmail.com").strip() or "imap.gmail.com",
+            imap_port=cls._get_int("IMAP_PORT", 993),
+            imap_folder=os.getenv("IMAP_FOLDER", "INBOX").strip() or "INBOX",
+            imap_readonly=cls._get_bool("IMAP_READONLY", False),
+            mark_as_seen_on_success=cls._get_bool("MARK_AS_SEEN_ON_SUCCESS", True),
+            poll_interval_seconds=cls._get_int("POLL_INTERVAL_SECONDS", 60),
+            search_criteria=os.getenv("SEARCH_CRITERIA", "UNSEEN").strip() or "UNSEEN",
+            save_dir=Path(os.getenv("SAVE_DIR", "./saved_videos")).expanduser(),
+            frame_save_dir=Path(os.getenv("FRAME_SAVE_DIR", "./saved_frames")).expanduser(),
+            state_file=Path(os.getenv("STATE_FILE", "./state.json")).expanduser(),
+            file_name_template=os.getenv("FILE_NAME_TEMPLATE", DEFAULT_FILE_NAME_TEMPLATE),
+            create_sender_subdir=cls._get_bool("CREATE_SENDER_SUBDIR", False),
+            log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+            ffmpeg_path=os.getenv("FFMPEG_PATH", "ffmpeg").strip() or "ffmpeg",
+            frame_capture_offsets_seconds=cls._parse_offsets(
+                os.getenv(
+                    "FRAME_CAPTURE_OFFSETS_SECONDS",
+                    ",".join(str(x) for x in DEFAULT_FRAME_CAPTURE_OFFSETS_SECONDS),
+                )
+            ),
+            frame_image_format=frame_image_format,
+        )
+
+        if config.imap_readonly and config.mark_as_seen_on_success:
+            logging.warning(
+                "IMAP_READONLY=true is incompatible with MARK_AS_SEEN_ON_SUCCESS=true. "
+                "Opening folder in read-write mode."
+            )
+            config.imap_readonly = False
+
+        return config
+
+
+class StateStore:
+    def __init__(self, path: Path):
+        self.path = path
+        self.uidvalidity: Optional[str] = None
+        self.processed_uids: Set[str] = set()
+
+    def load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            import json
+
+            with self.path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            logging.exception("Failed to load state file. Starting with empty state.")
+            return
+        self.uidvalidity = data.get("uidvalidity")
+        raw_uids = data.get("processed_uids", [])
+        if isinstance(raw_uids, list):
+            self.processed_uids = {str(x) for x in raw_uids}
+
+    def save(self) -> None:
+        import json
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        payload = {
+            "uidvalidity": self.uidvalidity,
+            "processed_uids": sorted(self.processed_uids, key=_sort_uid),
+            "updated_at": datetime.now().isoformat(),
+        }
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        tmp.replace(self.path)
+
+    def reset_for_uidvalidity(self, uidvalidity: Optional[str]) -> None:
+        if uidvalidity != self.uidvalidity:
+            logging.info(
+                "UIDVALIDITY changed (%s -> %s). Clearing processed UID state.",
+                self.uidvalidity,
+                uidvalidity,
+            )
+            self.uidvalidity = uidvalidity
+            self.processed_uids.clear()
+            self.save()
+
+
+class GmailMovProcessor:
+    def __init__(self, config: Config):
+        self.config = config
+        self.state = StateStore(config.state_file)
+        self.state.load()
+        self.client: Optional[imaplib.IMAP4_SSL] = None
+        self._running = True
+        self.ffmpeg_path = resolve_ffmpeg_path(config.ffmpeg_path)
+
+    def stop(self, *_args) -> None:
+        logging.info("Shutdown requested.")
+        self._running = False
+
+    def run_forever(self) -> None:
+        signal.signal(signal.SIGINT, self.stop)
+        signal.signal(signal.SIGTERM, self.stop)
+        self.config.save_dir.mkdir(parents=True, exist_ok=True)
+        self.config.frame_save_dir.mkdir(parents=True, exist_ok=True)
+
+        while self._running:
+            try:
+                self.ensure_connected()
+                self.poll_once()
+                self._sleep_with_interrupt(self.config.poll_interval_seconds)
+            except ShutdownRequested:
+                break
+            except KeyboardInterrupt:
+                break
+            except Exception:
+                logging.exception("Unexpected error in main loop. Retrying after backoff.")
+                self.close_client()
+                self._sleep_with_interrupt(min(self.config.poll_interval_seconds, 30))
+
+        self.close_client()
+        logging.info("Stopped.")
+
+    def _sleep_with_interrupt(self, seconds: int) -> None:
+        deadline = time.monotonic() + seconds
+        while self._running and time.monotonic() < deadline:
+            time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+        if not self._running:
+            raise ShutdownRequested
+
+    def ensure_connected(self) -> None:
+        if self.client is not None:
+            return
+
+        client = imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port)
+        client.login(self.config.gmail_address, self.config.gmail_app_password)
+        status, _ = client.select(self.config.imap_folder, readonly=self.config.imap_readonly)
+        if status != "OK":
+            raise RuntimeError(f"Failed to select mailbox: {self.config.imap_folder}")
+
+        uidvalidity = self._get_uidvalidity(client)
+        self.state.reset_for_uidvalidity(uidvalidity)
+        self.client = client
+        logging.info(
+            "Connected to IMAP server %s:%s folder=%s readonly=%s",
+            self.config.imap_host,
+            self.config.imap_port,
+            self.config.imap_folder,
+            self.config.imap_readonly,
+        )
+
+    def close_client(self) -> None:
+        if self.client is None:
+            return
+        try:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.client.logout()
+        except Exception:
+            pass
+        finally:
+            self.client = None
+
+    def poll_once(self) -> None:
+        assert self.client is not None
+        status, response = self.client.uid("SEARCH", None, self.config.search_criteria)
+        if status != "OK":
+            raise RuntimeError(f"SEARCH failed: {response!r}")
+
+        uid_bytes = response[0] if response else b""
+        raw_uids = uid_bytes.decode("utf-8", errors="replace").strip()
+        if not raw_uids:
+            logging.debug("No matching messages.")
+            return
+
+        uids = [uid for uid in raw_uids.split() if uid]
+        logging.debug("Matched UIDs: %s", ", ".join(uids))
+
+        for uid in uids:
+            if not self._running:
+                raise ShutdownRequested
+            if uid in self.state.processed_uids:
+                continue
+            self._process_message(uid)
+            self.state.processed_uids.add(uid)
+            self.state.save()
+
+    def _process_message(self, uid: str) -> None:
+        assert self.client is not None
+        status, fetch_data = self.client.uid("FETCH", uid, "(RFC822)")
+        if status != "OK":
+            raise RuntimeError(f"FETCH failed for UID {uid}: {fetch_data!r}")
+
+        raw_message = self._extract_rfc822(fetch_data)
+        if raw_message is None:
+            raise RuntimeError(f"RFC822 payload missing for UID {uid}")
+
+        msg = email.message_from_bytes(raw_message)
+        subject = decode_mime_header(msg.get("Subject")) or "(no subject)"
+        sender = decode_mime_header(msg.get("From")) or "unknown"
+        logging.info("Processing UID=%s Subject=%s From=%s", uid, subject, sender)
+
+        saved_videos = 0
+        for part_index, part in enumerate(msg.walk(), start=1):
+            if self._maybe_save_mov_part(uid, msg, part, part_index):
+                saved_videos += 1
+
+        if saved_videos == 0:
+            logging.info("UID=%s contained no MOV attachments.", uid)
+            return
+
+        logging.info("UID=%s processed %d MOV attachment(s).", uid, saved_videos)
+        if self.config.mark_as_seen_on_success:
+            self._mark_seen(uid)
+
+    def _maybe_save_mov_part(self, uid: str, msg: Message, part: Message, part_index: int) -> bool:
+        content_type = (part.get_content_type() or "").lower()
+        disposition = (part.get_content_disposition() or "").lower()
+        filename = decode_mime_header(part.get_filename()) if part.get_filename() else None
+        extension = Path(filename).suffix.lower() if filename else ""
+
+        is_mov = content_type in MOV_MIME_TYPES or extension in MOV_EXTENSIONS
+        is_attachmentish = disposition == "attachment" or filename is not None
+        if not (is_mov and is_attachmentish):
+            return False
+
+        payload = part.get_payload(decode=True)
+        if not payload:
+            logging.warning("UID=%s part=%s had empty MOV payload.", uid, part_index)
+            return False
+
+        msg_date = parse_message_date(msg.get("Date"))
+        sender = sanitize_filename(extract_sender(msg.get("From")))
+        safe_original_filename = sanitize_filename(filename or f"part-{part_index}.mov")
+
+        formatted_name = self.config.file_name_template.format(
+            date=msg_date,
+            uid=uid,
+            part=part_index,
+            filename=safe_original_filename,
+            sender=sender,
+        )
+        formatted_name = sanitize_filename(ensure_suffix(formatted_name, ".mov"))
+
+        target_dir = self.config.save_dir
+        if self.config.create_sender_subdir and sender:
+            target_dir = target_dir / sender
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        destination = deduplicate_path(target_dir / formatted_name)
+        with destination.open("wb") as f:
+            f.write(payload)
+        logging.info("Saved MOV attachment: %s", destination)
+
+        self._extract_frames(destination)
+        return True
+
+    def _extract_frames(self, video_path: Path) -> None:
+        video_stem = sanitize_filename(video_path.stem)
+        #frame_dir = self.config.frame_save_dir / video_stem
+        frame_dir = self.config.frame_save_dir
+        frame_dir.mkdir(parents=True, exist_ok=True)
+
+        for index, offset in enumerate(self.config.frame_capture_offsets_seconds, start=1):
+            frame_name = f"{video_stem}_frame_{index:02d}_{offset:02d}s.{self.config.frame_image_format}"
+            frame_path = deduplicate_path(frame_dir / frame_name)
+            cmd = [
+                self.ffmpeg_path,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                str(offset),
+                "-i",
+                str(video_path),
+                "-frames:v",
+                "1",
+                str(frame_path),
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as exc:
+                stderr = (exc.stderr or "").strip()
+                raise RuntimeError(
+                    f"ffmpeg frame extraction failed for {video_path} at {offset}s: {stderr}"
+                ) from exc
+            if not frame_path.exists() or frame_path.stat().st_size == 0:
+                raise RuntimeError(f"ffmpeg did not produce frame file: {frame_path}")
+            logging.info("Saved frame: %s", frame_path)
+
+    def _mark_seen(self, uid: str) -> None:
+        assert self.client is not None
+        status, response = self.client.uid("STORE", uid, "+FLAGS.SILENT", r"(\Seen)")
+        if status != "OK":
+            raise RuntimeError(f"Failed to mark UID {uid} as read: {response!r}")
+        logging.info(r"Marked UID=%s as read (\Seen).", uid)
+
+    @staticmethod
+    def _extract_rfc822(fetch_data) -> Optional[bytes]:
+        for item in fetch_data:
+            if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
+                return bytes(item[1])
+        return None
+
+    @staticmethod
+    def _get_uidvalidity(client: imaplib.IMAP4_SSL) -> Optional[str]:
+        status, response = client.response("UIDVALIDITY")
+        if status == "OK" and response:
+            raw = response[0]
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", errors="replace")
+            return str(raw)
+        return None
+
+
+def resolve_ffmpeg_path(configured_path: str) -> str:
+    configured_path = configured_path.strip()
+    if configured_path:
+        if os.path.isabs(configured_path) and os.access(configured_path, os.X_OK):
+            return configured_path
+        found = shutil.which(configured_path)
+        if found:
+            return found
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:
+        raise RuntimeError(
+            "ffmpeg was not found. Install ffmpeg, set FFMPEG_PATH, or install imageio-ffmpeg."
+        ) from exc
+
+
+def decode_mime_header(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    try:
+        return str(make_header(decode_header(value))).strip()
+    except Exception:
+        return value.strip()
+
+
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\r\n\t]+')
+_WHITESPACE = re.compile(r'\s+')
+_EMAIL_RE = re.compile(r'<([^>]+)>')
+
+
+def sanitize_filename(name: str) -> str:
+    cleaned = _INVALID_FILENAME_CHARS.sub("_", name).strip(" .")
+    cleaned = _WHITESPACE.sub("_", cleaned)
+    return cleaned[:240] or "file"
+
+
+def extract_sender(from_header: Optional[str]) -> str:
+    if not from_header:
+        return "unknown"
+    match = _EMAIL_RE.search(from_header)
+    if match:
+        return match.group(1)
+    return from_header
+
+
+def ensure_suffix(name: str, suffix: str) -> str:
+    if name.lower().endswith(suffix.lower()):
+        return name
+    return f"{name}{suffix}"
+
+
+def parse_message_date(date_header: Optional[str]) -> str:
+    if not date_header:
+        return datetime.now().strftime("%Y%m%d")
+    try:
+        dt = email.utils.parsedate_to_datetime(date_header)
+        return dt.strftime("%Y%m%d")
+    except Exception:
+        return datetime.now().strftime("%Y%m%d")
+
+
+def deduplicate_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _sort_uid(value: str) -> Tuple[int, str]:
+    return (0, value) if not value.isdigit() else (1, f"{int(value):020d}")
+
+
+def configure_logging(level: str) -> None:
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        stream=sys.stdout,
+    )
+
+
+def main() -> int:
+    try:
+        config = Config.from_env()
+    except Exception as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    configure_logging(config.log_level)
+    logging.info("Starting Gmail MOV saver.")
+    try:
+        processor = GmailMovProcessor(config)
+    except Exception:
+        logging.exception("Initialization failed.")
+        return 2
+    processor.run_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
