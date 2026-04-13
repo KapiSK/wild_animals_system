@@ -121,17 +121,17 @@ ufw --force enable
 
 # Systemd サービス化（FastAPIの自動バックグラウンド起動）
 SERVICE_FILE="/etc/systemd/system/wild-animals-cloud.service"
-USER_NAME=\$(logname || echo \$USER)
+USER_NAME=$(logname || echo $USER)
 
-cat > \$SERVICE_FILE <<EOF
+cat > $SERVICE_FILE <<EOF
 [Unit]
 Description=Wild Animals Cloud Server (FastAPI)
 After=network.target
 
 [Service]
-User=\$USER_NAME
-WorkingDirectory=\$APP_DIR
-ExecStart=\$APP_DIR/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
+User=$USER_NAME
+WorkingDirectory=$APP_DIR
+ExecStart=$APP_DIR/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
 Restart=always
 
 [Install]
