@@ -3,7 +3,7 @@ import logging
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -34,7 +34,16 @@ RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "recipient@example.com")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
 
+API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
+
 security = HTTPBasic()
+
+async def verify_api_token(x_api_key: str = Header(None)):
+    if x_api_key != API_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Token"
+        )
 
 def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
     current_username_bytes = credentials.username.encode("utf8")
@@ -469,7 +478,7 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
     await cycle_manager.add_result(cycle_id, result_data, timing_info)
 
 @app.post("/upload")
-async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...), api_key: str = Depends(verify_api_token)):
     """
     Receive image, save it, and trigger processing.
     """
@@ -511,7 +520,7 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/images")
-async def get_images():
+async def get_images(username: str = Depends(verify_credentials)):
     """
     Return a list of raw and processed images.
     """
@@ -887,7 +896,7 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
     return html_content
 
 @app.get("/gallery", response_class=HTMLResponse)
-async def gallery():
+async def gallery(username: str = Depends(verify_credentials)):
     """
     Serve a simple HTML page to view raw and processed images.
     """

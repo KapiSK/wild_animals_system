@@ -102,6 +102,7 @@ namespace net {
   String PI_ESPLOG_URL;                           // Full URL for ESP log chunk uploads
 
   constexpr char HDR_HASH[]     = "X-Content-SHA256"; // Custom HTTP header for SHA256 content verification
+  const String API_TOKEN        = "wild-animals-token-2026"; // Edge Server API Token
 }
 
 // =======================================================
@@ -781,6 +782,7 @@ static bool uploadFile(const String& url, const String& path, const char* ctype,
 
         file.seek(0); // Rewind file pointer to the beginning for sending
         httpClient.addHeader(net::HDR_HASH, String(hexHash)); // Add hash header
+        httpClient.addHeader("X-API-KEY", net::API_TOKEN);    // Add API Auth Header
         httpClient.setTimeout(15000); // Set timeout for the request (ms)
 
         // Send the POST request with the file stream and size

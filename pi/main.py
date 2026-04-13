@@ -6,7 +6,7 @@ import logging
 import re
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Header, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -25,6 +25,14 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 MAIN_SERVER_URL = os.getenv("MAIN_SERVER_URL")
 # Local Mode: If True, skips forwarding to external server
 LOCAL_MODE = os.getenv("LOCAL_MODE", "False").lower() == "true"
+API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
+
+async def verify_api_token(x_api_key: str = Header(None)):
+    if x_api_key != API_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Token"
+        )
 
 LOG_FILE = "server.log"
 
@@ -254,15 +262,17 @@ async def forward_image(file_path: str, filename: str):
     """
     logger.info(f"Forwarding {filename} to {MAIN_SERVER_URL}")
     try:
-        async with httpx.AsyncClient() as client:
+        # verify=False is required to connect to the cloud server using a self-signed SSL certificate
+        async with httpx.AsyncClient(verify=False) as client:
             # Open file asynchronously for reading
             async with aiofiles.open(file_path, "rb") as f:
                 content = await f.read()
                 
             files = {"file": (filename, content, "image/jpeg")}
+            headers = {"X-API-KEY": API_TOKEN}
             
-            # Note: External server (server.py) expects just the file.
-            response = await client.post(MAIN_SERVER_URL, files=files)
+            # Note: External server (server.py) expects just the file and the API key header.
+            response = await client.post(MAIN_SERVER_URL, files=files, headers=headers)
             response.raise_for_status()
             logger.info(f"Successfully forwarded {filename}. Status: {response.status_code}")
             
@@ -272,7 +282,7 @@ async def forward_image(file_path: str, filename: str):
         logger.error(f"Unexpected error forwarding {filename}: {e}")
 
 @app.post("/upload")
-async def upload_image(request: Request, background_tasks: BackgroundTasks):
+async def upload_image(request: Request, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_token)):
     """
     Handle image upload (Raw Binary):
     1. Save image to disk asynchronously (fast, non-blocking)
@@ -322,7 +332,7 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/esp_log")
-async def upload_esp_log(request: Request):
+async def upload_esp_log(request: Request, api_key: str = Depends(verify_api_token)):
     """
     Receive log file from ESP32 (Raw Binary).
     """
