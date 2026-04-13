@@ -34,7 +34,10 @@ source venv/bin/activate
 if [ -f "requirements.txt" ]; then
     pip install setuptools wheel
     # クラウドサーバー用にopencvはGUI不要のheadless版を使うことを推奨
-    sed -i 's/opencv-python/opencv-python-headless/g' requirements.txt || true
+    # 前回の実行で -headless-headless になってしまった場合の自己修復
+    sed -i 's/opencv-python-headless-headless/opencv-python-headless/g' requirements.txt || true
+    # 厳密な正規表現で先頭の opencv-python のみを置換
+    sed -i -E 's/^opencv-python(==.*)?$/opencv-python-headless\1/g' requirements.txt || true
     pip install -r requirements.txt
 else
     echo "⚠️ requirements.txt が見つかりません。ライブラリのインストールをスキップします。"
@@ -56,7 +59,8 @@ echo "🕸️ [4/5] Nginx（リバースプロキシ）の設定..."
 NGINX_CONF="/etc/nginx/sites-available/wild_animals_cloud"
 
 if [ -n "$MGMT_IP" ]; then
-    ALLOW_RULE="allow $MGMT_IP;\n        deny all;"
+    ALLOW_RULE="allow $MGMT_IP;
+        deny all;"
     echo "🔒 管理画面は $MGMT_IP からのアクセスのみ許可します。"
 else
     ALLOW_RULE="allow all;"
