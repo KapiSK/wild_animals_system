@@ -1,0 +1,5 @@
+- [x] `gmail_image_saver.py`にYOLO推論機能（ultralytics）と `requests` によるクラウドサーバー転送機能を実装する。
+- [x] `.env` を `CLOUD_SERVER_URL` 等へ更新する。
+- [x] 統合サーバー用の `requirements.txt` を作成する。
+- [x] 統合サーバー用のセットアップスクリプト `setup_integration_server.sh` を作成する。
+- [x] `walkthrough.md` にセットアップや変更点の手引きを記載する。

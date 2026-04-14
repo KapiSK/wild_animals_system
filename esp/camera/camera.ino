@@ -102,7 +102,7 @@ namespace net {
   String PI_ESPLOG_URL;                           // Full URL for ESP log chunk uploads
 
   constexpr char HDR_HASH[]     = "X-Content-SHA256"; // Custom HTTP header for SHA256 content verification
-  const String API_TOKEN        = "wild-animals-token-2026"; // Edge Server API Token
+  constexpr char API_TOKEN[]    = "wild-animals-token-2026"; // Edge Server API Token
 }
 
 // =======================================================

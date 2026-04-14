@@ -49,6 +49,8 @@ class Config:
     ffmpeg_path: str = "ffmpeg"
     frame_capture_offsets_seconds: Tuple[int, ...] = DEFAULT_FRAME_CAPTURE_OFFSETS_SECONDS
     frame_image_format: str = DEFAULT_FRAME_IMAGE_FORMAT
+    cloud_server_url: str = ""
+    cloud_api_key: str = "wild-animals-token-2026"
 
     @staticmethod
     def _get_bool(name: str, default: bool) -> bool:
@@ -134,6 +136,8 @@ class Config:
                 )
             ),
             frame_image_format=frame_image_format,
+            cloud_server_url=os.getenv("CLOUD_SERVER_URL", "").strip(),
+            cloud_api_key=os.getenv("CLOUD_SERVER_API_KEY", "wild-animals-token-2026").strip(),
         )
 
         if config.imap_readonly and config.mark_as_seen_on_success:
@@ -202,6 +206,17 @@ class GmailMovProcessor:
         self.client: Optional[imaplib.IMAP4_SSL] = None
         self._running = True
         self.ffmpeg_path = resolve_ffmpeg_path(config.ffmpeg_path)
+        
+        self.model = None
+        self.target_classes = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        if self.config.cloud_server_url:
+            try:
+                from ultralytics import YOLO
+                logging.info("Loading YOLOv8n model...")
+                self.model = YOLO("yolov8n.pt")
+                logging.info("Model loaded successfully.")
+            except ImportError as e:
+                logging.error("ultralytics module not found. Check requirements.txt: %s", e)
 
     def stop(self, *_args) -> None:
         logging.info("Shutdown requested.")
@@ -372,6 +387,8 @@ class GmailMovProcessor:
         frame_dir = self.config.frame_save_dir
         frame_dir.mkdir(parents=True, exist_ok=True)
 
+        extracted_frames = []
+
         for index, offset in enumerate(self.config.frame_capture_offsets_seconds, start=1):
             frame_name = f"{video_stem}_frame_{index:02d}_{offset:02d}s.{self.config.frame_image_format}"
             frame_path = deduplicate_path(frame_dir / frame_name)
@@ -400,6 +417,57 @@ class GmailMovProcessor:
             if not frame_path.exists() or frame_path.stat().st_size == 0:
                 raise RuntimeError(f"ffmpeg did not produce frame file: {frame_path}")
             logging.info("Saved frame: %s", frame_path)
+            extracted_frames.append((frame_path, index))
+
+        if self.config.cloud_server_url and self.model:
+            should_forward = False
+            for frame_path, _ in extracted_frames:
+                try:
+                    results = self.model(str(frame_path), verbose=False)
+                    for result in results:
+                        for box in result.boxes:
+                            if int(box.cls[0]) in self.target_classes:
+                                should_forward = True
+                                break
+                        if should_forward:
+                            break
+                except Exception as e:
+                    logging.error("YOLO inference failed on %s: %s", frame_path, e)
+                
+                if should_forward:
+                    break
+
+            if should_forward:
+                logging.info("Target detected in cycle %s. Forwarding...", video_stem)
+                self._upload_to_cloud_server(video_stem, extracted_frames)
+            else:
+                logging.info("No targets detected in cycle %s. Skipping upload.", video_stem)
+
+    def _upload_to_cloud_server(self, video_stem: str, frames: Sequence[Tuple[Path, int]]) -> None:
+        import requests
+        import urllib3
+
+        # Suppress insecure request warnings for self-signed certs
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        url = self.config.cloud_server_url
+        logging.info("Starting upload of %d frames to cloud server: %s", len(frames), url)
+
+        for frame_path, index in frames:
+            x_file_name = f"satos_{video_stem}-001-{index}.{self.config.frame_image_format}"
+            try:
+                with frame_path.open("rb") as f:
+                    files = {"file": (x_file_name, f, "image/jpeg")}
+                    headers = {"X-API-KEY": self.config.cloud_api_key}
+                    
+                    resp = requests.post(url, files=files, headers=headers, verify=False, timeout=30)
+                    
+                    if resp.status_code == 200:
+                        logging.info("Uploaded %s to cloud server.", x_file_name)
+                    else:
+                        logging.warning("Cloud server returned status %s for %s", resp.status_code, x_file_name)
+            except Exception as e:
+                logging.error("Failed to upload %s to cloud server: %s", x_file_name, e)
 
     def _mark_seen(self, uid: str) -> None:
         assert self.client is not None

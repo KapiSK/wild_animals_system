@@ -23,7 +23,7 @@ read -p "▶️ 管理用 IPアドレス (例: 133.1.x.x): " MGMT_IP
 echo "-------------------------------------------------"
 echo "📦 [1/5] 必要なパッケージのインストール..."
 apt-get update
-apt-get install -y python3 python3-venv python3-pip nginx ufw openssl
+apt-get install -y python3 python3-venv python3-pip nginx ufw openssl libgl1-mesa-glx libglib2.0-0
 
 echo "-------------------------------------------------"
 echo "🐍 [2/5] Python仮想環境の構築と依存関係のインストール..."
