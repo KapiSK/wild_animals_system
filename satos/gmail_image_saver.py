@@ -51,6 +51,7 @@ class Config:
     frame_image_format: str = DEFAULT_FRAME_IMAGE_FORMAT
     cloud_server_url: str = ""
     cloud_api_key: str = "wild-animals-token-2026"
+    enable_local_yolo: bool = True
 
     @staticmethod
     def _get_bool(name: str, default: bool) -> bool:
@@ -138,6 +139,7 @@ class Config:
             frame_image_format=frame_image_format,
             cloud_server_url=os.getenv("CLOUD_SERVER_URL", "").strip(),
             cloud_api_key=os.getenv("CLOUD_SERVER_API_KEY", "wild-animals-token-2026").strip(),
+            enable_local_yolo=cls._get_bool("ENABLE_LOCAL_YOLO", True),
         )
 
         if config.imap_readonly and config.mark_as_seen_on_success:
@@ -209,7 +211,7 @@ class GmailMovProcessor:
         
         self.model = None
         self.target_classes = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-        if self.config.cloud_server_url:
+        if self.config.cloud_server_url and self.config.enable_local_yolo:
             try:
                 from ultralytics import YOLO
                 logging.info("Loading YOLOv8n model...")
@@ -419,26 +421,31 @@ class GmailMovProcessor:
             logging.info("Saved frame: %s", frame_path)
             extracted_frames.append((frame_path, index))
 
-        if self.config.cloud_server_url and self.model:
+        if self.config.cloud_server_url:
             should_forward = False
-            for frame_path, _ in extracted_frames:
-                try:
-                    results = self.model(str(frame_path), verbose=False)
-                    for result in results:
-                        for box in result.boxes:
-                            if int(box.cls[0]) in self.target_classes:
-                                should_forward = True
+            
+            if self.config.enable_local_yolo and self.model:
+                for frame_path, _ in extracted_frames:
+                    try:
+                        results = self.model(str(frame_path), verbose=False)
+                        for result in results:
+                            for box in result.boxes:
+                                if int(box.cls[0]) in self.target_classes:
+                                    should_forward = True
+                                    break
+                            if should_forward:
                                 break
-                        if should_forward:
-                            break
-                except Exception as e:
-                    logging.error("YOLO inference failed on %s: %s", frame_path, e)
-                
-                if should_forward:
-                    break
+                    except Exception as e:
+                        logging.error("YOLO inference failed on %s: %s", frame_path, e)
+                    
+                    if should_forward:
+                        break
+            else:
+                # Bypass inference and forward directly
+                should_forward = True
 
             if should_forward:
-                logging.info("Target detected in cycle %s. Forwarding...", video_stem)
+                logging.info("Criteria met for cycle %s. Forwarding...", video_stem)
                 self._upload_to_cloud_server(video_stem, extracted_frames)
             else:
                 logging.info("No targets detected in cycle %s. Skipping upload.", video_stem)
