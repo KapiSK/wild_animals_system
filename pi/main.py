@@ -297,6 +297,10 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks, api_
         # Fallback if header missing
         original_filename = "unknown.jpg"
 
+    # Annotate with Pi edge receiving time for Cloud Server reporting
+    edge_rcv_time = datetime.datetime.now().strftime("%H%M%S")
+    original_filename = f"pi_Rcv{edge_rcv_time}_{original_filename}"
+
     # Generate timestamp for storage
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"{timestamp}_{original_filename}"

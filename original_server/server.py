@@ -285,17 +285,38 @@ class CycleManager:
         # 2. Compose Email Body
         detected_images_count = sum(1 for f in files if f['target_count'] > 0)
         
+        edge_receive_info = ""
+        if "_Rcv" in raw_id:
+            parts = raw_id.split("_Rcv")
+            head = parts[0]
+            if len(parts) > 1:
+                tail_parts = parts[1].split("_")
+                t = tail_parts[0]
+                if len(t) == 6:
+                    edge_time_str = f"{t[:2]}:{t[2:4]}:{t[4:6]}"
+                    display_type = "統合サーバ" if "satos" in head else "エッジサーバ"
+                    edge_receive_info = f"・{display_type}受取時刻：{edge_time_str}"
+                
+                # Extract pure camera name without prefix and timestamp
+                raw_id = "_".join(tail_parts[1:])
+        
         body_lines = [
             "━━━━━━━━━━━━━━━━━━━━",
             f" 🚨 CAM-{raw_id} 検知レポート",
             "━━━━━━━━━━━━━━━━━━━━",
             "■ 検知サマリー",
             f"・カメラ　：CAM-{raw_id}",
-            f"・検知日時：{cycle_time}",
+            f"・クラウド側検知日時：{cycle_time}"
+        ]
+        
+        if edge_receive_info:
+            body_lines.append(edge_receive_info)
+
+        body_lines.extend([
             f"・対象物　：{labels_part} ({len(files)}枚中 {detected_images_count}枚で検知)",
             "",
             "■ 解析ログ (画像ごと)"
-        ]
+        ])
         
         for i, f in enumerate(files, 1):
             f_summary = f['summary_text']

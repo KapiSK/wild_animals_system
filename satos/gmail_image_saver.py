@@ -494,6 +494,7 @@ class GmailMovProcessor:
     def _upload_to_cloud_server(self, video_stem: str, frames: Sequence[Tuple[Path, int]]) -> None:
         import requests
         import urllib3
+        from datetime import datetime
 
         # Suppress insecure request warnings for self-signed certs
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -501,8 +502,10 @@ class GmailMovProcessor:
         url = self.config.cloud_server_url
         logging.info("Starting upload of %d frames to cloud server: %s", len(frames), url)
 
+        edge_rcv_time = datetime.now().strftime("%H%M%S")
+
         for frame_path, index in frames:
-            x_file_name = f"satos_{video_stem}-001-{index}.{self.config.frame_image_format}"
+            x_file_name = f"satos_Rcv{edge_rcv_time}_{video_stem}-001-{index}.{self.config.frame_image_format}"
             try:
                 with frame_path.open("rb") as f:
                     files = {"file": (x_file_name, f, "image/jpeg")}
