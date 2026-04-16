@@ -5,11 +5,13 @@ import email
 import imaplib
 import logging
 import os
+import queue
 import re
 import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -209,6 +211,9 @@ class GmailMovProcessor:
         self._running = True
         self.ffmpeg_path = resolve_ffmpeg_path(config.ffmpeg_path)
         
+        self.video_queue = queue.Queue()
+        self.worker_thread = threading.Thread(target=self._worker_loop, name="VideoWorker", daemon=True)
+        
         self.model = None
         self.target_classes = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
         if self.config.cloud_server_url and self.config.enable_local_yolo:
@@ -223,6 +228,7 @@ class GmailMovProcessor:
     def stop(self, *_args) -> None:
         logging.info("Shutdown requested.")
         self._running = False
+        self.video_queue.put(None)  # Signal worker to stop
 
     def run_forever(self) -> None:
         signal.signal(signal.SIGINT, self.stop)
@@ -230,21 +236,30 @@ class GmailMovProcessor:
         self.config.save_dir.mkdir(parents=True, exist_ok=True)
         self.config.frame_save_dir.mkdir(parents=True, exist_ok=True)
 
+        self.worker_thread.start()
+        consecutive_errors = 0
+
         while self._running:
             try:
                 self.ensure_connected()
                 self.poll_once()
+                consecutive_errors = 0
                 self._sleep_with_interrupt(self.config.poll_interval_seconds)
             except ShutdownRequested:
                 break
             except KeyboardInterrupt:
                 break
-            except Exception:
-                logging.exception("Unexpected error in main loop. Retrying after backoff.")
+            except Exception as e:
+                consecutive_errors += 1
+                backoff = min(self.config.poll_interval_seconds * (2 ** (consecutive_errors - 1)), 600)
+                logging.exception("Error in main loop: %s. Retrying after %d seconds.", e, backoff)
                 self.close_client()
-                self._sleep_with_interrupt(min(self.config.poll_interval_seconds, 30))
+                self._sleep_with_interrupt(int(backoff))
 
         self.close_client()
+        if self.worker_thread.is_alive():
+            logging.info("Waiting for worker thread to finish remaining tasks...")
+            self.worker_thread.join(timeout=30.0)
         logging.info("Stopped.")
 
     def _sleep_with_interrupt(self, seconds: int) -> None:
@@ -330,18 +345,20 @@ class GmailMovProcessor:
 
         saved_videos = 0
         for part_index, part in enumerate(msg.walk(), start=1):
-            if self._maybe_save_mov_part(uid, msg, part, part_index):
+            saved_path = self._maybe_save_mov_part(uid, msg, part, part_index)
+            if saved_path:
+                self.video_queue.put(saved_path)
                 saved_videos += 1
 
         if saved_videos == 0:
             logging.info("UID=%s contained no MOV attachments.", uid)
             return
 
-        logging.info("UID=%s processed %d MOV attachment(s).", uid, saved_videos)
+        logging.info("UID=%s queued %d MOV attachment(s) for processing.", uid, saved_videos)
         if self.config.mark_as_seen_on_success:
             self._mark_seen(uid)
 
-    def _maybe_save_mov_part(self, uid: str, msg: Message, part: Message, part_index: int) -> bool:
+    def _maybe_save_mov_part(self, uid: str, msg: Message, part: Message, part_index: int) -> Optional[Path]:
         content_type = (part.get_content_type() or "").lower()
         disposition = (part.get_content_disposition() or "").lower()
         filename = decode_mime_header(part.get_filename()) if part.get_filename() else None
@@ -380,8 +397,32 @@ class GmailMovProcessor:
             f.write(payload)
         logging.info("Saved MOV attachment: %s", destination)
 
-        self._extract_frames(destination)
-        return True
+        return destination
+
+    def _worker_loop(self) -> None:
+        logging.info("Worker thread started.")
+        while self._running or not self.video_queue.empty():
+            try:
+                # Block with timeout to periodically check exit signal
+                video_path = self.video_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            
+            if video_path is None:
+                # Termination signal received
+                self.video_queue.task_done()
+                break
+            
+            try:
+                logging.info("[Worker] Starting processing for %s", video_path)
+                self._extract_frames(video_path)
+                logging.info("[Worker] Finished processing for %s", video_path)
+            except Exception:
+                logging.exception("[Worker] Unhandled error while processing %s", video_path)
+            finally:
+                self.video_queue.task_done()
+        
+        logging.info("Worker thread stopped.")
 
     def _extract_frames(self, video_path: Path) -> None:
         video_stem = sanitize_filename(video_path.stem)
