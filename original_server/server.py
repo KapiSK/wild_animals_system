@@ -18,6 +18,7 @@ from collections import defaultdict
 import re
 import json
 import secrets
+import shutil
 
 # Load environment variables
 load_dotenv()
@@ -456,6 +457,9 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
     match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
     if match_new:
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", match_new.group(1))
+        if "_" in pure_cam_id:
+            pure_cam_id = pure_cam_id.split("_")[0]
+        pure_cam_id = get_camera_id(pure_cam_id)
 
     # Save annotated image if target found
     if target_found:
@@ -528,6 +532,9 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         idx = match.group(3)
         filename = f"{cam_id}_{time_str}_{seq}_{idx}.jpg"
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_id)
+        if "_" in pure_cam_id:
+            pure_cam_id = pure_cam_id.split("_")[0]
+        pure_cam_id = get_camera_id(pure_cam_id)
     else:
         # フォーマット外のファイルの場合のフォールバック
         filename = f"{time_str}_{mapped_filename}"
@@ -581,6 +588,26 @@ async def get_images(username: str = Depends(verify_credentials)):
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
 
+@app.get("/api/config/unmapped_cameras")
+async def get_unmapped_cameras(username: str = Depends(verify_credentials)):
+    mapped_keys = []
+    mapped_values = []
+    if os.path.exists(MAC_MAPPING_FILE):
+        with open(MAC_MAPPING_FILE, 'r') as f:
+            mapping = json.load(f)
+            mapped_keys = list(mapping.keys())
+            mapped_values = list(mapping.values())
+    
+    unmapped = []
+    for d in [UPLOAD_DIR, PROCESSED_DIR]:
+        if os.path.exists(d):
+            for folder in os.listdir(d):
+                if os.path.isdir(os.path.join(d, folder)):
+                    if folder not in mapped_keys and folder not in mapped_values and folder != "unknown":
+                        if folder not in unmapped:
+                            unmapped.append(folder)
+    return {"status": "ok", "unmapped": unmapped}
+
 @app.get("/api/config/mapping")
 async def get_mapping(username: str = Depends(verify_credentials)):
     if os.path.exists(MAC_MAPPING_FILE):
@@ -591,10 +618,36 @@ async def get_mapping(username: str = Depends(verify_credentials)):
 @app.post("/api/config/mapping")
 async def update_mapping(mapping: dict, username: str = Depends(verify_credentials)):
     try:
+        old_mapping = {}
+        if os.path.exists(MAC_MAPPING_FILE):
+            with open(MAC_MAPPING_FILE, 'r') as f:
+                old_mapping = json.load(f)
+
+        for mac, new_name in mapping.items():
+            old_name = old_mapping.get(mac, mac)
+            if old_name != new_name:
+                for base_dir in [UPLOAD_DIR, PROCESSED_DIR]:
+                    old_path = os.path.join(base_dir, old_name)
+                    new_path = os.path.join(base_dir, new_name)
+                    if os.path.exists(old_path) and os.path.isdir(old_path):
+                        if os.path.exists(new_path) and os.path.isdir(new_path):
+                            for item in os.listdir(old_path):
+                                src_item = os.path.join(old_path, item)
+                                dst_item = os.path.join(new_path, item)
+                                if not os.path.exists(dst_item):
+                                    shutil.move(src_item, new_path)
+                            try:
+                                os.rmdir(old_path)
+                            except OSError:
+                                pass
+                        else:
+                            os.rename(old_path, new_path)
+
         with open(MAC_MAPPING_FILE, 'w') as f:
             json.dump(mapping, f, indent=4)
         return {"status": "ok"}
     except Exception as e:
+        logger.error(f"Failed to update mapping: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/config/env")
@@ -771,6 +824,9 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
 
             input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); background: #fff; }
 
+            .inline-edit-input { width: 100%; max-width: 200px; padding: 6px 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.95rem; font-weight: 500; color: #4338ca; background: rgba(255,255,255,0.9); transition: all 0.2s; }
+            .inline-edit-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
+
             #toast {
                 position: fixed; bottom: 30px; right: 30px; background: #10b981; color: white;
                 padding: 15px 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
@@ -779,6 +835,7 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
             #toast.show { transform: translateY(0); opacity: 1; }
             
             .add-row { display: grid; grid-template-columns: 2fr 2fr 1fr; gap: 15px; margin-bottom: 20px; align-items: end; }
+            .unmapped-highlight { background: rgba(254, 215, 215, 0.2); padding: 15px; border-radius: 12px; border: 1px dashed #fc8181; margin-bottom: 20px; position: relative; }
             
             .nav-link { text-align: center; margin-top: 20px; display: block; color: var(--primary); text-decoration: none; font-weight: 500; }
             .nav-link:hover { text-decoration: underline; }
@@ -793,11 +850,14 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                 <div class="card-header">
                     <h2>Camera Edge Mapping</h2>
                 </div>
-                
+                <div id="unmapped-add-rows-container">
+                    <!-- Loaded via JS for new cameras -->
+                </div>
+
                 <div class="add-row">
                     <div class="form-group" style="margin-bottom:0">
-                        <label>MAC Address (12 chars)</label>
-                        <input type="text" id="new-mac" placeholder="ex: AABBCCDDEEFF">
+                        <label>Camera ID (Current Folder / MAC)</label>
+                        <input type="text" id="new-mac" placeholder="Manual entry...">
                     </div>
                     <div class="form-group" style="margin-bottom:0">
                         <label>Assigned ID</label>
@@ -857,9 +917,59 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                     const envData = await envRes.json();
                     document.getElementById('env-recipient').value = envData.RECIPIENT_EMAIL || '';
                     document.getElementById('env-sender').value = envData.SENDER_EMAIL || '';
+                    
+                    await fetchUnmapped();
                 } catch (e) {
                     console.error("Failed to load config", e);
                 }
+            }
+
+            async function fetchUnmapped() {
+                try {
+                    const res = await fetch('/api/config/unmapped_cameras');
+                    const data = await res.json();
+                    if (data.status === 'ok' && data.unmapped) {
+                        renderUnmappedRows(data.unmapped);
+                    }
+                } catch(e) {
+                    console.error("Error fetching unmapped cameras", e);
+                }
+            }
+
+            function renderUnmappedRows(unmappedList) {
+                const container = document.getElementById('unmapped-add-rows-container');
+                if (!container) return;
+                container.innerHTML = '';
+                
+                unmappedList.forEach(mac => {
+                    const row = document.createElement('div');
+                    row.className = 'add-row unmapped-highlight';
+                    row.innerHTML = `
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Unmapped Camera Detected 👇</label>
+                            <input type="text" value="${mac}" readonly style="background: rgba(254, 215, 215, 0.5); border-color: #fc8181; color: #c53030; font-weight: 600; cursor: not-allowed;">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Enter Assigned ID</label>
+                            <input type="text" id="new-id-${mac}" placeholder="Type name here & press Register">
+                        </div>
+                        <button class="btn" style="background: #e53e3e;" onclick="addUnmappedMapping('${mac}')">+ Register</button>
+                    `;
+                    container.appendChild(row);
+                });
+            }
+
+            function addUnmappedMapping(mac) {
+                const idInput = document.getElementById(`new-id-${mac}`);
+                if (!idInput) return;
+                const newId = idInput.value.trim();
+                if (!newId) return;
+                
+                currentMapping[mac] = newId;
+                saveMappingToServer().then(() => {
+                    renderMapping();
+                    fetchUnmapped();
+                });
             }
 
             function renderMapping() {
@@ -870,13 +980,22 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                     tr.className = 'row-item';
                     tr.innerHTML = `
                         <td>${mac}</td>
-                        <td><span style="background: rgba(79, 70, 229, 0.1); color: #4338ca; padding: 4px 12px; border-radius: 20px; font-weight: 500;">${id}</span></td>
+                        <td>
+                            <input type="text" value="${id}" class="inline-edit-input" onchange="updateInlineMapping('${mac}', this.value)" title="タイプしてEnterで保存">
+                        </td>
                         <td style="text-align: right">
                             <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85rem;" onclick="deleteMapping('${mac}')">Delete</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 }
+            }
+
+            function updateInlineMapping(mac, newId) {
+                newId = newId.trim();
+                if (!newId) return;
+                currentMapping[mac] = newId;
+                saveMappingToServer();
             }
 
             async function saveMappingToServer() {
@@ -900,14 +1019,18 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                 currentMapping[mac] = id;
                 document.getElementById('new-mac').value = '';
                 document.getElementById('new-id').value = '';
-                renderMapping();
-                saveMappingToServer();
+                saveMappingToServer().then(() => {
+                    renderMapping();
+                    fetchUnmapped();
+                });
             }
 
             function deleteMapping(mac) {
                 delete currentMapping[mac];
-                renderMapping();
-                saveMappingToServer();
+                saveMappingToServer().then(() => {
+                    renderMapping();
+                    fetchUnmapped();
+                });
             }
 
             async function saveEnv() {
