@@ -211,6 +211,10 @@ cycle_manager = CycleManager()
 def extract_cycle_id(original_filename: str):
     # original_filename from ESP32 is expected to be e.g. "MAC-SEQUENCE-1.jpg"
     stem = os.path.splitext(original_filename)[0]
+    
+    # Remove receiving timestamp prefix to ensure images from the same sequence get the identical Cycle ID
+    stem = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", stem)
+
     match = re.search(r"-(1|2|3)[nd]?$", stem)
     if match:
         return stem[:match.start()]

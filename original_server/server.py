@@ -397,8 +397,11 @@ def extract_cycle_id(filename: str) -> str:
         # 例: CAM_01_20260409150849_00000005_1n.jpg
         match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
         if match_new:
+            cam_str = match_new.group(1)
+            # Remove receiving timestamp prefix to ensure identical Cycle ID despite arrival time differences
+            cam_str = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_str)
             # サイクルIDは、カメラIDとシーケンス番号の組み合わせとする
-            return f"{match_new.group(1)}_{match_new.group(2)}"
+            return f"{cam_str}_{match_new.group(2)}"
 
         # 旧フォーマットのフォールバック
         match = re.search(r"^(.*)-(\d+)[nd]?\.jpg$", filename, re.IGNORECASE)
@@ -448,10 +451,18 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
         
     annotated_path = image_path # Default to original if no annotation needed
     
+    # Extract pure cam id for processed directory
+    pure_cam_id = "unknown"
+    match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
+    if match_new:
+        pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", match_new.group(1))
+
     # Save annotated image if target found
     if target_found:
         processed_filename = f"processed_{filename}"
-        annotated_path = os.path.join(PROCESSED_DIR, processed_filename)
+        proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
+        os.makedirs(proc_cam_dir, exist_ok=True)
+        annotated_path = os.path.join(proc_cam_dir, processed_filename)
         
         try:
             img = cv2.imread(image_path)
@@ -516,10 +527,15 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         seq = match.group(2)
         idx = match.group(3)
         filename = f"{cam_id}_{time_str}_{seq}_{idx}.jpg"
+        pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_id)
     else:
         # フォーマット外のファイルの場合のフォールバック
         filename = f"{time_str}_{mapped_filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
+        pure_cam_id = "unknown"
+        
+    cam_dir = os.path.join(UPLOAD_DIR, pure_cam_id)
+    os.makedirs(cam_dir, exist_ok=True)
+    file_path = os.path.join(cam_dir, filename)
     
     logger.info(f"Receiving image: {filename}")
     
@@ -545,12 +561,20 @@ async def get_images(username: str = Depends(verify_credentials)):
     """
     Return a list of raw and processed images.
     """
+    def get_all_images(base_dir):
+        files = []
+        for root, dirs, filenames in os.walk(base_dir):
+            for f in filenames:
+                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                    rel_path = os.path.relpath(os.path.join(root, f), base_dir)
+                    rel_path = rel_path.replace(os.sep, '/')
+                    files.append(rel_path)
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(base_dir, x)), reverse=True)
+        return files
+
     try:
-        raw_files = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-        raw_files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
-        
-        proc_files = [f for f in os.listdir(PROCESSED_DIR) if os.path.isfile(os.path.join(PROCESSED_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-        proc_files.sort(key=lambda x: os.path.getmtime(os.path.join(PROCESSED_DIR, x)), reverse=True)
+        raw_files = get_all_images(UPLOAD_DIR)
+        proc_files = get_all_images(PROCESSED_DIR)
         
         return {"status": "ok", "raw": raw_files, "processed": proc_files}
     except Exception as e:
@@ -953,14 +977,37 @@ async def gallery(username: str = Depends(verify_credentials)):
             .item img:hover { transform: scale(1.05); }
             .item span { padding: 16px 12px; font-size: 13px; color: #718096; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; text-align: center; }
             .empty-msg { text-align: center; color: #718096; font-size: 16px; margin-top: 50px; font-weight: 500; }
+            .camera-section { margin-bottom: 60px; background: #ffffff; border-radius: 16px; padding: 30px 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+            .camera-title { font-size: 1.5rem; color: #1c4532; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 30px; display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
+            .camera-title .badge { background: #38a169; color: white; font-size: 0.9rem; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
+            .latest-container h3 { color: #276749; margin-bottom: 15px; font-weight: 500; }
+            .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
+            .tabs { display: flex; gap: 12px; margin-bottom: 0; }
+            .view-mode-selector { position: absolute; right: 20px; display: flex; align-items: center; gap: 10px; background: #ffffff; padding: 8px 16px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+            @media (max-width: 768px) {
+                .controls-container { flex-direction: column; gap: 20px; }
+                .view-mode-selector { position: static; }
+            }
+            .view-mode-selector label { font-size: 14px; font-weight: 500; color: #4a5568; }
+            .view-mode-selector select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px 8px; font-family: inherit; color: #2d3748; background: #f8fafc; outline: none; cursor: pointer; }
         </style>
     </head>
     <body>
         <h1>Cloud Server Gallery</h1>
         <div class="header-accent"></div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('processed')">処理済み画像 (Processed)</button>
-            <button class="tab" onclick="showTab('raw')">元画像 (Raw)</button>
+        
+        <div class="controls-container">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('processed')">処理済み画像 (Processed)</button>
+                <button class="tab" onclick="showTab('raw')">元画像 (Raw)</button>
+            </div>
+            <div class="view-mode-selector">
+                <label for="viewMode">表示形式:</label>
+                <select id="viewMode" onchange="changeViewMode(this.value)">
+                    <option value="grouped">カメラ別 (By Camera)</option>
+                    <option value="flat">全体表示 (All Photos)</option>
+                </select>
+            </div>
         </div>
         
         <div class="gallery-container active" id="gallery-processed"></div>
@@ -969,6 +1016,7 @@ async def gallery(username: str = Depends(verify_credentials)):
         <script>
             let currentProcessed = null;
             let currentRaw = null;
+            let currentViewMode = 'grouped';
 
             function arraysEqual(a, b) {
                 if (a === b) return true;
@@ -983,19 +1031,80 @@ async def gallery(username: str = Depends(verify_credentials)):
             function showTab(type) {
                 document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.gallery-container').forEach(el => el.classList.remove('active'));
-                if (event && event.target) {
+                if (event && event.target && event.target.classList) {
                     event.target.classList.add('active');
                 }
                 document.getElementById('gallery-' + type).classList.add('active');
             }
 
+            function changeViewMode(mode) {
+                currentViewMode = mode;
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
+
+            function groupImagesByFolder(images) {
+                const groups = {};
+                images.forEach(img => {
+                    const parts = img.split('/');
+                    const folder = parts.length > 1 ? parts[0] : 'Root';
+                    if (!groups[folder]) groups[folder] = [];
+                    groups[folder].push(img);
+                });
+                return groups;
+            }
+
             function renderGallery(containerId, images, basePath) {
                 const container = document.getElementById(containerId);
-                if (images && images.length > 0) {
+                if (!images || images.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
+                    return;
+                }
+
+                let html = '';
+
+                if (currentViewMode === 'grouped') {
+                    const groups = groupImagesByFolder(images);
+                    for (const folder of Object.keys(groups).sort()) {
+                        const folderImages = groups[folder];
+                        const latestImg = folderImages[0];
+                        const displayFilename = latestImg.split('/').pop();
+                        
+                        html += `
+                            <div class="camera-section">
+                                <h2 class="camera-title">📷 CAM: ${folder} <span class="badge">${folderImages.length}</span></h2>
+                                <div class="latest-container">
+                                    <h3>Latest Capture</h3>
+                                    <div class="latest-item">
+                                        <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                        <span>${displayFilename}</span>
+                                    </div>
+                                </div>
+                        `;
+
+                        if (folderImages.length > 1) {
+                            html += '<div class="gallery-grid">';
+                            for (let i = 1; i < folderImages.length; i++) {
+                                const filename = folderImages[i].split('/').pop();
+                                html += `
+                                    <div class="item">
+                                        <div class="img-wrapper" onclick="window.open('${basePath}/${folderImages[i]}', '_blank')">
+                                            <img src="${basePath}/${folderImages[i]}" title="クリックしてフルサイズの画像を表示">
+                                        </div>
+                                        <span>${filename}</span>
+                                    </div>
+                                `;
+                            }
+                            html += '</div>';
+                        }
+                        html += '</div>';
+                    }
+                } else {
+                    // Flat / All Folders View
                     const latestImg = images[0];
-                    let html = `
-                        <div class="latest-container">
-                            <h2>Latest Capture</h2>
+                    html += `
+                        <div class="latest-container" style="margin-top: 20px;">
+                            <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
                             <div class="latest-item">
                                 <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
                                 <span>${latestImg}</span>
@@ -1004,7 +1113,7 @@ async def gallery(username: str = Depends(verify_credentials)):
                     `;
 
                     if (images.length > 1) {
-                        html += '<div class="gallery-grid">';
+                        html += '<div class="gallery-grid" style="margin-top: 30px;">';
                         for (let i = 1; i < images.length; i++) {
                             html += `
                                 <div class="item">
@@ -1017,10 +1126,9 @@ async def gallery(username: str = Depends(verify_credentials)):
                         }
                         html += '</div>';
                     }
-                    container.innerHTML = html;
-                } else {
-                    container.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
                 }
+                
+                container.innerHTML = html;
             }
 
             function fetchImages() {
