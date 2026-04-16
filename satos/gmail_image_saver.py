@@ -504,8 +504,17 @@ class GmailMovProcessor:
 
         edge_rcv_time = datetime.now().strftime("%H%M%S")
 
+        # Extract true camera ID and sequence from video_stem (e.g., "KD1_000121")
+        parts = video_stem.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            cam_id = parts[0]
+            seq = parts[1]
+        else:
+            cam_id = video_stem
+            seq = "001"
+
         for frame_path, index in frames:
-            x_file_name = f"satos_Rcv{edge_rcv_time}_{video_stem}-001-{index}.{self.config.frame_image_format}"
+            x_file_name = f"satos_Rcv{edge_rcv_time}_{cam_id}-{seq}-{index}.{self.config.frame_image_format}"
             try:
                 with frame_path.open("rb") as f:
                     files = {"file": (x_file_name, f, "image/jpeg")}
