@@ -502,10 +502,10 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
 
     # Save annotated image if target found
     if target_found:
-        processed_filename = f"processed_{filename}"
+        # フォルダが異なるため processed_ プレフィックス不要
         proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
         os.makedirs(proc_cam_dir, exist_ok=True)
-        annotated_path = os.path.join(proc_cam_dir, processed_filename)
+        annotated_path = os.path.join(proc_cam_dir, filename)
         
         try:
             img = cv2.imread(image_path)
@@ -569,13 +569,15 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         cam_id = match.group(1)
         seq = match.group(2)
         idx = match.group(3)
-        filename = f"{cam_id}_{time_str}_{seq}_{idx}.jpg"
+        # ← pure_cam_id を先に確定してからファイル名に使用する
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_id)
         if "_" in pure_cam_id:
             parts = pure_cam_id.rsplit("_", 1)
-            if parts[1].isdigit():  # KD1_000121 → KD1 のみ分割、Lab_Entrance はそのまま
+            if parts[1].isdigit():
                 pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
+        # フォーマット: {カメラID}_{日時}_{シーケンス}_{インデックス}.jpg
+        filename = f"{pure_cam_id}_{time_str}_{seq}_{idx}.jpg"
     else:
         # フォーマット外のファイルの場合のフォールバック
         filename = f"{time_str}_{mapped_filename}"
