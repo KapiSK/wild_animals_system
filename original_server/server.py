@@ -608,6 +608,25 @@ async def get_unmapped_cameras(username: str = Depends(verify_credentials)):
                             unmapped.append(folder)
     return {"status": "ok", "unmapped": unmapped}
 
+@app.delete("/api/config/camera_folder/{folder_name}")
+async def delete_camera_folder(folder_name: str, username: str = Depends(verify_credentials)):
+    """Delete an unmapped camera folder and all its images from both upload and processed dirs."""
+    try:
+        deleted = []
+        for base_dir in [UPLOAD_DIR, PROCESSED_DIR]:
+            target = os.path.join(base_dir, folder_name)
+            if os.path.exists(target) and os.path.isdir(target):
+                shutil.rmtree(target)
+                deleted.append(target)
+        if deleted:
+            logger.info(f"Deleted camera folders: {deleted}")
+            return {"status": "ok", "deleted": deleted}
+        else:
+            return {"status": "not_found", "message": f"No folder named '{folder_name}' found."}
+    except Exception as e:
+        logger.error(f"Failed to delete camera folder '{folder_name}': {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/config/mapping")
 async def get_mapping(username: str = Depends(verify_credentials)):
     if os.path.exists(MAC_MAPPING_FILE):
@@ -944,6 +963,7 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                 unmappedList.forEach(mac => {
                     const row = document.createElement('div');
                     row.className = 'add-row unmapped-highlight';
+                    row.id = `unmapped-row-${mac}`;
                     row.innerHTML = `
                         <div class="form-group" style="margin-bottom:0">
                             <label>Unmapped Camera Detected 👇</label>
@@ -953,7 +973,10 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                             <label>Enter Assigned ID</label>
                             <input type="text" id="new-id-${mac}" placeholder="Type name here & press Register">
                         </div>
-                        <button class="btn" style="background: #e53e3e;" onclick="addUnmappedMapping('${mac}')">+ Register</button>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn" style="background: #e53e3e; flex:1;" onclick="addUnmappedMapping('${mac}')">+ Register</button>
+                            <button class="btn btn-danger" style="padding: 8px 10px;" title="フォルダごと削除" onclick="deleteUnmappedFolder('${mac}')">🗑</button>
+                        </div>
                     `;
                     container.appendChild(row);
                 });
@@ -970,6 +993,24 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                     renderMapping();
                     fetchUnmapped();
                 });
+            }
+
+            async function deleteUnmappedFolder(mac) {
+                if (!confirm(`「${mac}」のカメラフォルダとすべての画像を削除しますか？\n\nこの操作は取り消せません。`)) return;
+                try {
+                    const res = await fetch(`/api/config/camera_folder/${encodeURIComponent(mac)}`, {
+                        method: 'DELETE'
+                    });
+                    const data = await res.json();
+                    if (data.status === 'ok') {
+                        showToast(`「${mac}」フォルダを削除しました 🗑`);
+                        fetchUnmapped();
+                    } else {
+                        alert('削除に失敗しました: ' + (data.message || data.status));
+                    }
+                } catch(e) {
+                    alert('通信エラーが発生しました');
+                }
             }
 
             function renderMapping() {
@@ -1026,6 +1067,8 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
             }
 
             function deleteMapping(mac) {
+                const displayId = currentMapping[mac] || mac;
+                if (!confirm(`「${mac}」→「${displayId}」のマッピングを削除しますか？\n\n※ 画像フォルダ自体は削除されません。`)) return;
                 delete currentMapping[mac];
                 saveMappingToServer().then(() => {
                     renderMapping();
