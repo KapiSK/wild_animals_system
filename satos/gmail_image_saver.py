@@ -306,6 +306,12 @@ class GmailMovProcessor:
 
     def poll_once(self) -> None:
         assert self.client is not None
+        # Re-SELECT mailbox on every poll to ensure Gmail returns newly arrived messages.
+        # Without this, the IMAP session uses a stale snapshot and misses new emails.
+        sel_status, _ = self.client.select(self.config.imap_folder, readonly=self.config.imap_readonly)
+        if sel_status != "OK":
+            raise RuntimeError(f"Re-SELECT of mailbox failed: {sel_status!r}")
+
         status, response = self.client.uid("SEARCH", None, self.config.search_criteria)
         if status != "OK":
             raise RuntimeError(f"SEARCH failed: {response!r}")
