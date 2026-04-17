@@ -458,7 +458,9 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
     if match_new:
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", match_new.group(1))
         if "_" in pure_cam_id:
-            pure_cam_id = pure_cam_id.split("_")[0]
+            parts = pure_cam_id.rsplit("_", 1)
+            if parts[1].isdigit():  # KD1_000121 → KD1 のみ分割、Lab_Entrance はそのまま
+                pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
 
     # Save annotated image if target found
@@ -533,7 +535,9 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         filename = f"{cam_id}_{time_str}_{seq}_{idx}.jpg"
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_id)
         if "_" in pure_cam_id:
-            pure_cam_id = pure_cam_id.split("_")[0]
+            parts = pure_cam_id.rsplit("_", 1)
+            if parts[1].isdigit():  # KD1_000121 → KD1 のみ分割、Lab_Entrance はそのまま
+                pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
     else:
         # フォーマット外のファイルの場合のフォールバック
