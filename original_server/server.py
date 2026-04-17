@@ -1398,6 +1398,19 @@ async def gallery(username: str = Depends(verify_credentials)):
                 document.getElementById('gallery-' + type).classList.add('active');
             }
 
+            function toggleSection(sectionId) {
+                const el = document.getElementById(sectionId);
+                const arrow = document.getElementById(sectionId + '-arrow');
+                if (!el) return;
+                if (el.style.display === 'none' || el.style.display === '') {
+                    el.style.display = 'block';
+                    if (arrow) arrow.style.transform = 'rotate(90deg)';
+                } else {
+                    el.style.display = 'none';
+                    if (arrow) arrow.style.transform = 'rotate(0deg)';
+                }
+            }
+
             function changeViewMode(mode) {
                 currentViewMode = mode;
                 renderGallery('gallery-processed', currentProcessed, '/images/processed');
@@ -1430,17 +1443,22 @@ async def gallery(username: str = Depends(verify_credentials)):
                         const folderImages = groups[folder];
                         const latestImg = folderImages[0];
                         const displayFilename = latestImg.split('/').pop();
+                        const sectionId = `cam-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}`;
                         
                         html += `
                             <div class="camera-section">
-                                <h2 class="camera-title">📷 CAM: ${folder} <span class="badge">${folderImages.length}</span></h2>
-                                <div class="latest-container">
-                                    <h3>Latest Capture</h3>
-                                    <div class="latest-item">
-                                        <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
-                                        <span>${displayFilename}</span>
-                                    </div>
+                                <div class="camera-title" onclick="toggleSection('${sectionId}')" style="cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between;">
+                                    <span>📷 CAM: ${folder} <span class="badge">${folderImages.length}</span></span>
+                                    <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
                                 </div>
+                                <div id="${sectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
+                                    <div class="latest-container">
+                                        <h3>Latest Capture</h3>
+                                        <div class="latest-item">
+                                            <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                            <span>${displayFilename}</span>
+                                        </div>
+                                    </div>
                         `;
 
                         if (folderImages.length > 1) {
@@ -1458,7 +1476,7 @@ async def gallery(username: str = Depends(verify_credentials)):
                             }
                             html += '</div>';
                         }
-                        html += '</div>';
+                        html += '</div></div>';  // close inner content + camera-section
                     }
                 } else {
                     // Flat / All Folders View
