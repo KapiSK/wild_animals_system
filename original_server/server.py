@@ -64,6 +64,39 @@ def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
     return credentials.username
 
 MAC_MAPPING_FILE = os.getenv("MAC_MAPPING_FILE", "mac_mapping.json")
+MAILING_LISTS_FILE = os.getenv("MAILING_LISTS_FILE", "mailing_lists.json")
+CAMERA_ALERT_FILE = os.getenv("CAMERA_ALERT_FILE", "camera_alert_config.json")
+
+def load_mailing_lists() -> dict:
+    if os.path.exists(MAILING_LISTS_FILE):
+        try:
+            with open(MAILING_LISTS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read mailing lists: {e}")
+    return {}
+
+def load_camera_alert_config() -> dict:
+    if os.path.exists(CAMERA_ALERT_FILE):
+        try:
+            with open(CAMERA_ALERT_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read camera alert config: {e}")
+    return {}
+
+def get_recipients_for_camera(cam_id: str) -> list:
+    """Return the recipient list for a given camera ID. Falls back to RECIPIENT_EMAIL."""
+    alert_cfg = load_camera_alert_config()
+    list_name = alert_cfg.get(cam_id)
+    if list_name:
+        ml = load_mailing_lists()
+        recipients = ml.get(list_name, [])
+        if recipients:
+            return recipients
+    # Fallback to default
+    return [e.strip() for e in RECIPIENT_EMAIL.split(',') if e.strip()]
+
 
 def get_camera_id(mac_address: str) -> str:
     try:
@@ -160,14 +193,16 @@ if not TARGET_CLASSES:
     
 logger.info(f"Target classes set to: {TARGET_CLASSES}")
 
-def send_email(subject: str, body: str, attachment_path: str = None):
+def send_email(subject: str, body: str, attachment_path: str = None, recipients: list = None):
     """
     Send an email notification with an optional image attachment.
+    If recipients is None, falls back to RECIPIENT_EMAIL env var.
     """
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = SENDER_EMAIL
-    recipients = [email.strip() for email in RECIPIENT_EMAIL.split(',')]
+    if not recipients:
+        recipients = [e.strip() for e in RECIPIENT_EMAIL.split(',') if e.strip()]
     msg['To'] = ", ".join(recipients)
     msg.set_content(body)
 
@@ -342,9 +377,11 @@ class CycleManager:
         email_duration = 0.0
         if detected_images_count > 0:
             email_start = time.perf_counter()
-            send_email(subject, body, best_data['annotated_path'])
+            # カメラIDに応じたメーリングリスト宛先を取得
+            alert_recipients = get_recipients_for_camera(raw_id)
+            send_email(subject, body, best_data['annotated_path'], recipients=alert_recipients)
             email_duration = (time.perf_counter() - email_start) * 1000
-            logger.info(f"Aggregated email sent for Cycle {cycle_id}")
+            logger.info(f"Email sent to {alert_recipients} for Cycle {cycle_id}")
         else:
             logger.info(f"Cycle {cycle_id} complete. No targets detected. Skipping email notification.")
 
@@ -680,6 +717,35 @@ async def get_env(username: str = Depends(verify_credentials)):
         "RECIPIENT_EMAIL": RECIPIENT_EMAIL
     }
 
+# --- Mailing List API ---
+@app.get("/api/config/mailing_lists")
+async def get_mailing_lists(username: str = Depends(verify_credentials)):
+    return load_mailing_lists()
+
+@app.post("/api/config/mailing_lists")
+async def save_mailing_lists(data: dict, username: str = Depends(verify_credentials)):
+    try:
+        with open(MAILING_LISTS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# --- Camera Alert Config API ---
+@app.get("/api/config/camera_alert")
+async def get_camera_alert(username: str = Depends(verify_credentials)):
+    return load_camera_alert_config()
+
+@app.post("/api/config/camera_alert")
+async def save_camera_alert(data: dict, username: str = Depends(verify_credentials)):
+    try:
+        with open(CAMERA_ALERT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 class EnvConfig(BaseModel):
     RECIPIENT_EMAIL: str
     SENDER_EMAIL: str
@@ -894,6 +960,7 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                         <tr>
                             <th>Hardware MAC</th>
                             <th>Display ID</th>
+                            <th>Notification List</th>
                             <th style="text-align: right">Actions</th>
                         </tr>
                     </thead>
@@ -905,11 +972,36 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
 
             <div class="glass-card">
                 <div class="card-header">
+                    <h2>📧 Mailing Lists</h2>
+                </div>
+                <div class="add-row" style="grid-template-columns: 1fr 2fr 1fr;">
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>List Name</label>
+                        <input type="text" id="ml-name" placeholder="e.g. 研究室A">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Addresses (comma separated)</label>
+                        <input type="text" id="ml-addresses" placeholder="a@example.com, b@example.com">
+                    </div>
+                    <button class="btn" onclick="addMailingList()">+ Add List</button>
+                </div>
+                <table style="margin-top:20px;">
+                    <thead><tr>
+                        <th>List Name</th>
+                        <th>Recipients</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr></thead>
+                    <tbody id="ml-body"></tbody>
+                </table>
+            </div>
+
+            <div class="glass-card">
+                <div class="card-header">
                     <h2>System Email Configuration</h2>
                 </div>
                 
                 <div class="form-group">
-                    <label>Alert Recipients (Comma separated)</label>
+                    <label>Default Alert Recipients (Comma separated)</label>
                     <input type="text" id="env-recipient" placeholder="alert@example.com">
                 </div>
                 <div class="form-group">
@@ -929,6 +1021,8 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
 
         <script>
             let currentMapping = {};
+            let currentMailingLists = {};
+            let currentCameraAlert = {};
 
             async function fetchConfig() {
                 try {
@@ -942,6 +1036,14 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                     document.getElementById('env-sender').value = envData.SENDER_EMAIL || '';
                     
                     await fetchUnmapped();
+
+                    const mlRes = await fetch('/api/config/mailing_lists');
+                    currentMailingLists = await mlRes.json();
+                    renderMailingLists();
+
+                    const caRes = await fetch('/api/config/camera_alert');
+                    currentCameraAlert = await caRes.json();
+                    renderMapping(); // re-render to show dropdowns
                 } catch (e) {
                     console.error("Failed to load config", e);
                 }
@@ -1020,7 +1122,11 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
             function renderMapping() {
                 const tbody = document.getElementById('mapping-body');
                 tbody.innerHTML = '';
+                const listNames = Object.keys(currentMailingLists);
                 for (const [mac, id] of Object.entries(currentMapping)) {
+                    const selectedList = currentCameraAlert[id] || '';
+                    const optionsHtml = `<option value="">デフォルト (Default)</option>` +
+                        listNames.map(n => `<option value="${n}" ${n === selectedList ? 'selected' : ''}>${n}</option>`).join('');
                     const tr = document.createElement('tr');
                     tr.className = 'row-item';
                     tr.innerHTML = `
@@ -1028,12 +1134,95 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                         <td>
                             <input type="text" value="${id}" class="inline-edit-input" onchange="updateInlineMapping('${mac}', this.value)" title="タイプしてEnterで保存">
                         </td>
+                        <td>
+                            <select class="inline-edit-input" style="color:#1e293b;" onchange="updateCameraAlert('${id}', this.value)">
+                                ${optionsHtml}
+                            </select>
+                        </td>
                         <td style="text-align: right">
                             <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85rem;" onclick="deleteMapping('${mac}')">Delete</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 }
+            }
+
+            function updateCameraAlert(camId, listName) {
+                if (listName) {
+                    currentCameraAlert[camId] = listName;
+                } else {
+                    delete currentCameraAlert[camId];
+                }
+                fetch('/api/config/camera_alert', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(currentCameraAlert)
+                }).then(() => showToast('通知先を更新しました 📧'));
+            }
+
+            function renderMailingLists() {
+                const tbody = document.getElementById('ml-body');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                for (const [name, addrs] of Object.entries(currentMailingLists)) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'row-item';
+                    tr.innerHTML = `
+                        <td style="font-weight:600;">${name}</td>
+                        <td>
+                            <input type="text" value="${addrs.join(', ')}" class="inline-edit-input" style="max-width:100%;" onchange="updateMailingList('${name}', this.value)">
+                        </td>
+                        <td style="text-align:right">
+                            <button class="btn btn-danger" style="padding:6px 12px;font-size:0.85rem;" onclick="deleteMailingList('${name}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            }
+
+            async function saveMailingListsToServer() {
+                await fetch('/api/config/mailing_lists', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(currentMailingLists)
+                });
+            }
+
+            function addMailingList() {
+                const name = document.getElementById('ml-name').value.trim();
+                const addrs = document.getElementById('ml-addresses').value.trim();
+                if (!name || !addrs) return;
+                currentMailingLists[name] = addrs.split(',').map(a => a.trim()).filter(Boolean);
+                document.getElementById('ml-name').value = '';
+                document.getElementById('ml-addresses').value = '';
+                saveMailingListsToServer().then(() => {
+                    renderMailingLists();
+                    renderMapping(); // update dropdowns
+                    showToast('メーリングリストを保存しました 📧');
+                });
+            }
+
+            function updateMailingList(name, addrStr) {
+                currentMailingLists[name] = addrStr.split(',').map(a => a.trim()).filter(Boolean);
+                saveMailingListsToServer().then(() => showToast('リストを更新しました'));
+            }
+
+            function deleteMailingList(name) {
+                if (!confirm(`「${name}」リストを削除しますか？`)) return;
+                delete currentMailingLists[name];
+                // Remove assignments using this list
+                for (const cam of Object.keys(currentCameraAlert)) {
+                    if (currentCameraAlert[cam] === name) delete currentCameraAlert[cam];
+                }
+                saveMailingListsToServer();
+                fetch('/api/config/camera_alert', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(currentCameraAlert)
+                });
+                renderMailingLists();
+                renderMapping();
+                showToast('リストを削除しました');
             }
 
             function updateInlineMapping(mac, newId) {

@@ -515,11 +515,20 @@ class GmailMovProcessor:
 
         edge_rcv_time = datetime.now().strftime("%H%M%S")
 
-        # Extract true camera ID and sequence from video_stem (e.g., "KD1_000121")
-        parts = video_stem.rsplit("_", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            cam_id = parts[0]
-            seq = parts[1]
+        # Extract true camera ID and sequence from video_stem.
+        # Supported formats:
+        #   KD1_000121  → underscore separator (legacy)
+        #   KD1X000121  → X separator (for cameras that can't use special chars)
+        import re as _re
+        _x_match = _re.match(r'^(.+?)X(\d+)$', video_stem)
+        _us_parts = video_stem.rsplit("_", 1)
+
+        if _x_match:
+            cam_id = _x_match.group(1)
+            seq = _x_match.group(2)
+        elif len(_us_parts) == 2 and _us_parts[1].isdigit():
+            cam_id = _us_parts[0]
+            seq = _us_parts[1]
         else:
             cam_id = video_stem
             seq = "001"
