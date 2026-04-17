@@ -324,9 +324,14 @@ class GmailMovProcessor:
                 raise ShutdownRequested
             if uid in self.state.processed_uids:
                 continue
-            self._process_message(uid)
-            self.state.processed_uids.add(uid)
-            self.state.save()
+            try:
+                self._process_message(uid)
+            except Exception:
+                logging.exception("Failed to process UID=%s. Skipping to avoid infinite retry.", uid)
+            finally:
+                # Always mark as seen in state so we don't retry endlessly
+                self.state.processed_uids.add(uid)
+                self.state.save()
 
     def _process_message(self, uid: str) -> None:
         assert self.client is not None
