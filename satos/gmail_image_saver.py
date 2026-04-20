@@ -354,11 +354,36 @@ class GmailMovProcessor:
         sender = decode_mime_header(msg.get("From")) or "unknown"
         logging.info("Processing UID=%s Subject=%s From=%s", uid, subject, sender)
 
+        email_body = ""
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    try:
+                        email_body += payload.decode(errors="ignore")
+                    except Exception:
+                        pass
+        
+        telemetry = {}
+        if email_body:
+            import re as _re
+            sig = _re.search(r"Signal:\s*(.*)", email_body, _re.IGNORECASE)
+            bat = _re.search(r"Battery:\s*(.*)", email_body, _re.IGNORECASE)
+            temp = _re.search(r"Temperature:\s*(.*)", email_body, _re.IGNORECASE)
+            f_space = _re.search(r"Free space:\s*(.*)", email_body, _re.IGNORECASE)
+            imei = _re.search(r"IMEI/MEID:\s*(.*)", email_body, _re.IGNORECASE)
+            
+            if sig: telemetry['signal'] = sig.group(1).strip()
+            if bat: telemetry['battery'] = bat.group(1).strip()
+            if temp: telemetry['temperature'] = temp.group(1).strip()
+            if f_space: telemetry['free_space'] = f_space.group(1).strip()
+            if imei: telemetry['imei'] = imei.group(1).strip()
+
         saved_videos = 0
         for part_index, part in enumerate(msg.walk(), start=1):
             saved_path = self._maybe_save_mov_part(uid, msg, part, part_index)
             if saved_path:
-                self.video_queue.put(saved_path)
+                self.video_queue.put((saved_path, telemetry))
                 saved_videos += 1
 
         if saved_videos == 0:
@@ -415,18 +440,24 @@ class GmailMovProcessor:
         while self._running or not self.video_queue.empty():
             try:
                 # Block with timeout to periodically check exit signal
-                video_path = self.video_queue.get(timeout=1.0)
+                item = self.video_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
             
-            if video_path is None:
+            if item is None:
                 # Termination signal received
                 self.video_queue.task_done()
                 break
             
+            if isinstance(item, tuple) and len(item) == 2:
+                video_path, telemetry = item
+            else:
+                video_path = item
+                telemetry = {}
+
             try:
                 logging.info("[Worker] Starting processing for %s", video_path)
-                self._extract_frames(video_path)
+                self._extract_frames(video_path, telemetry)
                 logging.info("[Worker] Finished processing for %s", video_path)
             except Exception:
                 logging.exception("[Worker] Unhandled error while processing %s", video_path)
@@ -435,7 +466,7 @@ class GmailMovProcessor:
         
         logging.info("Worker thread stopped.")
 
-    def _extract_frames(self, video_path: Path) -> None:
+    def _extract_frames(self, video_path: Path, telemetry: dict = None) -> None:
         video_stem = sanitize_filename(video_path.stem)
         #frame_dir = self.config.frame_save_dir / video_stem
         frame_dir = self.config.frame_save_dir
@@ -498,11 +529,11 @@ class GmailMovProcessor:
 
             if should_forward:
                 logging.info("Criteria met for cycle %s. Forwarding...", video_stem)
-                self._upload_to_cloud_server(video_stem, video_path, extracted_frames)
+                self._upload_to_cloud_server(video_stem, video_path, extracted_frames, telemetry)
             else:
                 logging.info("No targets detected in cycle %s. Skipping upload.", video_stem)
 
-    def _upload_to_cloud_server(self, video_stem: str, video_path: Path, frames: Sequence[Tuple[Path, int]]) -> None:
+    def _upload_to_cloud_server(self, video_stem: str, video_path: Path, frames: Sequence[Tuple[Path, int]], telemetry: dict = None) -> None:
         import requests
         import urllib3
         from datetime import datetime
@@ -534,6 +565,19 @@ class GmailMovProcessor:
             seq = "001"
 
         event_id = f"{cam_id}_{seq}"
+
+        if telemetry and self.config.cloud_server_url:
+            telemetry_url = self.config.cloud_server_url.rstrip("/") + "/api/telemetry"
+            telemetry_payload = {
+                "camera_id": cam_id,
+                **telemetry
+            }
+            try:
+                t_resp = requests.post(telemetry_url, json=telemetry_payload, headers={"X-API-KEY": self.config.cloud_api_key}, verify=False, timeout=10)
+                if t_resp.status_code == 200:
+                    logging.info("Uploaded telemetry for %s", cam_id)
+            except Exception as e:
+                logging.error("Failed to upload telemetry for %s: %s", cam_id, e)
 
         for frame_path, index in frames:
             x_file_name = f"satos_Rcv{edge_rcv_time}_{cam_id}-{seq}-{index}.{self.config.frame_image_format}"

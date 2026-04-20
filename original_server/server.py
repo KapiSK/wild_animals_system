@@ -37,6 +37,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
 
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = os.getenv("USER_ACCESS_FILE", "user_access_config.json")
+TELEMETRY_FILE = os.getenv("TELEMETRY_FILE", "telemetry.json")
 
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
@@ -115,6 +116,26 @@ def save_user_access_config(config: dict) -> None:
 
     with open(USER_ACCESS_FILE, "w", encoding="utf-8") as f:
         json.dump(normalized, f, indent=4, ensure_ascii=False)
+
+
+def load_telemetry() -> dict:
+    if not os.path.exists(TELEMETRY_FILE):
+        return {}
+    try:
+        with open(TELEMETRY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read telemetry config: {e}")
+        return {}
+
+
+def save_telemetry(data: dict) -> None:
+    try:
+        with open(TELEMETRY_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to save telemetry config: {e}")
+
 
 async def verify_api_token(x_api_key: str = Header(None)):
     if x_api_key != API_TOKEN:
@@ -1025,6 +1046,29 @@ async def upload_video(
     except Exception as e:
         logger.error(f"Failed to save video upload: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.post("/api/telemetry")
+async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_token)):
+    cam_id = payload.get("camera_id")
+    if not cam_id:
+        raise HTTPException(status_code=400, detail="Missing camera_id")
+    
+    current_data = load_telemetry()
+    pure_cam_id = get_camera_id(cam_id)
+    if pure_cam_id not in current_data:
+        current_data[pure_cam_id] = {}
+        
+    for k, v in payload.items():
+        if k != "camera_id":
+            current_data[pure_cam_id][k] = v
+    current_data[pure_cam_id]["updated_at"] = datetime.now().isoformat()
+    
+    save_telemetry(current_data)
+    return {"status": "ok"}
+
+@app.get("/api/telemetry")
+async def get_telemetry(principal: dict = Depends(verify_credentials)):
+    return {"status": "ok", "telemetry": load_telemetry()}
 
 @app.get("/images/{image_type}/{image_path:path}")
 async def get_image_file(image_type: str, image_path: str, principal: dict = Depends(verify_credentials)):
@@ -2426,6 +2470,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <script>
             let currentProcessed = null;
             let currentRaw = null;
+            let currentTelemetry = null;
             let currentViewMode = 'grouped';
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
 
@@ -2527,11 +2572,25 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         const sectionId = `cam-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}`;
                         const cycleGroups = groupImagesByCycle(folderImages);
                         
+                        let teleHtml = '';
+                        if (currentTelemetry && currentTelemetry[folder]) {
+                            const t = currentTelemetry[folder];
+                            teleHtml = '<div style="font-size: 0.9rem; color: #4a5568; display: flex; gap: 12px; font-weight: normal;">';
+                            if (t.battery) teleHtml += `<span title="バッテリー">🔋 ﾊﾞｯﾃﾘｰ: ${t.battery.replace('Median','中')}</span>`;
+                            if (t.signal) teleHtml += `<span title="電波">📶 電波: ${t.signal.replace('Very Good','非常に良い').replace('Good','良い').replace('Normal','普通').replace('Weak','弱い')}</span>`;
+                            if (t.temperature) teleHtml += `<span title="温度">🌡️ 温度: ${t.temperature.split(' ')[0]}</span>`;
+                            if (t.free_space) teleHtml += `<span title="空き容量">💾 空き: ${t.free_space}</span>`;
+                            teleHtml += '</div>';
+                        }
+                        
                         html += `
                             <div class="camera-section">
-                                <div class="camera-title" onclick="toggleSection('${sectionId}')" style="cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between;">
+                                <div class="camera-title" onclick="toggleSection('${sectionId}')" style="cursor:pointer; user-select:none; display:flex; align-items:center;">
                                     <span>📷 CAM: ${folder} <span class="badge">${folderImages.length}</span></span>
-                                    <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
+                                    <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
+                                        ${teleHtml}
+                                        <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
+                                    </div>
                                 </div>
                                 <div id="${sectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
                                     <div class="cycle-list">
@@ -2624,32 +2683,40 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 container.innerHTML = html;
             }
 
-            function fetchImages() {
+                        function fetchImages() {
                 const params = new URLSearchParams();
                 Object.entries(currentFilters).forEach(([key, value]) => {
                     if (value && value !== 'all') params.set(key, value);
                 });
                 const query = params.toString();
-                fetch('/api/images' + (query ? `?${query}` : ''))
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'ok') {
-                            const processedChanged = !arraysEqual(currentProcessed, data.processed);
-                            const rawChanged = !arraysEqual(currentRaw, data.raw);
-                            
-                            if (processedChanged || rawChanged) {
-                                currentProcessed = data.processed;
-                                currentRaw = data.raw;
-                                renderGallery('gallery-processed', data.processed, '/images/processed');
-                                renderGallery('gallery-raw', data.raw, '/images/raw');
-                            }
-                        } else {
-                            console.error('API Error:', data.message);
+                Promise.all([
+                    fetch('/api/images' + (query ? `?${query}` : '')).then(r => r.json()),
+                    fetch('/api/telemetry').then(r => r.json())
+                ]).then(([data, teleData]) => {
+                    let teleChanged = false;
+                    if (teleData.status === 'ok') {
+                        const newTeleStr = JSON.stringify(teleData.telemetry || {});
+                        if (JSON.stringify(currentTelemetry) !== newTeleStr) {
+                            teleChanged = true;
+                            currentTelemetry = teleData.telemetry || {};
                         }
-                    })
-                    .catch(err => {
-                        console.error('Fetch Error:', err.message);
-                    });
+                    }
+                    if (data.status === 'ok') {
+                        const processedChanged = !arraysEqual(currentProcessed, data.processed);
+                        const rawChanged = !arraysEqual(currentRaw, data.raw);
+                        
+                        if (processedChanged || rawChanged || teleChanged) {
+                            currentProcessed = data.processed;
+                            currentRaw = data.raw;
+                            renderGallery('gallery-processed', data.processed, '/images/processed');
+                            renderGallery('gallery-raw', data.raw, '/images/raw');
+                        }
+                    } else {
+                        console.error('API Error:', data.message);
+                    }
+                }).catch(err => {
+                    console.error('Fetch Error:', err.message);
+                });
             }
 
             // Initial load
