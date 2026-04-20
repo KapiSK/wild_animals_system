@@ -1189,10 +1189,10 @@ async def event_detail(image_path: str, request: Request, credentials: HTTPBasic
     if primary_video:
         video_block = f"""
             <video controls preload="metadata" class="video-player">
-                <source src="/videos/{primary_video}" type="video/quicktime">
+                <source src="/videos/{primary_video}">
                 お使いのブラウザでは動画を再生できません。
             </video>
-            <a class="download-link" href="/videos/{primary_video}">動画を開く / ダウンロード</a>
+            <a class="download-link" href="/videos/{primary_video}" target="_blank">動画をダウンロードして再生</a>
         """
 
     html_content = f"""
