@@ -1240,16 +1240,26 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
 
             input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); background: #fff; }
 
-            .inline-edit-input { width: 100%; max-width: 200px; padding: 6px 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.95rem; font-weight: 500; color: #4338ca; background: rgba(255,255,255,0.9); transition: all 0.2s; }
+            .inline-edit-input { width: 100%; min-width: 0; max-width: 100%; padding: 6px 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.95rem; font-weight: 500; color: #4338ca; background: rgba(255,255,255,0.9); transition: all 0.2s; box-sizing: border-box; }
             .inline-edit-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
-            .camera-checkbox-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 10px; }
-            .camera-checkbox-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background: rgba(255,255,255,0.65); border: 1px solid rgba(0,0,0,0.06); font-size: 0.9rem; }
+            .camera-checkbox-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; width: 100%; }
+            .camera-checkbox-item { display:flex; align-items:center; gap:8px; min-width: 0; padding:8px 10px; border-radius:10px; background: rgba(255,255,255,0.65); border: 1px solid rgba(0,0,0,0.06); font-size: 0.9rem; }
+            .camera-checkbox-item span { min-width: 0; overflow-wrap: anywhere; }
             .camera-checkbox-item input { width:auto; margin:0; }
             .subtle-text { color: var(--text-sub); font-size: 0.85rem; margin-top: 8px; }
             .page-actions { display:flex; justify-content:center; gap:12px; margin: 0 0 24px 0; flex-wrap: wrap; }
             .btn-secondary { background: #ffffff; color: #334155; box-shadow: 0 4px 15px rgba(148, 163, 184, 0.25); }
             .btn-secondary:hover { background: #f8fafc; }
-
+            .user-access-form { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 0.9fr) minmax(260px, 2fr) auto; gap: 15px; align-items: end; margin-bottom: 16px; }
+            .user-access-form .btn { white-space: nowrap; }
+            .user-access-table { width: 100%; table-layout: fixed; }
+            .user-access-table td { vertical-align: top; }
+            .user-access-table .username-cell { font-weight: 600; overflow-wrap: anywhere; }
+            .user-access-password-cell,
+            .user-access-camera-cell { min-width: 0; }
+            .user-access-camera-editor { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+            .checkbox-panel { width: 100%; padding: 10px; border: 1px solid rgba(0,0,0,0.06); border-radius: 12px; background: rgba(255,255,255,0.45); box-sizing: border-box; }
+            
             #toast {
                 position: fixed; bottom: 30px; right: 30px; background: #10b981; color: white;
                 padding: 15px 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
@@ -1262,6 +1272,18 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
             
             .nav-link { text-align: center; margin-top: 20px; display: block; color: var(--primary); text-decoration: none; font-weight: 500; }
             .nav-link:hover { text-decoration: underline; }
+            @media (max-width: 980px) {
+                .user-access-form { grid-template-columns: 1fr 1fr; }
+                .user-access-form .form-group:last-of-type { grid-column: 1 / -1; }
+            }
+            @media (max-width: 768px) {
+                .user-access-form { grid-template-columns: 1fr; }
+                .user-access-form .btn { width: 100%; }
+                .user-access-table, .user-access-table thead, .user-access-table tbody, .user-access-table tr, .user-access-table th, .user-access-table td { display: block; width: 100%; box-sizing: border-box; }
+                .user-access-table thead { display: none; }
+                .user-access-table tr.row-item { padding: 16px; }
+                .user-access-table td { padding: 8px 0; }
+            }
         </style>
     </head>
     <body>
@@ -1356,7 +1378,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     一般ユーザ用のログイン情報と、閲覧を許可するカメラIDを設定します。
                     許可カメラIDはカンマ区切りで入力してください。
                 </p>
-                <div class="add-row" style="grid-template-columns: 1.2fr 1fr 2fr 1fr;">
+                <div class="user-access-form">
                     <div class="form-group" style="margin-bottom:0">
                         <label>User Name</label>
                         <input type="text" id="new-user-name" placeholder="viewer01">
@@ -1372,8 +1394,10 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     </div>
                     <button class="btn" onclick="addUserAccess()">+ Add User</button>
                 </div>
-                <div id="new-user-camera-checkboxes" class="camera-checkbox-grid"></div>
-                <table style="margin-top:20px;">
+                <div class="checkbox-panel">
+                    <div id="new-user-camera-checkboxes" class="camera-checkbox-grid"></div>
+                </div>
+                <table class="user-access-table" style="margin-top:20px;">
                     <thead>
                         <tr>
                             <th>User Name</th>
@@ -1668,13 +1692,17 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     const tr = document.createElement('tr');
                     tr.className = 'row-item';
                     tr.innerHTML = `
-                        <td style="font-weight:600;">${username}</td>
-                        <td>
-                            <input type="text" value="${info.password || ''}" class="inline-edit-input" style="max-width:100%;" onchange="updateUserPassword('${username}', this.value)">
+                        <td class="username-cell">${username}</td>
+                        <td class="user-access-password-cell">
+                            <input type="text" value="${info.password || ''}" class="inline-edit-input" onchange="updateUserPassword('${username}', this.value)">
                         </td>
-                        <td>
-                            <input type="text" value="${(info.allowed_cameras || []).join(', ')}" class="inline-edit-input" style="max-width:100%; color:#1e293b;" onchange="updateUserCameras('${username}', this.value)" placeholder="CAM_01, CAM_02">
-                            <div id="${checkboxId}" class="camera-checkbox-grid"></div>
+                        <td class="user-access-camera-cell">
+                            <div class="user-access-camera-editor">
+                                <input type="text" value="${(info.allowed_cameras || []).join(', ')}" class="inline-edit-input" style="color:#1e293b;" onchange="updateUserCameras('${username}', this.value)" placeholder="CAM_01, CAM_02">
+                                <div class="checkbox-panel">
+                                    <div id="${checkboxId}" class="camera-checkbox-grid"></div>
+                                </div>
+                            </div>
                         </td>
                         <td style="text-align:right">
                             <button class="btn btn-danger" style="padding:6px 12px;font-size:0.85rem;" onclick="deleteUserAccess('${username}')">Delete</button>
