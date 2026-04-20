@@ -264,6 +264,15 @@ def get_available_camera_ids() -> list:
 
     camera_ids.update(load_camera_alert_config().keys())
 
+    user_access = load_user_access_config()
+    for info in user_access.get("users", {}).values():
+        if not isinstance(info, dict):
+            continue
+        for camera_id in info.get("allowed_cameras", []):
+            camera_text = str(camera_id).strip()
+            if camera_text:
+                camera_ids.add(camera_text)
+
     return sorted(camera_ids)
 
 MAC_MAPPING_FILE = os.getenv("MAC_MAPPING_FILE", "mac_mapping.json")
@@ -1403,7 +1412,6 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     <div class="form-group" style="margin-bottom:0">
                         <label>Allowed Camera IDs</label>
                         <input type="text" id="new-user-cameras" class="compact-camera-input" placeholder="CAM_01, CAM_02" onchange="renderNewUserCameraOptions()">
-                        <div class="subtle-text">自由入力と下のチェックボックスは両方使えます。</div>
                     </div>
                     <button class="btn" onclick="addUserAccess()">+ Add User</button>
                 </div>
@@ -1461,6 +1469,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     const cameraRes = await fetch('/api/config/available_cameras');
                     const cameraData = await cameraRes.json();
                     availableCameraIds = cameraData.camera_ids || [];
+                    refreshAvailableCameraIdsFromState();
                     renderNewUserCameraOptions();
                     renderUserAccess();
                 } catch (e) {
@@ -1630,6 +1639,26 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                 return cameraText.split(',').map(item => item.trim()).filter(Boolean);
             }
 
+            function refreshAvailableCameraIdsFromState() {
+                const merged = new Set(availableCameraIds || []);
+                const users = (currentUserAccess && currentUserAccess.users) || {};
+
+                Object.values(users).forEach(info => {
+                    if (!info || !Array.isArray(info.allowed_cameras)) return;
+                    info.allowed_cameras.forEach(cameraId => {
+                        const text = String(cameraId || '').trim();
+                        if (text) merged.add(text);
+                    });
+                });
+
+                const newUserInput = document.getElementById('new-user-cameras');
+                if (newUserInput) {
+                    normalizeCameraList(newUserInput.value).forEach(cameraId => merged.add(cameraId));
+                }
+
+                availableCameraIds = Array.from(merged).sort();
+            }
+
             function mergeCameraSelections(textValue, selectedValues) {
                 return Array.from(new Set([
                     ...selectedValues,
@@ -1661,6 +1690,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
             }
 
             function renderNewUserCameraOptions() {
+                refreshAvailableCameraIdsFromState();
                 const selected = mergeCameraSelections(
                     document.getElementById('new-user-cameras')?.value || '',
                     getCheckedCameraValues('new-user-camera-checkboxes')
@@ -1687,6 +1717,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(currentUserAccess)
                 });
+                refreshAvailableCameraIdsFromState();
             }
 
             function renderUserAccess() {
