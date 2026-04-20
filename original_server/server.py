@@ -1189,16 +1189,35 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                     <h2>User Gallery Access</h2>
                 </div>
                 <p style="color: var(--text-sub); margin-top:0; line-height:1.7;">
-                    一般ユーザ用のログイン情報と、閲覧を許可するカメラIDを JSON で管理します。
-                    形式: <code>{"users": {"user1": {"password": "pass", "allowed_cameras": ["CAM_01"]}}}</code>
+                    一般ユーザ用のログイン情報と、閲覧を許可するカメラIDを設定します。
+                    許可カメラIDはカンマ区切りで入力してください。
                 </p>
-                <div class="form-group">
-                    <label>User Access JSON</label>
-                    <textarea id="user-access-json" style="width:100%; min-height:260px; padding:14px 16px; border:1px solid rgba(0,0,0,0.1); border-radius:12px; background:rgba(255,255,255,0.8); font-family:'Consolas','JetBrains Mono',monospace; font-size:0.95rem; box-sizing:border-box; resize:vertical;"></textarea>
+                <div class="add-row" style="grid-template-columns: 1.2fr 1fr 2fr 1fr;">
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>User Name</label>
+                        <input type="text" id="new-user-name" placeholder="viewer01">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Password</label>
+                        <input type="text" id="new-user-password" placeholder="password">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Allowed Camera IDs</label>
+                        <input type="text" id="new-user-cameras" placeholder="CAM_01, CAM_02">
+                    </div>
+                    <button class="btn" onclick="addUserAccess()">+ Add User</button>
                 </div>
-                <div style="text-align: right">
-                    <button class="btn" onclick="saveUserAccess()">Save User Access</button>
-                </div>
+                <table style="margin-top:20px;">
+                    <thead>
+                        <tr>
+                            <th>User Name</th>
+                            <th>Password</th>
+                            <th>Allowed Camera IDs</th>
+                            <th style="text-align:right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-access-body"></tbody>
+                </table>
             </div>
 
             <a href="/gallery" class="nav-link">← Go back to Image Gallery</a>
@@ -1235,7 +1254,7 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
 
                     const uaRes = await fetch('/api/config/user_access');
                     currentUserAccess = await uaRes.json();
-                    document.getElementById('user-access-json').value = JSON.stringify(currentUserAccess, null, 2);
+                    renderUserAccess();
                 } catch (e) {
                     console.error("Failed to load config", e);
                 }
@@ -1399,6 +1418,93 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                 saveMailingListsToServer().then(() => showToast('リストを更新しました'));
             }
 
+            function normalizeCameraList(cameraText) {
+                return cameraText.split(',').map(item => item.trim()).filter(Boolean);
+            }
+
+            async function persistUserAccess() {
+                await fetch('/api/config/user_access', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(currentUserAccess)
+                });
+            }
+
+            function renderUserAccess() {
+                const tbody = document.getElementById('user-access-body');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+
+                const users = currentUserAccess.users || {};
+                for (const [username, info] of Object.entries(users)) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'row-item';
+                    tr.innerHTML = `
+                        <td style="font-weight:600;">${username}</td>
+                        <td>
+                            <input type="text" value="${info.password || ''}" class="inline-edit-input" style="max-width:100%;" onchange="updateUserPassword('${username}', this.value)">
+                        </td>
+                        <td>
+                            <input type="text" value="${(info.allowed_cameras || []).join(', ')}" class="inline-edit-input" style="max-width:100%; color:#1e293b;" onchange="updateUserCameras('${username}', this.value)" placeholder="CAM_01, CAM_02">
+                        </td>
+                        <td style="text-align:right">
+                            <button class="btn btn-danger" style="padding:6px 12px;font-size:0.85rem;" onclick="deleteUserAccess('${username}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            }
+
+            function addUserAccess() {
+                const username = document.getElementById('new-user-name').value.trim();
+                const password = document.getElementById('new-user-password').value.trim();
+                const cameras = normalizeCameraList(document.getElementById('new-user-cameras').value.trim());
+
+                if (!username || !password) {
+                    alert('ユーザ名とパスワードを入力してください');
+                    return;
+                }
+
+                if (!currentUserAccess.users) {
+                    currentUserAccess.users = {};
+                }
+
+                currentUserAccess.users[username] = {
+                    password: password,
+                    allowed_cameras: cameras
+                };
+
+                persistUserAccess().then(() => {
+                    renderUserAccess();
+                    document.getElementById('new-user-name').value = '';
+                    document.getElementById('new-user-password').value = '';
+                    document.getElementById('new-user-cameras').value = '';
+                    showToast('ユーザを追加しました');
+                });
+            }
+
+            function updateUserPassword(username, password) {
+                if (!currentUserAccess.users || !currentUserAccess.users[username]) return;
+                currentUserAccess.users[username].password = password.trim();
+                persistUserAccess().then(() => showToast('パスワードを更新しました'));
+            }
+
+            function updateUserCameras(username, cameraText) {
+                if (!currentUserAccess.users || !currentUserAccess.users[username]) return;
+                currentUserAccess.users[username].allowed_cameras = normalizeCameraList(cameraText);
+                persistUserAccess().then(() => showToast('許可カメラを更新しました'));
+            }
+
+            function deleteUserAccess(username) {
+                if (!currentUserAccess.users || !currentUserAccess.users[username]) return;
+                if (!confirm(`ユーザ「${username}」を削除しますか？`)) return;
+                delete currentUserAccess.users[username];
+                persistUserAccess().then(() => {
+                    renderUserAccess();
+                    showToast('ユーザを削除しました');
+                });
+            }
+
             function deleteMailingList(name) {
                 if (!confirm(`「${name}」リストを削除しますか？`)) return;
                 delete currentMailingLists[name];
@@ -1474,23 +1580,6 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                     showToast("Email Settings Saved! 📧");
                 } catch(e) {
                     alert("Error saving env settings");
-                }
-            }
-
-            async function saveUserAccess() {
-                const raw = document.getElementById('user-access-json').value.trim();
-                try {
-                    const parsed = raw ? JSON.parse(raw) : {users: {}};
-                    await fetch('/api/config/user_access', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(parsed)
-                    });
-                    currentUserAccess = parsed;
-                    document.getElementById('user-access-json').value = JSON.stringify(parsed, null, 2);
-                    showToast('ユーザ権限を保存しました');
-                } catch(e) {
-                    alert('User Access JSON の形式が正しくありません');
                 }
             }
 
