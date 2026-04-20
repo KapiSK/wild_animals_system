@@ -3,8 +3,8 @@ import logging
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header, Request, Form
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -36,7 +36,9 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = os.getenv("USER_ACCESS_FILE", "user_access_config.json")
 
-security = HTTPBasic()
+security = HTTPBasic(auto_error=False)
+SESSION_COOKIE_NAME = "wild_animals_session"
+SESSION_STORE = {}
 
 
 def load_user_access_config() -> dict:
@@ -119,33 +121,77 @@ async def verify_api_token(x_api_key: str = Header(None)):
             detail="Invalid API Token"
         )
 
-def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
-    current_username_bytes = credentials.username.encode("utf8")
+def authenticate_user(username: str, password: str):
+    current_username_bytes = username.encode("utf8")
     correct_username_bytes = ADMIN_USERNAME.encode("utf8")
     is_correct_username = secrets.compare_digest(current_username_bytes, correct_username_bytes)
-    
-    current_password_bytes = credentials.password.encode("utf8")
+
+    current_password_bytes = password.encode("utf8")
     correct_password_bytes = ADMIN_PASSWORD.encode("utf8")
     is_correct_password = secrets.compare_digest(current_password_bytes, correct_password_bytes)
-    
+
     if is_correct_username and is_correct_password:
         return {
-            "username": credentials.username,
+            "username": username,
             "role": "admin",
             "allowed_cameras": None
         }
 
     user_access = load_user_access_config()
-    user_info = user_access.get("users", {}).get(credentials.username)
+    user_info = user_access.get("users", {}).get(username)
     if user_info:
-        current_password_bytes = credentials.password.encode("utf8")
         expected_password_bytes = user_info.get("password", "").encode("utf8")
         if secrets.compare_digest(current_password_bytes, expected_password_bytes):
             return {
-                "username": credentials.username,
+                "username": username,
                 "role": "user",
                 "allowed_cameras": user_info.get("allowed_cameras", [])
             }
+
+    return None
+
+
+def create_session(principal: dict) -> str:
+    session_token = secrets.token_urlsafe(32)
+    SESSION_STORE[session_token] = {
+        "username": principal.get("username"),
+        "role": principal.get("role"),
+        "allowed_cameras": principal.get("allowed_cameras")
+    }
+    return session_token
+
+
+def get_principal_from_session(request: Request):
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not session_token:
+        return None
+    return SESSION_STORE.get(session_token)
+
+
+def clear_session(request: Request):
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_token:
+        SESSION_STORE.pop(session_token, None)
+
+
+def get_optional_principal(request: Request, credentials: HTTPBasicCredentials = None):
+    session_principal = get_principal_from_session(request)
+    if session_principal:
+        return session_principal
+
+    if credentials is not None:
+        return authenticate_user(credentials.username, credentials.password)
+
+    return None
+
+
+def verify_credentials(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security)
+):
+    principal = get_optional_principal(request, credentials)
+    if principal:
+        return principal
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -194,6 +240,31 @@ def verify_camera_access(principal: dict, relative_path: str) -> None:
     allowed_cameras = set(principal.get("allowed_cameras") or [])
     if camera_name not in allowed_cameras:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera access denied")
+
+
+def get_available_camera_ids() -> list:
+    camera_ids = set()
+
+    try:
+        mapping = {}
+        if os.path.exists(MAC_MAPPING_FILE):
+            with open(MAC_MAPPING_FILE, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+        if isinstance(mapping, dict):
+            camera_ids.update(str(v).strip() for v in mapping.values() if str(v).strip())
+    except Exception as e:
+        logger.error(f"Failed to load camera mapping for available cameras: {e}")
+
+    for base_dir in [UPLOAD_DIR, PROCESSED_DIR]:
+        if os.path.exists(base_dir):
+            for folder in os.listdir(base_dir):
+                folder_path = os.path.join(base_dir, folder)
+                if os.path.isdir(folder_path) and folder != "unknown":
+                    camera_ids.add(folder)
+
+    camera_ids.update(load_camera_alert_config().keys())
+
+    return sorted(camera_ids)
 
 MAC_MAPPING_FILE = os.getenv("MAC_MAPPING_FILE", "mac_mapping.json")
 MAILING_LISTS_FILE = os.getenv("MAILING_LISTS_FILE", "mailing_lists.json")
@@ -916,6 +987,11 @@ async def update_user_access(data: dict, admin: dict = Depends(verify_admin)):
         return {"status": "error", "message": str(e)}
 
 
+@app.get("/api/config/available_cameras")
+async def get_available_cameras(admin: dict = Depends(verify_admin)):
+    return {"camera_ids": get_available_camera_ids()}
+
+
 class EnvConfig(BaseModel):
     RECIPIENT_EMAIL: str
     SENDER_EMAIL: str
@@ -959,8 +1035,89 @@ async def update_env(config: EnvConfig, admin: dict = Depends(verify_admin)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    session_principal = get_principal_from_session(request)
+    if session_principal:
+        return RedirectResponse(url="/gallery", status_code=status.HTTP_303_SEE_OTHER)
+
+    return """
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Login</title>
+        <style>
+            body { font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #eef7f1 0%, #d8efe3 100%); color: #234034; }
+            .card { width: min(420px, 92vw); background: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.7); border-radius: 20px; padding: 32px; box-shadow: 0 20px 40px rgba(35, 64, 52, 0.08); }
+            h1 { margin: 0 0 8px 0; font-size: 2rem; text-align: center; }
+            p { margin: 0 0 24px 0; text-align: center; color: #4a6a5b; line-height: 1.6; }
+            label { display: block; margin-bottom: 8px; font-weight: 600; color: #315745; }
+            input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; border: 1px solid #cfe0d6; background: #fbfdfb; margin-bottom: 18px; font: inherit; }
+            button { width: 100%; padding: 12px 16px; border: none; border-radius: 12px; background: #2f855a; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+            button:hover { background: #276749; }
+        </style>
+    </head>
+    <body>
+        <form class="card" method="post" action="/login">
+            <h1>Wild Animals Login</h1>
+            <p>管理者または閲覧ユーザとしてログインしてください。</p>
+            <label for="username">User Name</label>
+            <input id="username" name="username" type="text" autocomplete="username" required>
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button type="submit">Login</button>
+        </form>
+    </body>
+    </html>
+    """
+
+
+@app.post("/login")
+async def login_submit(username: str = Form(...), password: str = Form(...)):
+    principal = authenticate_user(username.strip(), password)
+    if not principal:
+        return HTMLResponse(
+            """
+            <html><body style="font-family: sans-serif; padding: 24px;">
+            <p>ログインに失敗しました。ユーザ名またはパスワードを確認してください。</p>
+            <p><a href="/login">ログイン画面へ戻る</a></p>
+            </body></html>
+            """,
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    session_token = create_session(principal)
+    response = RedirectResponse(url="/gallery", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        httponly=True,
+        samesite="lax"
+    )
+    return response
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    clear_session(request)
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard(admin: dict = Depends(verify_admin)):
+async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    admin = get_optional_principal(request, credentials)
+    if not admin:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if admin.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
     html_content = """
     <!DOCTYPE html>
     <html lang="ja">
@@ -1085,6 +1242,13 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
 
             .inline-edit-input { width: 100%; max-width: 200px; padding: 6px 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.95rem; font-weight: 500; color: #4338ca; background: rgba(255,255,255,0.9); transition: all 0.2s; }
             .inline-edit-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
+            .camera-checkbox-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 10px; }
+            .camera-checkbox-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background: rgba(255,255,255,0.65); border: 1px solid rgba(0,0,0,0.06); font-size: 0.9rem; }
+            .camera-checkbox-item input { width:auto; margin:0; }
+            .subtle-text { color: var(--text-sub); font-size: 0.85rem; margin-top: 8px; }
+            .page-actions { display:flex; justify-content:center; gap:12px; margin: 0 0 24px 0; flex-wrap: wrap; }
+            .btn-secondary { background: #ffffff; color: #334155; box-shadow: 0 4px 15px rgba(148, 163, 184, 0.25); }
+            .btn-secondary:hover { background: #f8fafc; }
 
             #toast {
                 position: fixed; bottom: 30px; right: 30px; background: #10b981; color: white;
@@ -1203,10 +1367,12 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                     </div>
                     <div class="form-group" style="margin-bottom:0">
                         <label>Allowed Camera IDs</label>
-                        <input type="text" id="new-user-cameras" placeholder="CAM_01, CAM_02">
+                        <input type="text" id="new-user-cameras" placeholder="CAM_01, CAM_02" onchange="renderNewUserCameraOptions()">
+                        <div class="subtle-text">自由入力と下のチェックボックスは両方使えます。</div>
                     </div>
                     <button class="btn" onclick="addUserAccess()">+ Add User</button>
                 </div>
+                <div id="new-user-camera-checkboxes" class="camera-checkbox-grid"></div>
                 <table style="margin-top:20px;">
                     <thead>
                         <tr>
@@ -1220,6 +1386,11 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                 </table>
             </div>
 
+            <div class="page-actions">
+                <a href="/gallery" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center;">Image Gallery</a>
+                <a href="/logout" class="btn btn-danger" style="text-decoration:none; display:inline-flex; align-items:center;">Logout</a>
+            </div>
+
             <a href="/gallery" class="nav-link">← Go back to Image Gallery</a>
         </div>
 
@@ -1230,6 +1401,7 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
             let currentMailingLists = {};
             let currentCameraAlert = {};
             let currentUserAccess = {};
+            let availableCameraIds = [];
 
             async function fetchConfig() {
                 try {
@@ -1254,6 +1426,10 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
 
                     const uaRes = await fetch('/api/config/user_access');
                     currentUserAccess = await uaRes.json();
+                    const cameraRes = await fetch('/api/config/available_cameras');
+                    const cameraData = await cameraRes.json();
+                    availableCameraIds = cameraData.camera_ids || [];
+                    renderNewUserCameraOptions();
                     renderUserAccess();
                 } catch (e) {
                     console.error("Failed to load config", e);
@@ -1422,6 +1598,57 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                 return cameraText.split(',').map(item => item.trim()).filter(Boolean);
             }
 
+            function mergeCameraSelections(textValue, selectedValues) {
+                return Array.from(new Set([
+                    ...selectedValues,
+                    ...normalizeCameraList(textValue || '')
+                ])).sort();
+            }
+
+            function renderCheckboxes(containerId, selectedValues, inputId, onChangeExpression) {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+                container.innerHTML = '';
+                const selected = new Set(selectedValues || []);
+
+                availableCameraIds.forEach(cameraId => {
+                    const item = document.createElement('label');
+                    item.className = 'camera-checkbox-item';
+                    item.innerHTML = `
+                        <input type="checkbox" value="${cameraId}" ${selected.has(cameraId) ? 'checked' : ''} onchange="${onChangeExpression}">
+                        <span>${cameraId}</span>
+                    `;
+                    container.appendChild(item);
+                });
+            }
+
+            function getCheckedCameraValues(containerId) {
+                const container = document.getElementById(containerId);
+                if (!container) return [];
+                return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(el => el.value);
+            }
+
+            function renderNewUserCameraOptions() {
+                const selected = mergeCameraSelections(
+                    document.getElementById('new-user-cameras')?.value || '',
+                    getCheckedCameraValues('new-user-camera-checkboxes')
+                );
+                renderCheckboxes(
+                    'new-user-camera-checkboxes',
+                    selected,
+                    'new-user-cameras',
+                    "syncNewUserCameraInput()"
+                );
+                syncNewUserCameraInput();
+            }
+
+            function syncNewUserCameraInput() {
+                const input = document.getElementById('new-user-cameras');
+                if (!input) return;
+                const merged = mergeCameraSelections(input.value, getCheckedCameraValues('new-user-camera-checkboxes'));
+                input.value = merged.join(', ');
+            }
+
             async function persistUserAccess() {
                 await fetch('/api/config/user_access', {
                     method: 'POST',
@@ -1437,6 +1664,7 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
 
                 const users = currentUserAccess.users || {};
                 for (const [username, info] of Object.entries(users)) {
+                    const checkboxId = `user-camera-checkboxes-${username.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
                     const tr = document.createElement('tr');
                     tr.className = 'row-item';
                     tr.innerHTML = `
@@ -1446,12 +1674,19 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
                         </td>
                         <td>
                             <input type="text" value="${(info.allowed_cameras || []).join(', ')}" class="inline-edit-input" style="max-width:100%; color:#1e293b;" onchange="updateUserCameras('${username}', this.value)" placeholder="CAM_01, CAM_02">
+                            <div id="${checkboxId}" class="camera-checkbox-grid"></div>
                         </td>
                         <td style="text-align:right">
                             <button class="btn btn-danger" style="padding:6px 12px;font-size:0.85rem;" onclick="deleteUserAccess('${username}')">Delete</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
+                    renderCheckboxes(
+                        checkboxId,
+                        info.allowed_cameras || [],
+                        '',
+                        `updateUserCamerasFromCheckboxes('${username}', '${checkboxId}')`
+                    );
                 }
             }
 
@@ -1471,14 +1706,18 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
 
                 currentUserAccess.users[username] = {
                     password: password,
-                    allowed_cameras: cameras
+                    allowed_cameras: mergeCameraSelections(
+                        document.getElementById('new-user-cameras').value,
+                        getCheckedCameraValues('new-user-camera-checkboxes')
+                    )
                 };
 
                 persistUserAccess().then(() => {
-                    renderUserAccess();
                     document.getElementById('new-user-name').value = '';
                     document.getElementById('new-user-password').value = '';
                     document.getElementById('new-user-cameras').value = '';
+                    renderUserAccess();
+                    renderNewUserCameraOptions();
                     showToast('ユーザを追加しました');
                 });
             }
@@ -1492,7 +1731,22 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
             function updateUserCameras(username, cameraText) {
                 if (!currentUserAccess.users || !currentUserAccess.users[username]) return;
                 currentUserAccess.users[username].allowed_cameras = normalizeCameraList(cameraText);
-                persistUserAccess().then(() => showToast('許可カメラを更新しました'));
+                persistUserAccess().then(() => {
+                    renderUserAccess();
+                    showToast('許可カメラを更新しました');
+                });
+            }
+
+            function updateUserCamerasFromCheckboxes(username, checkboxId) {
+                if (!currentUserAccess.users || !currentUserAccess.users[username]) return;
+                const row = document.getElementById(checkboxId)?.closest('td');
+                const textInput = row ? row.querySelector('input[type="text"]') : null;
+                const merged = mergeCameraSelections(textInput ? textInput.value : '', getCheckedCameraValues(checkboxId));
+                currentUserAccess.users[username].allowed_cameras = merged;
+                persistUserAccess().then(() => {
+                    renderUserAccess();
+                    showToast('許可カメラを更新しました');
+                });
             }
 
             function deleteUserAccess(username) {
@@ -1598,7 +1852,10 @@ async def admin_dashboard(admin: dict = Depends(verify_admin)):
     return html_content
 
 @app.get("/gallery", response_class=HTMLResponse)
-async def gallery(principal: dict = Depends(verify_credentials)):
+async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    principal = get_optional_principal(request, credentials)
+    if not principal:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     """
     Serve a simple HTML page to view raw and processed images.
     """
@@ -1641,6 +1898,14 @@ async def gallery(principal: dict = Depends(verify_credentials)):
             .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
             .tabs { display: flex; gap: 12px; margin-bottom: 0; }
             .view-mode-selector { position: absolute; right: 20px; display: flex; align-items: center; gap: 10px; background: #ffffff; padding: 8px 16px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+            .top-actions { display:flex; justify-content:center; gap:12px; margin: 0 0 24px 0; flex-wrap:wrap; }
+            .action-link { display:inline-flex; align-items:center; justify-content:center; min-width:120px; padding:10px 16px; border-radius:999px; text-decoration:none; font-weight:600; transition: all 0.2s ease; }
+            .action-link.primary { background:#2f855a; color:#fff; box-shadow: 0 4px 10px rgba(47,133,90,0.2); }
+            .action-link.primary:hover { background:#276749; }
+            .action-link.secondary { background:#ffffff; color:#334155; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+            .action-link.secondary:hover { background:#f8fafc; }
+            .action-link.danger { background:#fff1f2; color:#be123c; box-shadow: 0 2px 8px rgba(190,18,60,0.1); }
+            .action-link.danger:hover { background:#ffe4e6; }
             @media (max-width: 768px) {
                 .controls-container { flex-direction: column; gap: 20px; }
                 .view-mode-selector { position: static; }
@@ -1653,6 +1918,10 @@ async def gallery(principal: dict = Depends(verify_credentials)):
         <h1>Cloud Server Gallery</h1>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
+        <div class="top-actions">
+            __ADMIN_LINK__
+            <a class="action-link danger" href="/logout">Logout</a>
+        </div>
         
         <div class="controls-container">
             <div class="tabs">
@@ -1841,6 +2110,10 @@ async def gallery(principal: dict = Depends(verify_credentials)):
     """
     html_content = html_content.replace("__USERNAME__", principal.get("username", "unknown"))
     html_content = html_content.replace("__ROLE__", principal.get("role", "user"))
+    admin_link = ""
+    if principal.get("role") == "admin":
+        admin_link = '<a class="action-link secondary" href="/admin">Admin Settings</a>'
+    html_content = html_content.replace("__ADMIN_LINK__", admin_link)
     return html_content
 
 if __name__ == "__main__":
