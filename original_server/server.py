@@ -2332,6 +2332,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .cycle-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; color: #21543b; font-weight: 600; cursor: pointer; user-select: none; }
             .cycle-title .badge { background: #2f855a; color: white; font-size: 0.82rem; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
             .cycle-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+            .cycle-title-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex-shrink: 0; background: #edf2f7; border: 1px solid #d9e5dd; }
             .cycle-title-text { overflow-wrap: anywhere; }
             .cycle-latest { margin-bottom: 22px; }
             .latest-container h3 { color: #276749; margin-bottom: 15px; font-weight: 500; }
@@ -2546,6 +2547,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                 <div class="cycle-section">
                                     <div class="cycle-title" onclick="toggleSection('${cycleSectionId}')">
                                         <div class="cycle-title-main">
+                                            <img src="${basePath}/${latestImg}" class="cycle-title-thumb" alt="thumb" loading="lazy">
                                             <span class="cycle-title-text">Cycle: ${cycleId}</span>
                                             <span class="badge">${cycleImages.length}枚</span>
                                         </div>
