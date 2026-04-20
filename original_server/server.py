@@ -4,11 +4,9 @@ import smtplib
 from email.message import EmailMessage
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import yolov5
 import cv2
@@ -36,8 +34,83 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
 
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
+USER_ACCESS_FILE = os.getenv("USER_ACCESS_FILE", "user_access_config.json")
 
 security = HTTPBasic()
+
+
+def load_user_access_config() -> dict:
+    default_config = {"users": {}}
+    if not os.path.exists(USER_ACCESS_FILE):
+        return default_config
+
+    try:
+        with open(USER_ACCESS_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read user access config: {e}")
+        return default_config
+
+    if not isinstance(raw, dict):
+        return default_config
+
+    raw_users = raw.get("users", raw)
+    if not isinstance(raw_users, dict):
+        return default_config
+
+    normalized_users = {}
+    for username, info in raw_users.items():
+        if not isinstance(info, dict):
+            continue
+
+        clean_username = str(username).strip()
+        if not clean_username:
+            continue
+
+        password = str(info.get("password", "")).strip()
+        allowed_raw = info.get("allowed_cameras", [])
+        if not isinstance(allowed_raw, list):
+            allowed_raw = []
+
+        allowed_cameras = sorted({
+            str(camera).strip() for camera in allowed_raw
+            if str(camera).strip()
+        })
+
+        normalized_users[clean_username] = {
+            "password": password,
+            "allowed_cameras": allowed_cameras
+        }
+
+    return {"users": normalized_users}
+
+
+def save_user_access_config(config: dict) -> None:
+    normalized = load_user_access_config()
+    if isinstance(config, dict):
+        raw_users = config.get("users", config)
+        if isinstance(raw_users, dict):
+            normalized["users"] = {}
+            for username, info in raw_users.items():
+                if not isinstance(info, dict):
+                    continue
+                clean_username = str(username).strip()
+                if not clean_username:
+                    continue
+                password = str(info.get("password", "")).strip()
+                allowed_raw = info.get("allowed_cameras", [])
+                if not isinstance(allowed_raw, list):
+                    allowed_raw = []
+                normalized["users"][clean_username] = {
+                    "password": password,
+                    "allowed_cameras": sorted({
+                        str(camera).strip() for camera in allowed_raw
+                        if str(camera).strip()
+                    })
+                }
+
+    with open(USER_ACCESS_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, indent=4, ensure_ascii=False)
 
 async def verify_api_token(x_api_key: str = Header(None)):
     if x_api_key != API_TOKEN:
@@ -55,13 +128,72 @@ def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)):
     correct_password_bytes = ADMIN_PASSWORD.encode("utf8")
     is_correct_password = secrets.compare_digest(current_password_bytes, correct_password_bytes)
     
-    if not (is_correct_username and is_correct_password):
+    if is_correct_username and is_correct_password:
+        return {
+            "username": credentials.username,
+            "role": "admin",
+            "allowed_cameras": None
+        }
+
+    user_access = load_user_access_config()
+    user_info = user_access.get("users", {}).get(credentials.username)
+    if user_info:
+        current_password_bytes = credentials.password.encode("utf8")
+        expected_password_bytes = user_info.get("password", "").encode("utf8")
+        if secrets.compare_digest(current_password_bytes, expected_password_bytes):
+            return {
+                "username": credentials.username,
+                "role": "user",
+                "allowed_cameras": user_info.get("allowed_cameras", [])
+            }
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect username or password",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+
+def verify_admin(principal: dict = Depends(verify_credentials)):
+    if principal.get("role") != "admin":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
         )
-    return credentials.username
+    return principal
+
+
+def filter_images_for_principal(files: list, principal: dict) -> list:
+    if principal.get("role") == "admin":
+        return files
+
+    allowed_cameras = set(principal.get("allowed_cameras") or [])
+    filtered = []
+    for rel_path in files:
+        camera_name = rel_path.split("/", 1)[0]
+        if camera_name in allowed_cameras:
+            filtered.append(rel_path)
+    return filtered
+
+
+def resolve_image_path(base_dir: str, relative_path: str) -> str:
+    normalized_rel_path = os.path.normpath(relative_path).lstrip("\\/")
+    full_path = os.path.abspath(os.path.join(base_dir, normalized_rel_path))
+    base_abs = os.path.abspath(base_dir)
+    if os.path.commonpath([base_abs, full_path]) != base_abs:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image path")
+    return full_path
+
+
+def verify_camera_access(principal: dict, relative_path: str) -> None:
+    if principal.get("role") == "admin":
+        return
+
+    normalized_path = relative_path.replace("\\", "/").lstrip("/")
+    camera_name = normalized_path.split("/", 1)[0]
+    allowed_cameras = set(principal.get("allowed_cameras") or [])
+    if camera_name not in allowed_cameras:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera access denied")
 
 MAC_MAPPING_FILE = os.getenv("MAC_MAPPING_FILE", "mac_mapping.json")
 MAILING_LISTS_FILE = os.getenv("MAILING_LISTS_FILE", "mailing_lists.json")
@@ -138,10 +270,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-# Mount the static directories to serve images
-app.mount("/images/raw", StaticFiles(directory=UPLOAD_DIR), name="raw_images")
-app.mount("/images/processed", StaticFiles(directory=PROCESSED_DIR), name="processed_images")
 
 def download_model_if_needed():
     """Download MegaDetector model if not present."""
@@ -606,8 +734,24 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         logger.error(f"Failed to save image: {e}")
         return {"status": "error", "message": str(e)}
 
+@app.get("/images/{image_type}/{image_path:path}")
+async def get_image_file(image_type: str, image_path: str, principal: dict = Depends(verify_credentials)):
+    if image_type == "raw":
+        base_dir = UPLOAD_DIR
+    elif image_type == "processed":
+        base_dir = PROCESSED_DIR
+    else:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown image type")
+
+    verify_camera_access(principal, image_path)
+    full_path = resolve_image_path(base_dir, image_path)
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    return FileResponse(full_path)
+
+
 @app.get("/api/images")
-async def get_images(username: str = Depends(verify_credentials)):
+async def get_images(principal: dict = Depends(verify_credentials)):
     """
     Return a list of raw and processed images.
     """
@@ -623,16 +767,25 @@ async def get_images(username: str = Depends(verify_credentials)):
         return files
 
     try:
-        raw_files = get_all_images(UPLOAD_DIR)
-        proc_files = get_all_images(PROCESSED_DIR)
+        raw_files = filter_images_for_principal(get_all_images(UPLOAD_DIR), principal)
+        proc_files = filter_images_for_principal(get_all_images(PROCESSED_DIR), principal)
         
-        return {"status": "ok", "raw": raw_files, "processed": proc_files}
+        return {
+            "status": "ok",
+            "raw": raw_files,
+            "processed": proc_files,
+            "viewer": {
+                "username": principal.get("username"),
+                "role": principal.get("role"),
+                "allowed_cameras": principal.get("allowed_cameras") or []
+            }
+        }
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/config/unmapped_cameras")
-async def get_unmapped_cameras(username: str = Depends(verify_credentials)):
+async def get_unmapped_cameras(admin: dict = Depends(verify_admin)):
     mapped_keys = []
     mapped_values = []
     if os.path.exists(MAC_MAPPING_FILE):
@@ -652,7 +805,7 @@ async def get_unmapped_cameras(username: str = Depends(verify_credentials)):
     return {"status": "ok", "unmapped": unmapped}
 
 @app.delete("/api/config/camera_folder/{folder_name}")
-async def delete_camera_folder(folder_name: str, username: str = Depends(verify_credentials)):
+async def delete_camera_folder(folder_name: str, admin: dict = Depends(verify_admin)):
     """Delete an unmapped camera folder and all its images from both upload and processed dirs."""
     try:
         deleted = []
@@ -671,14 +824,14 @@ async def delete_camera_folder(folder_name: str, username: str = Depends(verify_
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/config/mapping")
-async def get_mapping(username: str = Depends(verify_credentials)):
+async def get_mapping(admin: dict = Depends(verify_admin)):
     if os.path.exists(MAC_MAPPING_FILE):
         with open(MAC_MAPPING_FILE, 'r') as f:
             return json.load(f)
     return {}
 
 @app.post("/api/config/mapping")
-async def update_mapping(mapping: dict, username: str = Depends(verify_credentials)):
+async def update_mapping(mapping: dict, admin: dict = Depends(verify_admin)):
     try:
         old_mapping = {}
         if os.path.exists(MAC_MAPPING_FILE):
@@ -713,7 +866,7 @@ async def update_mapping(mapping: dict, username: str = Depends(verify_credentia
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/config/env")
-async def get_env(username: str = Depends(verify_credentials)):
+async def get_env(admin: dict = Depends(verify_admin)):
     return {
         "SENDER_EMAIL": SENDER_EMAIL,
         "RECIPIENT_EMAIL": RECIPIENT_EMAIL
@@ -721,11 +874,11 @@ async def get_env(username: str = Depends(verify_credentials)):
 
 # --- Mailing List API ---
 @app.get("/api/config/mailing_lists")
-async def get_mailing_lists(username: str = Depends(verify_credentials)):
+async def get_mailing_lists(admin: dict = Depends(verify_admin)):
     return load_mailing_lists()
 
 @app.post("/api/config/mailing_lists")
-async def save_mailing_lists(data: dict, username: str = Depends(verify_credentials)):
+async def save_mailing_lists(data: dict, admin: dict = Depends(verify_admin)):
     try:
         with open(MAILING_LISTS_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
@@ -735,11 +888,11 @@ async def save_mailing_lists(data: dict, username: str = Depends(verify_credenti
 
 # --- Camera Alert Config API ---
 @app.get("/api/config/camera_alert")
-async def get_camera_alert(username: str = Depends(verify_credentials)):
+async def get_camera_alert(admin: dict = Depends(verify_admin)):
     return load_camera_alert_config()
 
 @app.post("/api/config/camera_alert")
-async def save_camera_alert(data: dict, username: str = Depends(verify_credentials)):
+async def save_camera_alert(data: dict, admin: dict = Depends(verify_admin)):
     try:
         with open(CAMERA_ALERT_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
@@ -748,12 +901,27 @@ async def save_camera_alert(data: dict, username: str = Depends(verify_credentia
         return {"status": "error", "message": str(e)}
 
 
+@app.get("/api/config/user_access")
+async def get_user_access(admin: dict = Depends(verify_admin)):
+    return load_user_access_config()
+
+
+@app.post("/api/config/user_access")
+async def update_user_access(data: dict, admin: dict = Depends(verify_admin)):
+    try:
+        save_user_access_config(data)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Failed to update user access config: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 class EnvConfig(BaseModel):
     RECIPIENT_EMAIL: str
     SENDER_EMAIL: str
 
 @app.post("/api/config/env")
-async def update_env(config: EnvConfig, username: str = Depends(verify_credentials)):
+async def update_env(config: EnvConfig, admin: dict = Depends(verify_admin)):
     global RECIPIENT_EMAIL, SENDER_EMAIL
     env_path = ".env"
     try:
@@ -792,7 +960,7 @@ async def update_env(config: EnvConfig, username: str = Depends(verify_credentia
         return {"status": "error", "message": str(e)}
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard(username: str = Depends(verify_credentials)):
+async def admin_dashboard(admin: dict = Depends(verify_admin)):
     html_content = """
     <!DOCTYPE html>
     <html lang="ja">
@@ -1016,6 +1184,23 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                 </div>
             </div>
             
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2>User Gallery Access</h2>
+                </div>
+                <p style="color: var(--text-sub); margin-top:0; line-height:1.7;">
+                    一般ユーザ用のログイン情報と、閲覧を許可するカメラIDを JSON で管理します。
+                    形式: <code>{"users": {"user1": {"password": "pass", "allowed_cameras": ["CAM_01"]}}}</code>
+                </p>
+                <div class="form-group">
+                    <label>User Access JSON</label>
+                    <textarea id="user-access-json" style="width:100%; min-height:260px; padding:14px 16px; border:1px solid rgba(0,0,0,0.1); border-radius:12px; background:rgba(255,255,255,0.8); font-family:'Consolas','JetBrains Mono',monospace; font-size:0.95rem; box-sizing:border-box; resize:vertical;"></textarea>
+                </div>
+                <div style="text-align: right">
+                    <button class="btn" onclick="saveUserAccess()">Save User Access</button>
+                </div>
+            </div>
+
             <a href="/gallery" class="nav-link">← Go back to Image Gallery</a>
         </div>
 
@@ -1025,6 +1210,7 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
             let currentMapping = {};
             let currentMailingLists = {};
             let currentCameraAlert = {};
+            let currentUserAccess = {};
 
             async function fetchConfig() {
                 try {
@@ -1046,6 +1232,10 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                     const caRes = await fetch('/api/config/camera_alert');
                     currentCameraAlert = await caRes.json();
                     renderMapping(); // re-render to show dropdowns
+
+                    const uaRes = await fetch('/api/config/user_access');
+                    currentUserAccess = await uaRes.json();
+                    document.getElementById('user-access-json').value = JSON.stringify(currentUserAccess, null, 2);
                 } catch (e) {
                     console.error("Failed to load config", e);
                 }
@@ -1287,6 +1477,23 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
                 }
             }
 
+            async function saveUserAccess() {
+                const raw = document.getElementById('user-access-json').value.trim();
+                try {
+                    const parsed = raw ? JSON.parse(raw) : {users: {}};
+                    await fetch('/api/config/user_access', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(parsed)
+                    });
+                    currentUserAccess = parsed;
+                    document.getElementById('user-access-json').value = JSON.stringify(parsed, null, 2);
+                    showToast('ユーザ権限を保存しました');
+                } catch(e) {
+                    alert('User Access JSON の形式が正しくありません');
+                }
+            }
+
             function showToast(msg) {
                 const toast = document.getElementById('toast');
                 toast.innerText = msg;
@@ -1302,7 +1509,7 @@ async def admin_dashboard(username: str = Depends(verify_credentials)):
     return html_content
 
 @app.get("/gallery", response_class=HTMLResponse)
-async def gallery(username: str = Depends(verify_credentials)):
+async def gallery(principal: dict = Depends(verify_credentials)):
     """
     Serve a simple HTML page to view raw and processed images.
     """
@@ -1356,6 +1563,7 @@ async def gallery(username: str = Depends(verify_credentials)):
     <body>
         <h1>Cloud Server Gallery</h1>
         <div class="header-accent"></div>
+        <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         
         <div class="controls-container">
             <div class="tabs">
@@ -1542,6 +1750,8 @@ async def gallery(username: str = Depends(verify_credentials)):
     </body>
     </html>
     """
+    html_content = html_content.replace("__USERNAME__", principal.get("username", "unknown"))
+    html_content = html_content.replace("__ROLE__", principal.get("role", "user"))
     return html_content
 
 if __name__ == "__main__":
