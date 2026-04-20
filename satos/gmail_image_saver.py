@@ -356,7 +356,7 @@ class GmailMovProcessor:
 
         email_body = ""
         for part in msg.walk():
-            if part.get_content_type() == "text/plain":
+            if part.get_content_type() in ("text/plain", "text/html"):
                 payload = part.get_payload(decode=True)
                 if payload:
                     try:
@@ -367,11 +367,12 @@ class GmailMovProcessor:
         telemetry = {}
         if email_body:
             import re as _re
-            sig = _re.search(r"Signal:\s*(.*)", email_body, _re.IGNORECASE)
-            bat = _re.search(r"Battery:\s*(.*)", email_body, _re.IGNORECASE)
-            temp = _re.search(r"Temperature:\s*(.*)", email_body, _re.IGNORECASE)
-            f_space = _re.search(r"Free space:\s*(.*)", email_body, _re.IGNORECASE)
-            imei = _re.search(r"IMEI/MEID:\s*(.*)", email_body, _re.IGNORECASE)
+            clean_body = _re.sub(r'<[^>]+>', ' ', email_body).replace('&nbsp;', ' ')
+            sig = _re.search(r"Signal:\s*(.*)", clean_body, _re.IGNORECASE)
+            bat = _re.search(r"Battery:\s*(.*)", clean_body, _re.IGNORECASE)
+            temp = _re.search(r"Temperature:\s*(.*)", clean_body, _re.IGNORECASE)
+            f_space = _re.search(r"Free space:\s*(.*)", clean_body, _re.IGNORECASE)
+            imei = _re.search(r"IMEI/MEID:\s*(.*)", clean_body, _re.IGNORECASE)
             
             if sig: telemetry['signal'] = sig.group(1).strip()
             if bat: telemetry['battery'] = bat.group(1).strip()
@@ -565,9 +566,11 @@ class GmailMovProcessor:
             seq = "001"
 
         event_id = f"{cam_id}_{seq}"
+        
+        base_api_url = self.config.cloud_server_url.split("/upload")[0]
 
-        if telemetry and self.config.cloud_server_url:
-            telemetry_url = self.config.cloud_server_url.rstrip("/") + "/api/telemetry"
+        if telemetry and base_api_url:
+            telemetry_url = base_api_url.rstrip("/") + "/api/telemetry"
             telemetry_payload = {
                 "camera_id": cam_id,
                 **telemetry
@@ -576,6 +579,8 @@ class GmailMovProcessor:
                 t_resp = requests.post(telemetry_url, json=telemetry_payload, headers={"X-API-KEY": self.config.cloud_api_key}, verify=False, timeout=10)
                 if t_resp.status_code == 200:
                     logging.info("Uploaded telemetry for %s", cam_id)
+                else:
+                    logging.warning("Telemetry upload returned status %s for %s", t_resp.status_code, cam_id)
             except Exception as e:
                 logging.error("Failed to upload telemetry for %s: %s", cam_id, e)
 
@@ -595,7 +600,7 @@ class GmailMovProcessor:
             except Exception as e:
                 logging.error("Failed to upload %s to cloud server: %s", x_file_name, e)
 
-        video_upload_url = url.rstrip("/") + "/upload_video"
+        video_upload_url = base_api_url.rstrip("/") + "/upload_video"
         try:
             with video_path.open("rb") as f:
                 files = {"file": (video_path.name, f, "video/quicktime")}
