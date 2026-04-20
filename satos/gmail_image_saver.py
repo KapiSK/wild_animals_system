@@ -498,11 +498,11 @@ class GmailMovProcessor:
 
             if should_forward:
                 logging.info("Criteria met for cycle %s. Forwarding...", video_stem)
-                self._upload_to_cloud_server(video_stem, extracted_frames)
+                self._upload_to_cloud_server(video_stem, video_path, extracted_frames)
             else:
                 logging.info("No targets detected in cycle %s. Skipping upload.", video_stem)
 
-    def _upload_to_cloud_server(self, video_stem: str, frames: Sequence[Tuple[Path, int]]) -> None:
+    def _upload_to_cloud_server(self, video_stem: str, video_path: Path, frames: Sequence[Tuple[Path, int]]) -> None:
         import requests
         import urllib3
         from datetime import datetime
@@ -533,6 +533,8 @@ class GmailMovProcessor:
             cam_id = video_stem
             seq = "001"
 
+        event_id = f"{cam_id}_{seq}"
+
         for frame_path, index in frames:
             x_file_name = f"satos_Rcv{edge_rcv_time}_{cam_id}-{seq}-{index}.{self.config.frame_image_format}"
             try:
@@ -548,6 +550,24 @@ class GmailMovProcessor:
                         logging.warning("Cloud server returned status %s for %s", resp.status_code, x_file_name)
             except Exception as e:
                 logging.error("Failed to upload %s to cloud server: %s", x_file_name, e)
+
+        video_upload_url = url.rstrip("/") + "/upload_video"
+        try:
+            with video_path.open("rb") as f:
+                files = {"file": (video_path.name, f, "video/quicktime")}
+                headers = {
+                    "X-API-KEY": self.config.cloud_api_key,
+                    "X-EVENT-ID": event_id,
+                    "X-CAMERA-ID": cam_id,
+                    "X-SEQUENCE": seq,
+                }
+                resp = requests.post(video_upload_url, files=files, headers=headers, verify=False, timeout=120)
+                if resp.status_code == 200:
+                    logging.info("Uploaded source video %s for event %s.", video_path.name, event_id)
+                else:
+                    logging.warning("Video upload returned status %s for event %s", resp.status_code, event_id)
+        except Exception as e:
+            logging.error("Failed to upload source video %s: %s", video_path, e)
 
     def _mark_seen(self, uid: str) -> None:
         assert self.client is not None

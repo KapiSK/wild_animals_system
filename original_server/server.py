@@ -24,6 +24,8 @@ load_dotenv()
 # Configuration
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "received_images")
 PROCESSED_DIR = os.getenv("PROCESSED_DIR", "processed_images")
+VIDEO_DIR = os.getenv("VIDEO_DIR", "received_videos")
+EVENT_METADATA_DIR = os.getenv("EVENT_METADATA_DIR", "event_metadata")
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "your_email@example.com")
@@ -242,6 +244,132 @@ def verify_camera_access(principal: dict, relative_path: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera access denied")
 
 
+def extract_event_id_from_video_filename(filename: str) -> str:
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    match = re.match(r"^(.*?)_(\d{14})_(\d+)$", stem)
+    if match:
+        return f"{match.group(1)}_{match.group(3)}"
+    return stem
+
+
+def build_video_filename(camera_id: str, seq: str, suffix: str) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"{camera_id}_{timestamp}_{seq}{suffix.lower()}"
+
+
+def get_video_relpaths_for_event(camera_id: str, event_id: str) -> list:
+    camera_dir = os.path.join(VIDEO_DIR, camera_id)
+    if not os.path.isdir(camera_dir):
+        return []
+
+    relpaths = []
+    for name in os.listdir(camera_dir):
+        file_path = os.path.join(camera_dir, name)
+        if not os.path.isfile(file_path):
+            continue
+        if extract_event_id_from_video_filename(name) != event_id:
+            continue
+        relpaths.append(f"{camera_id}/{name}".replace(os.sep, "/"))
+
+    relpaths.sort(key=lambda x: os.path.getmtime(os.path.join(VIDEO_DIR, x.replace("/", os.sep))), reverse=True)
+    return relpaths
+
+
+def get_related_processed_images(camera_id: str, event_id: str) -> list:
+    camera_dir = os.path.join(PROCESSED_DIR, camera_id)
+    if not os.path.isdir(camera_dir):
+        return []
+
+    relpaths = []
+    for name in os.listdir(camera_dir):
+        file_path = os.path.join(camera_dir, name)
+        if not os.path.isfile(file_path):
+            continue
+        if extract_cycle_id(name) != event_id:
+            continue
+        relpaths.append(f"{camera_id}/{name}".replace(os.sep, "/"))
+
+    relpaths.sort(key=lambda x: os.path.getmtime(os.path.join(PROCESSED_DIR, x.replace("/", os.sep))), reverse=True)
+    return relpaths
+
+
+def get_event_metadata_path(camera_id: str, event_id: str) -> str:
+    safe_camera_id = re.sub(r"[^0-9A-Za-z_-]", "_", camera_id) or "unknown"
+    safe_event_id = re.sub(r"[^0-9A-Za-z_-]", "_", event_id) or "unknown"
+    camera_dir = os.path.join(EVENT_METADATA_DIR, safe_camera_id)
+    os.makedirs(camera_dir, exist_ok=True)
+    return os.path.join(camera_dir, f"{safe_event_id}.json")
+
+
+def save_event_metadata(camera_id: str, event_id: str, metadata: dict) -> None:
+    path = get_event_metadata_path(camera_id, event_id)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+
+def load_event_metadata(camera_id: str, event_id: str) -> dict | None:
+    path = get_event_metadata_path(camera_id, event_id)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read event metadata {path}: {e}")
+        return None
+
+
+def build_event_metadata_map(base_dir: str, files: list) -> dict:
+    metadata_map = {}
+    for rel_path in files:
+        camera_id = rel_path.split("/", 1)[0]
+        event_id = extract_cycle_id(os.path.basename(rel_path))
+        key = f"{camera_id}/{event_id}"
+        if key not in metadata_map:
+            metadata_map[key] = load_event_metadata(camera_id, event_id)
+    return metadata_map
+
+
+def file_matches_filters(rel_path: str, metadata_map: dict, filters: dict) -> bool:
+    if not filters:
+        return True
+
+    camera_id = rel_path.split("/", 1)[0]
+    event_id = extract_cycle_id(os.path.basename(rel_path))
+    metadata = metadata_map.get(f"{camera_id}/{event_id}")
+
+    detection_filter = filters.get("detection", "all")
+    label_filter = filters.get("label", "all")
+    video_filter = filters.get("video", "all")
+    source_filter = filters.get("source", "all")
+    min_conf = filters.get("min_conf")
+
+    if not metadata:
+        return detection_filter == "all" and label_filter == "all" and video_filter == "all" and source_filter == "all" and not min_conf
+
+    target_count = int(metadata.get("target_count", 0))
+    labels = set(metadata.get("labels", []))
+    has_video = bool(metadata.get("has_video", False))
+    source = metadata.get("source", "unknown")
+    max_conf = float(metadata.get("max_conf", 0.0))
+
+    if detection_filter == "detected" and target_count <= 0:
+        return False
+    if detection_filter == "not_detected" and target_count > 0:
+        return False
+    if label_filter != "all" and label_filter not in labels:
+        return False
+    if video_filter == "with_video" and not has_video:
+        return False
+    if video_filter == "without_video" and has_video:
+        return False
+    if source_filter != "all" and source != source_filter:
+        return False
+    if min_conf is not None and max_conf < min_conf:
+        return False
+    return True
+
+
 def get_available_camera_ids() -> list:
     camera_ids = set()
 
@@ -337,6 +465,8 @@ MODEL_PATH = "md_v5a.0.0.pt"
 # Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
+os.makedirs(VIDEO_DIR, exist_ok=True)
+os.makedirs(EVENT_METADATA_DIR, exist_ok=True)
 
 # Logging setup
 logging.basicConfig(
@@ -489,6 +619,9 @@ class CycleManager:
 
         # 1. Identify best image (High target count > High confidence)
         best_data = sorted(files, key=lambda x: (x['target_count'], x['max_conf']), reverse=True)[0]
+        camera_id = best_data.get('camera_id', 'unknown')
+        labels = sorted({label for f in files for label in f.get('labels', [])})
+        source = best_data.get('source', 'unknown')
         
         # 抽出: IDと日時をファイル名から取得
         best_filename = best_data['filename']
@@ -597,6 +730,26 @@ class CycleManager:
         logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
         logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Email={email_duration:.2f}ms")
 
+        try:
+            event_metadata = {
+                "event_id": cycle_id,
+                "camera_id": camera_id,
+                "source": source,
+                "labels": labels,
+                "target_count": max((f.get("target_count", 0) for f in files), default=0),
+                "detected_images_count": detected_images_count,
+                "max_conf": max((f.get("max_conf", 0.0) for f in files), default=0.0),
+                "summary_text": best_data.get("summary_text", ""),
+                "best_image": f"{camera_id}/{best_data['filename']}",
+                "images": [f"{camera_id}/{f['filename']}" for f in files],
+                "has_video": len(get_video_relpaths_for_event(camera_id, cycle_id)) > 0,
+                "cycle_time": cycle_time,
+                "updated_at": datetime.now().isoformat(),
+            }
+            save_event_metadata(camera_id, cycle_id, event_metadata)
+        except Exception as e:
+            logger.error(f"Failed to save event metadata for {cycle_id}: {e}")
+
         # --- CSV Logging ---
         try:
             csv_file = "cloud_metrics.csv"
@@ -661,7 +814,7 @@ def extract_cycle_id(filename: str) -> str:
         logger.error(f"Failed to extract cycle ID: {e}")
         return "unknown"
 
-async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float):
+async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float, source: str):
     """
     Perform inference and Add to Cycle Buffer.
     """
@@ -749,7 +902,11 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
         'target_count': total_targets,
         'max_conf': max_conf,
         'annotated_path': annotated_path,
-        'summary_text': counts_str
+        'summary_text': counts_str,
+        'labels': sorted(detected_targets.keys()),
+        'source': source,
+        'camera_id': pure_cam_id,
+        'event_id': cycle_id
     }
     
     timing_info = {
@@ -806,12 +963,67 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         save_end = time.perf_counter()
         save_duration = save_end - receive_start
 
+        source = "satos" if clean_original.startswith("satos_") else "pi" if clean_original.startswith("pi_") else "unknown"
+
         # Trigger background processing
-        background_tasks.add_task(process_and_notify, file_path, filename, receive_start, save_duration)
+        background_tasks.add_task(process_and_notify, file_path, filename, receive_start, save_duration, source)
         
         return {"status": "ok", "message": "Image received and processing started"}
     except Exception as e:
         logger.error(f"Failed to save image: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/upload_video")
+async def upload_video(
+    file: UploadFile = File(...),
+    x_event_id: str = Header(None),
+    x_camera_id: str = Header(None),
+    x_sequence: str = Header(None),
+    api_key: str = Depends(verify_api_token)
+):
+    if not x_camera_id or not x_sequence:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing camera metadata")
+
+    pure_cam_id = get_camera_id(x_camera_id.strip())
+    safe_seq = re.sub(r"[^0-9A-Za-z_-]", "", x_sequence.strip()) or "001"
+    suffix = os.path.splitext(file.filename or "")[1] or ".mov"
+    filename = build_video_filename(pure_cam_id, safe_seq, suffix)
+
+    cam_dir = os.path.join(VIDEO_DIR, pure_cam_id)
+    os.makedirs(cam_dir, exist_ok=True)
+    file_path = os.path.join(cam_dir, filename)
+
+    try:
+        with open(file_path, "wb") as buffer:
+            while content := await file.read(1024 * 1024):
+                buffer.write(content)
+
+        event_id = x_event_id.strip() if x_event_id else extract_event_id_from_video_filename(filename)
+        existing_metadata = load_event_metadata(pure_cam_id, event_id) or {
+            "event_id": event_id,
+            "camera_id": pure_cam_id,
+            "source": "satos",
+            "labels": [],
+            "target_count": 0,
+            "detected_images_count": 0,
+            "max_conf": 0.0,
+            "summary_text": "",
+            "images": [],
+            "cycle_time": "",
+        }
+        existing_metadata["has_video"] = True
+        existing_metadata["updated_at"] = datetime.now().isoformat()
+        save_event_metadata(pure_cam_id, event_id, existing_metadata)
+        logger.info(f"Received video for event {event_id}: {file_path}")
+        return {
+            "status": "ok",
+            "event_id": event_id,
+            "filename": filename,
+            "camera_id": pure_cam_id
+        }
+    except Exception as e:
+        logger.error(f"Failed to save video upload: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/images/{image_type}/{image_path:path}")
@@ -830,8 +1042,24 @@ async def get_image_file(image_type: str, image_path: str, principal: dict = Dep
     return FileResponse(full_path)
 
 
+@app.get("/videos/{video_path:path}")
+async def get_video_file(video_path: str, principal: dict = Depends(verify_credentials)):
+    verify_camera_access(principal, video_path)
+    full_path = resolve_image_path(VIDEO_DIR, video_path)
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    return FileResponse(full_path, media_type="video/quicktime")
+
+
 @app.get("/api/images")
-async def get_images(principal: dict = Depends(verify_credentials)):
+async def get_images(
+    detection: str = "all",
+    label: str = "all",
+    video: str = "all",
+    source: str = "all",
+    min_conf: float | None = None,
+    principal: dict = Depends(verify_credentials)
+):
     """
     Return a list of raw and processed images.
     """
@@ -849,11 +1077,22 @@ async def get_images(principal: dict = Depends(verify_credentials)):
     try:
         raw_files = filter_images_for_principal(get_all_images(UPLOAD_DIR), principal)
         proc_files = filter_images_for_principal(get_all_images(PROCESSED_DIR), principal)
+        filters = {
+            "detection": detection,
+            "label": label,
+            "video": video,
+            "source": source,
+            "min_conf": min_conf,
+        }
+        metadata_map = build_event_metadata_map(PROCESSED_DIR, proc_files)
+        proc_files = [path for path in proc_files if file_matches_filters(path, metadata_map, filters)]
+        raw_files = [path for path in raw_files if file_matches_filters(path, metadata_map, filters)]
         
         return {
             "status": "ok",
             "raw": raw_files,
             "processed": proc_files,
+            "filters": filters,
             "viewer": {
                 "username": principal.get("username"),
                 "role": principal.get("role"),
@@ -863,6 +1102,115 @@ async def get_images(principal: dict = Depends(verify_credentials)):
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
+
+
+@app.get("/event/{image_path:path}", response_class=HTMLResponse)
+async def event_detail(image_path: str, request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    principal = get_optional_principal(request, credentials)
+    if not principal:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    verify_camera_access(principal, image_path)
+    processed_abs = resolve_image_path(PROCESSED_DIR, image_path)
+    if not os.path.isfile(processed_abs):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processed image not found")
+
+    camera_id = image_path.replace("\\", "/").split("/", 1)[0]
+    image_name = os.path.basename(processed_abs)
+    event_id = extract_cycle_id(image_name)
+    related_images = get_related_processed_images(camera_id, event_id)
+    related_videos = get_video_relpaths_for_event(camera_id, event_id)
+    primary_video = related_videos[0] if related_videos else ""
+
+    summary_text = "Detection event"
+    cycle_time = ""
+    match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", image_name, re.IGNORECASE)
+    if match_new:
+        time_raw = match_new.group(2)
+        cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+
+    thumbs_html = ""
+    for rel in related_images:
+        file_label = os.path.basename(rel)
+        thumbs_html += f"""
+            <a class="thumb" href="/event/{rel}">
+                <img src="/images/processed/{rel}" alt="{file_label}">
+                <span>{file_label}</span>
+            </a>
+        """
+
+    video_block = """
+        <div class="empty-video">対応する動画はまだありません。</div>
+    """
+    if primary_video:
+        video_block = f"""
+            <video controls preload="metadata" class="video-player">
+                <source src="/videos/{primary_video}" type="video/quicktime">
+                お使いのブラウザでは動画を再生できません。
+            </video>
+            <a class="download-link" href="/videos/{primary_video}">動画を開く / ダウンロード</a>
+        """
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Event Detail</title>
+        <style>
+            body {{ font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f3f8f4; color: #22332b; }}
+            .shell {{ max-width: 1400px; margin: 0 auto; }}
+            .topbar {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }}
+            .back-link, .download-link {{ display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:999px; text-decoration:none; background:#ffffff; color:#2d4a3a; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
+            .hero {{ display:grid; grid-template-columns: 1.1fr 1fr; gap:24px; align-items:start; }}
+            .panel {{ background:#ffffff; border-radius:20px; padding:20px; box-shadow:0 12px 30px rgba(34,51,43,0.06); }}
+            .panel h2 {{ margin:0 0 14px 0; font-size:1.2rem; color:#21543b; }}
+            .main-image {{ width:100%; border-radius:16px; background:#f8fbf8; }}
+            .video-player {{ width:100%; border-radius:16px; background:#111; min-height:320px; }}
+            .meta {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px; }}
+            .meta-card {{ background:#ffffff; border-radius:16px; padding:14px 16px; box-shadow:0 8px 22px rgba(34,51,43,0.05); }}
+            .meta-label {{ display:block; font-size:0.82rem; color:#6b7f74; margin-bottom:6px; }}
+            .meta-value {{ font-weight:600; word-break:break-word; }}
+            .thumbs {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px; margin-top:22px; }}
+            .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 8px 20px rgba(34,51,43,0.05); }}
+            .thumb img {{ width:100%; height:130px; object-fit:cover; border-radius:10px; display:block; }}
+            .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; }}
+            .empty-video {{ min-height:320px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
+            @media (max-width: 960px) {{ .hero {{ grid-template-columns: 1fr; }} }}
+        </style>
+    </head>
+    <body>
+        <div class="shell">
+            <div class="topbar">
+                <a class="back-link" href="/gallery">← Gallery</a>
+                <a class="back-link" href="/logout">Logout</a>
+            </div>
+            <div class="meta">
+                <div class="meta-card"><span class="meta-label">Camera ID</span><span class="meta-value">{camera_id}</span></div>
+                <div class="meta-card"><span class="meta-label">Event ID</span><span class="meta-value">{event_id}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or "-"}</span></div>
+                <div class="meta-card"><span class="meta-label">Video</span><span class="meta-value">{"あり" if primary_video else "なし"}</span></div>
+            </div>
+            <div class="hero">
+                <section class="panel">
+                    <h2>検出枠付き画像</h2>
+                    <img class="main-image" src="/images/processed/{image_path}" alt="{image_name}">
+                </section>
+                <section class="panel">
+                    <h2>元動画</h2>
+                    {video_block}
+                </section>
+            </div>
+            <section class="panel" style="margin-top:24px;">
+                <h2>同一イベントの画像</h2>
+                <div class="thumbs">{thumbs_html or '<div class="empty-video" style="min-height:140px;">画像がありません。</div>'}</div>
+            </section>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
 
 @app.get("/api/config/unmapped_cameras")
 async def get_unmapped_cameras(admin: dict = Depends(verify_admin)):
@@ -1983,6 +2331,10 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
             .tabs { display: flex; gap: 12px; margin-bottom: 0; }
             .view-mode-selector { position: absolute; right: 20px; display: flex; align-items: center; gap: 10px; background: #ffffff; padding: 8px 16px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+            .filter-bar { max-width: 1200px; margin: 0 auto 28px auto; padding: 0 20px; display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+            .filter-card { background:#ffffff; border-radius:16px; padding:12px 14px; box-shadow:0 4px 12px rgba(0,0,0,0.04); display:flex; flex-direction:column; gap:8px; }
+            .filter-card label { font-size:0.85rem; color:#4a5568; font-weight:600; }
+            .filter-card select, .filter-card input { border:1px solid #d9e5dd; border-radius:10px; padding:8px 10px; font:inherit; background:#f9fcfa; color:#243b30; }
             .top-actions { display:flex; justify-content:center; gap:12px; margin: 0 0 24px 0; flex-wrap:wrap; }
             .action-link { display:inline-flex; align-items:center; justify-content:center; min-width:120px; padding:10px 16px; border-radius:999px; text-decoration:none; font-weight:600; transition: all 0.2s ease; }
             .action-link.primary { background:#2f855a; color:#fff; box-shadow: 0 4px 10px rgba(47,133,90,0.2); }
@@ -2021,6 +2373,44 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 </select>
             </div>
         </div>
+        <div class="filter-bar">
+            <div class="filter-card">
+                <label for="filter-detection">検知結果</label>
+                <select id="filter-detection" onchange="updateFilters()">
+                    <option value="all">すべて</option>
+                    <option value="detected">検知あり</option>
+                    <option value="not_detected">検知なし</option>
+                </select>
+            </div>
+            <div class="filter-card">
+                <label for="filter-label">対象ラベル</label>
+                <select id="filter-label" onchange="updateFilters()">
+                    <option value="all">すべて</option>
+                    <option value="animal">animal</option>
+                    <option value="person">person</option>
+                </select>
+            </div>
+            <div class="filter-card">
+                <label for="filter-video">動画</label>
+                <select id="filter-video" onchange="updateFilters()">
+                    <option value="all">すべて</option>
+                    <option value="with_video">動画あり</option>
+                    <option value="without_video">動画なし</option>
+                </select>
+            </div>
+            <div class="filter-card">
+                <label for="filter-source">入力元</label>
+                <select id="filter-source" onchange="updateFilters()">
+                    <option value="all">すべて</option>
+                    <option value="satos">統合サーバ</option>
+                    <option value="pi">エッジサーバ</option>
+                </select>
+            </div>
+            <div class="filter-card">
+                <label for="filter-min-conf">最小信頼度</label>
+                <input id="filter-min-conf" type="number" min="0" max="1" step="0.05" placeholder="0.00" onchange="updateFilters()">
+            </div>
+        </div>
         
         <div class="gallery-container active" id="gallery-processed"></div>
         <div class="gallery-container" id="gallery-raw"></div>
@@ -2029,6 +2419,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentProcessed = null;
             let currentRaw = null;
             let currentViewMode = 'grouped';
+            let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
 
             function arraysEqual(a, b) {
                 if (a === b) return true;
@@ -2068,6 +2459,17 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 renderGallery('gallery-raw', currentRaw, '/images/raw');
             }
 
+            function updateFilters() {
+                currentFilters = {
+                    detection: document.getElementById('filter-detection').value,
+                    label: document.getElementById('filter-label').value,
+                    video: document.getElementById('filter-video').value,
+                    source: document.getElementById('filter-source').value,
+                    min_conf: document.getElementById('filter-min-conf').value.trim()
+                };
+                fetchImages();
+            }
+
             function groupImagesByFolder(images) {
                 const groups = {};
                 images.forEach(img => {
@@ -2081,6 +2483,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
 
             function renderGallery(containerId, images, basePath) {
                 const container = document.getElementById(containerId);
+                const isProcessed = containerId === 'gallery-processed';
                 if (!images || images.length === 0) {
                     container.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
                     return;
@@ -2106,7 +2509,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     <div class="latest-container">
                                         <h3>Latest Capture</h3>
                                         <div class="latest-item">
-                                            <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                            <img src="${basePath}/${latestImg}" title="クリックして表示" onclick="${isProcessed ? `window.location.href='/event/${latestImg}'` : `window.open(this.src, '_blank')`}">
                                             <span>${displayFilename}</span>
                                         </div>
                                     </div>
@@ -2118,7 +2521,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                 const filename = folderImages[i].split('/').pop();
                                 html += `
                                     <div class="item">
-                                        <div class="img-wrapper" onclick="window.open('${basePath}/${folderImages[i]}', '_blank')">
+                                        <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${folderImages[i]}'` : `window.open('${basePath}/${folderImages[i]}', '_blank')`}">
                                             <img src="${basePath}/${folderImages[i]}" title="クリックしてフルサイズの画像を表示">
                                         </div>
                                         <span>${filename}</span>
@@ -2136,7 +2539,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         <div class="latest-container" style="margin-top: 20px;">
                             <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
                             <div class="latest-item">
-                                <img src="${basePath}/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
+                                <img src="${basePath}/${latestImg}" title="クリックして表示" onclick="${isProcessed ? `window.location.href='/event/${latestImg}'` : `window.open(this.src, '_blank')`}">
                                 <span>${latestImg}</span>
                             </div>
                         </div>
@@ -2147,7 +2550,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         for (let i = 1; i < images.length; i++) {
                             html += `
                                 <div class="item">
-                                    <div class="img-wrapper" onclick="window.open('${basePath}/${images[i]}', '_blank')">
+                                    <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${images[i]}'` : `window.open('${basePath}/${images[i]}', '_blank')`}">
                                         <img src="${basePath}/${images[i]}" title="クリックしてフルサイズの画像を表示">
                                     </div>
                                     <span>${images[i]}</span>
@@ -2162,7 +2565,12 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             }
 
             function fetchImages() {
-                fetch('/api/images')
+                const params = new URLSearchParams();
+                Object.entries(currentFilters).forEach(([key, value]) => {
+                    if (value && value !== 'all') params.set(key, value);
+                });
+                const query = params.toString();
+                fetch('/api/images' + (query ? `?${query}` : ''))
                     .then(response => response.json())
                     .then(data => {
                         if (data.status === 'ok') {
