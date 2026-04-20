@@ -2327,6 +2327,13 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .camera-section { margin-bottom: 60px; background: #ffffff; border-radius: 16px; padding: 30px 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
             .camera-title { font-size: 1.5rem; color: #1c4532; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 30px; display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
             .camera-title .badge { background: #38a169; color: white; font-size: 0.9rem; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
+            .cycle-list { display: flex; flex-direction: column; gap: 18px; }
+            .cycle-section { background: #f8fbf8; border: 1px solid #e2efe5; border-radius: 14px; padding: 18px 16px; }
+            .cycle-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; color: #21543b; font-weight: 600; cursor: pointer; user-select: none; }
+            .cycle-title .badge { background: #2f855a; color: white; font-size: 0.82rem; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+            .cycle-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+            .cycle-title-text { overflow-wrap: anywhere; }
+            .cycle-latest { margin-bottom: 22px; }
             .latest-container h3 { color: #276749; margin-bottom: 15px; font-weight: 500; }
             .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
             .tabs { display: flex; gap: 12px; margin-bottom: 0; }
@@ -2481,6 +2488,27 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return groups;
             }
 
+            function extractCycleIdFromImagePath(imagePath) {
+                const filename = imagePath.split('/').pop() || imagePath;
+                const matchNew = filename.match(/^(.*?)_\\d{14}_(\\d+)_([1-3][nd]?)\\.jpg$/i);
+                if (matchNew) return `${matchNew[1]}_${matchNew[2]}`;
+                const matchOld = filename.match(/^(.*)-(\\d+)[nd]?\\.jpg$/i);
+                if (matchOld) {
+                    return matchOld[1].includes('_') ? matchOld[1].split('_').slice(1).join('_') : matchOld[1];
+                }
+                return filename.replace(/\\.[^.]+$/, '');
+            }
+
+            function groupImagesByCycle(images) {
+                const groups = {};
+                images.forEach(img => {
+                    const cycleId = extractCycleIdFromImagePath(img);
+                    if (!groups[cycleId]) groups[cycleId] = [];
+                    groups[cycleId].push(img);
+                });
+                return groups;
+            }
+
             function renderGallery(containerId, images, basePath) {
                 const container = document.getElementById(containerId);
                 const isProcessed = containerId === 'gallery-processed';
@@ -2495,9 +2523,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     const groups = groupImagesByFolder(images);
                     for (const folder of Object.keys(groups).sort()) {
                         const folderImages = groups[folder];
-                        const latestImg = folderImages[0];
-                        const displayFilename = latestImg.split('/').pop();
                         const sectionId = `cam-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}`;
+                        const cycleGroups = groupImagesByCycle(folderImages);
                         
                         html += `
                             <div class="camera-section">
@@ -2506,31 +2533,62 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
                                 </div>
                                 <div id="${sectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
-                                    <div class="latest-container">
-                                        <h3>Latest Capture</h3>
-                                        <div class="latest-item">
-                                            <img src="${basePath}/${latestImg}" title="クリックして表示" onclick="${isProcessed ? `window.location.href='/event/${latestImg}'` : `window.open(this.src, '_blank')`}">
-                                            <span>${displayFilename}</span>
-                                        </div>
-                                    </div>
+                                    <div class="cycle-list">
                         `;
 
-                        if (folderImages.length > 1) {
-                            html += '<div class="gallery-grid">';
-                            for (let i = 1; i < folderImages.length; i++) {
-                                const filename = folderImages[i].split('/').pop();
-                                html += `
-                                    <div class="item">
-                                        <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${folderImages[i]}'` : `window.open('${basePath}/${folderImages[i]}', '_blank')`}">
-                                            <img src="${basePath}/${folderImages[i]}" title="クリックしてフルサイズの画像を表示">
+                        for (const cycleId of Object.keys(cycleGroups).sort().reverse()) {
+                            const cycleImages = cycleGroups[cycleId];
+                            const latestImg = cycleImages[0];
+                            const displayFilename = latestImg.split('/').pop();
+                            const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
+
+                            html += `
+                                <div class="cycle-section">
+                                    <div class="cycle-title" onclick="toggleSection('${cycleSectionId}')">
+                                        <div class="cycle-title-main">
+                                            <span class="cycle-title-text">Cycle: ${cycleId}</span>
+                                            <span class="badge">${cycleImages.length}枚</span>
                                         </div>
-                                        <span>${filename}</span>
+                                        <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s;">▶</span>
                                     </div>
-                                `;
+                                    <div id="${cycleSectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
+                                        <div class="latest-container cycle-latest">
+                                            <h3>Cycle Latest</h3>
+                                            <div class="latest-item">
+                                                <img src="${basePath}/${latestImg}" title="クリックして表示" onclick="${isProcessed ? `window.location.href='/event/${latestImg}'` : `window.open(this.src, '_blank')`}">
+                                                <span>${displayFilename}</span>
+                                            </div>
+                                        </div>
+                            `;
+
+                            if (cycleImages.length > 1) {
+                                html += '<div class="gallery-grid">';
+                                for (let i = 1; i < cycleImages.length; i++) {
+                                    const imagePath = cycleImages[i];
+                                    const filename = imagePath.split('/').pop();
+                                    html += `
+                                        <div class="item">
+                                            <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${imagePath}'` : `window.open('${basePath}/${imagePath}', '_blank')`}">
+                                                <img src="${basePath}/${imagePath}" title="クリックしてフルサイズの画像を表示">
+                                            </div>
+                                            <span>${filename}</span>
+                                        </div>
+                                    `;
+                                }
+                                html += '</div>';
                             }
-                            html += '</div>';
+
+                            html += `
+                                    </div>
+                                </div>
+                            `;
                         }
-                        html += '</div></div>';  // close inner content + camera-section
+
+                        html += `
+                                    </div>
+                                </div>
+                            </div>
+                        `;
                     }
                 } else {
                     // Flat / All Folders View
