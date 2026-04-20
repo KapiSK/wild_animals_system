@@ -1250,15 +1250,28 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
             .page-actions { display:flex; justify-content:center; gap:12px; margin: 0 0 24px 0; flex-wrap: wrap; }
             .btn-secondary { background: #ffffff; color: #334155; box-shadow: 0 4px 15px rgba(148, 163, 184, 0.25); }
             .btn-secondary:hover { background: #f8fafc; }
-            .user-access-form { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 0.9fr) minmax(260px, 2fr) auto; gap: 15px; align-items: end; margin-bottom: 16px; }
+            .user-access-form { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 0.9fr) minmax(200px, 1.2fr) auto; gap: 15px; align-items: end; margin-bottom: 16px; }
             .user-access-form .btn { white-space: nowrap; }
-            .user-access-table { width: 100%; table-layout: fixed; }
-            .user-access-table td { vertical-align: top; }
-            .user-access-table .username-cell { font-weight: 600; overflow-wrap: anywhere; }
-            .user-access-password-cell,
-            .user-access-camera-cell { min-width: 0; }
-            .user-access-camera-editor { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+            .compact-camera-input { max-width: 280px; }
+            .collapsible-block { margin-top: 12px; border: 1px solid rgba(0,0,0,0.06); border-radius: 14px; background: rgba(255,255,255,0.35); overflow: hidden; }
+            .collapsible-block summary { cursor: pointer; list-style: none; padding: 12px 14px; font-weight: 600; color: #334155; display: flex; align-items: center; justify-content: space-between; }
+            .collapsible-block summary::-webkit-details-marker { display: none; }
+            .collapsible-block summary::after { content: '▾'; font-size: 0.95rem; color: #64748b; transition: transform 0.2s ease; }
+            .collapsible-block[open] summary::after { transform: rotate(180deg); }
+            .collapsible-content { padding: 0 14px 14px 14px; }
             .checkbox-panel { width: 100%; padding: 10px; border: 1px solid rgba(0,0,0,0.06); border-radius: 12px; background: rgba(255,255,255,0.45); box-sizing: border-box; }
+            .user-access-list { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+            .user-card { background: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.7); border-radius: 16px; overflow: hidden; box-shadow: 0 6px 20px rgba(31, 38, 135, 0.04); }
+            .user-card summary { cursor: pointer; list-style: none; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+            .user-card summary::-webkit-details-marker { display: none; }
+            .user-card summary::after { content: '▾'; color: #64748b; transition: transform 0.2s ease; flex-shrink: 0; }
+            .user-card[open] summary::after { transform: rotate(180deg); }
+            .user-card-header { display: flex; align-items: center; gap: 10px; min-width: 0; }
+            .user-card-name { font-weight: 700; color: #1e293b; overflow-wrap: anywhere; }
+            .user-card-meta { color: #64748b; font-size: 0.88rem; }
+            .user-card-body { padding: 0 18px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+            .user-card-row { display: flex; flex-direction: column; gap: 8px; }
+            .user-card-actions { display: flex; justify-content: flex-end; }
             
             #toast {
                 position: fixed; bottom: 30px; right: 30px; background: #10b981; color: white;
@@ -1275,14 +1288,14 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
             @media (max-width: 980px) {
                 .user-access-form { grid-template-columns: 1fr 1fr; }
                 .user-access-form .form-group:last-of-type { grid-column: 1 / -1; }
+                .compact-camera-input { max-width: 100%; }
             }
             @media (max-width: 768px) {
                 .user-access-form { grid-template-columns: 1fr; }
                 .user-access-form .btn { width: 100%; }
-                .user-access-table, .user-access-table thead, .user-access-table tbody, .user-access-table tr, .user-access-table th, .user-access-table td { display: block; width: 100%; box-sizing: border-box; }
-                .user-access-table thead { display: none; }
-                .user-access-table tr.row-item { padding: 16px; }
-                .user-access-table td { padding: 8px 0; }
+                .user-card summary { align-items: flex-start; }
+                .user-card-actions { justify-content: stretch; }
+                .user-card-actions .btn { width: 100%; }
             }
         </style>
     </head>
@@ -1389,25 +1402,20 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     </div>
                     <div class="form-group" style="margin-bottom:0">
                         <label>Allowed Camera IDs</label>
-                        <input type="text" id="new-user-cameras" placeholder="CAM_01, CAM_02" onchange="renderNewUserCameraOptions()">
+                        <input type="text" id="new-user-cameras" class="compact-camera-input" placeholder="CAM_01, CAM_02" onchange="renderNewUserCameraOptions()">
                         <div class="subtle-text">自由入力と下のチェックボックスは両方使えます。</div>
                     </div>
                     <button class="btn" onclick="addUserAccess()">+ Add User</button>
                 </div>
-                <div class="checkbox-panel">
-                    <div id="new-user-camera-checkboxes" class="camera-checkbox-grid"></div>
-                </div>
-                <table class="user-access-table" style="margin-top:20px;">
-                    <thead>
-                        <tr>
-                            <th>User Name</th>
-                            <th>Password</th>
-                            <th>Allowed Camera IDs</th>
-                            <th style="text-align:right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="user-access-body"></tbody>
-                </table>
+                <details class="collapsible-block">
+                    <summary>許可カメラをチェックボックスから選ぶ</summary>
+                    <div class="collapsible-content">
+                        <div class="checkbox-panel">
+                            <div id="new-user-camera-checkboxes" class="camera-checkbox-grid"></div>
+                        </div>
+                    </div>
+                </details>
+                <div id="user-access-body" class="user-access-list"></div>
             </div>
 
             <div class="page-actions">
@@ -1682,33 +1690,51 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
             }
 
             function renderUserAccess() {
-                const tbody = document.getElementById('user-access-body');
-                if (!tbody) return;
-                tbody.innerHTML = '';
+                const container = document.getElementById('user-access-body');
+                if (!container) return;
+                container.innerHTML = '';
 
                 const users = currentUserAccess.users || {};
+                if (Object.keys(users).length === 0) {
+                    container.innerHTML = '<div class="subtle-text">登録済みユーザはまだありません。</div>';
+                    return;
+                }
+
                 for (const [username, info] of Object.entries(users)) {
                     const checkboxId = `user-camera-checkboxes-${username.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-                    const tr = document.createElement('tr');
-                    tr.className = 'row-item';
-                    tr.innerHTML = `
-                        <td class="username-cell">${username}</td>
-                        <td class="user-access-password-cell">
-                            <input type="text" value="${info.password || ''}" class="inline-edit-input" onchange="updateUserPassword('${username}', this.value)">
-                        </td>
-                        <td class="user-access-camera-cell">
-                            <div class="user-access-camera-editor">
-                                <input type="text" value="${(info.allowed_cameras || []).join(', ')}" class="inline-edit-input" style="color:#1e293b;" onchange="updateUserCameras('${username}', this.value)" placeholder="CAM_01, CAM_02">
-                                <div class="checkbox-panel">
-                                    <div id="${checkboxId}" class="camera-checkbox-grid"></div>
-                                </div>
+                    const userCard = document.createElement('details');
+                    userCard.className = 'user-card';
+                    const cameraCount = (info.allowed_cameras || []).length;
+                    userCard.innerHTML = `
+                        <summary>
+                            <div class="user-card-header">
+                                <span class="user-card-name">${username}</span>
+                                <span class="user-card-meta">許可カメラ ${cameraCount}件</span>
                             </div>
-                        </td>
-                        <td style="text-align:right">
-                            <button class="btn btn-danger" style="padding:6px 12px;font-size:0.85rem;" onclick="deleteUserAccess('${username}')">Delete</button>
-                        </td>
+                        </summary>
+                        <div class="user-card-body">
+                            <div class="user-card-row">
+                                <label>Password</label>
+                                <input type="text" value="${info.password || ''}" class="inline-edit-input" onchange="updateUserPassword('${username}', this.value)">
+                            </div>
+                            <div class="user-card-row">
+                                <label>Allowed Camera IDs</label>
+                                <input type="text" value="${(info.allowed_cameras || []).join(', ')}" class="inline-edit-input compact-camera-input" style="color:#1e293b;" onchange="updateUserCameras('${username}', this.value)" placeholder="CAM_01, CAM_02">
+                                <details class="collapsible-block">
+                                    <summary>チェックボックスから選ぶ</summary>
+                                    <div class="collapsible-content">
+                                        <div class="checkbox-panel">
+                                            <div id="${checkboxId}" class="camera-checkbox-grid"></div>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                            <div class="user-card-actions">
+                                <button class="btn btn-danger" style="padding:6px 12px;font-size:0.85rem;" onclick="deleteUserAccess('${username}')">Delete</button>
+                            </div>
+                        </div>
                     `;
-                    tbody.appendChild(tr);
+                    container.appendChild(userCard);
                     renderCheckboxes(
                         checkboxId,
                         info.allowed_cameras || [],
@@ -1767,7 +1793,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
 
             function updateUserCamerasFromCheckboxes(username, checkboxId) {
                 if (!currentUserAccess.users || !currentUserAccess.users[username]) return;
-                const row = document.getElementById(checkboxId)?.closest('td');
+                const row = document.getElementById(checkboxId)?.closest('.user-card-row');
                 const textInput = row ? row.querySelector('input[type="text"]') : null;
                 const merged = mergeCameraSelections(textInput ? textInput.value : '', getCheckedCameraValues(checkboxId));
                 currentUserAccess.users[username].allowed_cameras = merged;
