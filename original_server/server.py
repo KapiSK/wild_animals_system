@@ -1437,6 +1437,11 @@ async def update_env(config: EnvConfig, admin: dict = Depends(verify_admin)):
         return {"status": "error", "message": str(e)}
 
 
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     session_principal = get_principal_from_session(request)
