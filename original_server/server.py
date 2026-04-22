@@ -39,6 +39,14 @@ API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = os.getenv("USER_ACCESS_FILE", "user_access_config.json")
 TELEMETRY_FILE = os.getenv("TELEMETRY_FILE", "telemetry.json")
 
+APP_VERSION = "1.0.0"
+
+PORT_STR = os.getenv("PORT", "8000")
+if PORT_STR == "8000":
+    ENV_BADGE = f'<span style="background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; margin-left: 15px; font-size: 0.5em; vertical-align: middle;">Production (v{APP_VERSION})</span>'
+else:
+    ENV_BADGE = f'<span style="background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; margin-left: 15px; font-size: 0.5em; vertical-align: middle;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
+
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
 SESSION_STORE = {}
@@ -1468,7 +1476,7 @@ async def login_page(request: Request):
     </head>
     <body>
         <form class="card" method="post" action="/login">
-            <h1>Wild Animals Login</h1>
+            <h1>Wild Animals Login""" + ENV_BADGE + """</h1>
             <p>管理者または閲覧ユーザとしてログインしてください。</p>
             <label for="username">User Name</label>
             <input id="username" name="username" type="text" autocomplete="username" required>
@@ -1708,7 +1716,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
     <body>
         <div class="blob"></div>
         <div class="container">
-            <h1>Admin Dashboard</h1>
+            <h1>Admin Dashboard""" + ENV_BADGE + """</h1>
             
             <div class="glass-card">
                 <div class="card-header">
@@ -2409,7 +2417,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         </style>
     </head>
     <body>
-        <h1>Cloud Server Gallery</h1>
+        <h1>Cloud Server Gallery""" + ENV_BADGE + """</h1>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
