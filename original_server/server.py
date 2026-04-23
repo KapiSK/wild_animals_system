@@ -53,9 +53,9 @@ APP_VERSION = "1.0.0"
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
-    ENV_BADGE = f'<span style="background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; margin-left: 15px; font-size: 0.5em; vertical-align: middle;">Production (v{APP_VERSION})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span>'
 else:
-    ENV_BADGE = f'<span style="background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; margin-left: 15px; font-size: 0.5em; vertical-align: middle;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
 
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
@@ -1497,7 +1497,8 @@ async def login_page(request: Request):
     </head>
     <body>
         <form class="card" method="post" action="/login">
-            <h1>Wild Animals Login""" + ENV_BADGE + """</h1>
+            <h1>Wild Animals Login</h1>
+            <div style="text-align:center; margin: 0 0 12px 0;">""" + ENV_BADGE + """</div>
             <p>管理者または閲覧ユーザとしてログインしてください。</p>
             <label for="username">User Name</label>
             <input id="username" name="username" type="text" autocomplete="username" required>
@@ -1737,7 +1738,8 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
     <body>
         <div class="blob"></div>
         <div class="container">
-            <h1>Admin Dashboard""" + ENV_BADGE + """</h1>
+            <h1>Admin Dashboard</h1>
+            <div style="text-align:center; margin: 0 0 16px 0;">""" + ENV_BADGE + """</div>
             
             <div class="glass-card">
                 <div class="card-header">
@@ -2408,7 +2410,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .empty-msg { text-align: center; color: #718096; font-size: 16px; margin-top: 50px; font-weight: 500; }
             .camera-section { margin-bottom: 60px; background: #ffffff; border-radius: 16px; padding: 30px 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
             .camera-title { font-size: 1.5rem; color: #1c4532; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 30px; display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
-            .camera-title .badge { background: #38a169; color: white; font-size: 0.9rem; padding: 4px 12px; border-radius: 20px; font-weight: 600; }
             .cycle-list { display: flex; flex-direction: column; gap: 18px; }
             .cycle-section { background: #f8fbf8; border: 1px solid #e2efe5; border-radius: 14px; padding: 18px 16px; }
             .cycle-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; color: #21543b; font-weight: 600; cursor: pointer; user-select: none; }
@@ -2442,7 +2443,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         </style>
     </head>
     <body>
-        <h1>Cloud Server Gallery""" + ENV_BADGE + """</h1>
+        <h1>Cloud Server Gallery</h1>
+        <div style="text-align:center; margin: 0 0 12px 0;">""" + ENV_BADGE + """</div>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
@@ -2657,7 +2659,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         html += `
                             <div class="camera-section">
                                 <div class="camera-title" onclick="toggleSection('${sectionId}')" style="cursor:pointer; user-select:none; display:flex; align-items:center;">
-                                    <span>📷 CAM: ${folder} <span class="badge">${folderImages.length}</span></span>
+                                    <span>📷 CAM: ${folder}</span>
                                     <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
                                         ${teleHtml}
                                         <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
