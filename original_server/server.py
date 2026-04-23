@@ -3095,13 +3095,14 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             }
 
                             if (t.signal) {
-                                const signalLower = t.signal.trim().toLowerCase();
+                                // "Very Good(4G)" のような括弧付きも正しく判定するため、括弧前の部分だけ取得
+                                const signalBase = t.signal.trim().replace(/\(.*\)/, '').trim().toLowerCase();
                                 let signalColor;
-                                if (signalLower === 'very good') {
+                                if (signalBase === 'very good') {
                                     signalColor = '#38a169';  // 緑
-                                } else if (signalLower === 'good') {
+                                } else if (signalBase === 'good') {
                                     signalColor = '#68d391';  // 薄緑
-                                } else if (signalLower === 'weak') {
+                                } else if (signalBase === 'weak') {
                                     signalColor = '#dd6b20';  // 橙
                                 } else {
                                     signalColor = '#e53e3e';  // 赤 (Very Weak)
@@ -3164,10 +3165,15 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                 const updateLabel = formatUpdateAge(t.updated_at);
                                 const dt = new Date(t.updated_at);
                                 const diffMs = new Date() - dt;
-                                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-                                let timeColor = '#38a169';
-                                if (diffHours > 24) timeColor = '#e53e3e';
-                                else if (diffHours > 6) timeColor = '#dd6b20';
+                                const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                                let timeColor;
+                                if (diffDays > 3) {
+                                    timeColor = '#e53e3e';   // 赤: 3日以上
+                                } else if (diffDays > 1) {
+                                    timeColor = '#dd6b20';   // 橙: 1〜3日
+                                } else {
+                                    timeColor = '#38a169';   // 緑: 1日以内
+                                }
                                 const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
                                 teleHtml += formatTelemetryBadge('🕒', '更新', `${fTime} (${updateLabel})`, timeColor);
                             }
