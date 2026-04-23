@@ -21,11 +21,21 @@ import shutil
 # Load environment variables
 load_dotenv()
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_config_path(path_value: str) -> str:
+    expanded = os.path.expanduser(path_value)
+    if os.path.isabs(expanded):
+        return expanded
+    return os.path.abspath(os.path.join(APP_DIR, expanded))
+
+
 # Configuration
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "received_images")
-PROCESSED_DIR = os.getenv("PROCESSED_DIR", "processed_images")
-VIDEO_DIR = os.getenv("VIDEO_DIR", "received_videos")
-EVENT_METADATA_DIR = os.getenv("EVENT_METADATA_DIR", "event_metadata")
+UPLOAD_DIR = resolve_config_path(os.getenv("UPLOAD_DIR", "received_images"))
+PROCESSED_DIR = resolve_config_path(os.getenv("PROCESSED_DIR", "processed_images"))
+VIDEO_DIR = resolve_config_path(os.getenv("VIDEO_DIR", "received_videos"))
+EVENT_METADATA_DIR = resolve_config_path(os.getenv("EVENT_METADATA_DIR", "event_metadata"))
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "your_email@example.com")
@@ -36,8 +46,8 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
 
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
-USER_ACCESS_FILE = os.getenv("USER_ACCESS_FILE", "user_access_config.json")
-TELEMETRY_FILE = os.getenv("TELEMETRY_FILE", "telemetry.json")
+USER_ACCESS_FILE = resolve_config_path(os.getenv("USER_ACCESS_FILE", "user_access_config.json"))
+TELEMETRY_FILE = resolve_config_path(os.getenv("TELEMETRY_FILE", "telemetry.json"))
 
 APP_VERSION = "1.0.0"
 
