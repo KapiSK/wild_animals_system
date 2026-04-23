@@ -380,6 +380,234 @@ def build_event_metadata_map(base_dir: str, files: list) -> dict:
     return metadata_map
 
 
+def collect_event_images(base_dir: str) -> dict:
+    events: dict[tuple[str, str], list[str]] = defaultdict(list)
+    if not os.path.isdir(base_dir):
+        return events
+
+    for root, _, filenames in os.walk(base_dir):
+        for filename in filenames:
+            if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                continue
+            rel_path = os.path.relpath(os.path.join(root, filename), base_dir).replace(os.sep, "/")
+            camera_id = rel_path.split("/", 1)[0]
+            event_id = extract_cycle_id(filename)
+            events[(camera_id, event_id)].append(rel_path)
+
+    for rel_paths in events.values():
+        rel_paths.sort()
+    return events
+
+
+def build_event_metadata_payload(camera_id: str, event_id: str) -> dict | None:
+    processed_images = get_related_processed_images(camera_id, event_id)
+    raw_images = get_related_raw_images(camera_id, event_id)
+    if not processed_images and not raw_images:
+        return None
+
+    existing_metadata = load_event_metadata(camera_id, event_id) or {}
+    source = existing_metadata.get("source", "unknown")
+
+    selected_images = processed_images or raw_images
+    image_summaries = dict(existing_metadata.get("image_summaries", {}))
+    normalized_summaries = {}
+    labels = set()
+    target_count = 0
+    max_conf = 0.0
+    detected_images_count = 0
+
+    for rel_path in selected_images:
+        filename = os.path.basename(rel_path)
+        summary = image_summaries.get(filename, "")
+        if summary:
+            normalized_summaries[filename] = summary
+        if summary and summary != "No targets":
+            detected_images_count += 1
+            for part in summary.split(","):
+                label_part = part.strip()
+                if not label_part:
+                    continue
+                if ":" in label_part:
+                    label_name, count_text = label_part.split(":", 1)
+                    label_name = label_name.strip()
+                    labels.add(label_name)
+                    try:
+                        count_value = int(count_text.strip())
+                    except ValueError:
+                        count_value = 1
+                else:
+                    label_name = label_part
+                    labels.add(label_name)
+                    count_value = 1
+                target_count += count_value
+                max_conf = max(max_conf, 1.0)
+        elif summary == "No targets":
+            normalized_summaries[filename] = summary
+
+    best_image = existing_metadata.get("best_image", "")
+    if not best_image or os.path.basename(best_image) not in {os.path.basename(path) for path in selected_images}:
+        best_image = selected_images[0]
+
+    cycle_time = existing_metadata.get("cycle_time", "")
+    if not cycle_time and selected_images:
+        sample_name = os.path.basename(selected_images[0])
+        match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", sample_name, re.IGNORECASE)
+        if match_new:
+            time_raw = match_new.group(2)
+            cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+
+    video_paths = get_video_relpaths_for_event(camera_id, event_id)
+
+    return {
+        "event_id": event_id,
+        "camera_id": camera_id,
+        "source": source,
+        "labels": sorted(labels) or existing_metadata.get("labels", []),
+        "target_count": target_count or existing_metadata.get("target_count", 0),
+        "detected_images_count": detected_images_count or existing_metadata.get("detected_images_count", 0),
+        "max_conf": max_conf or existing_metadata.get("max_conf", 0.0),
+        "summary_text": existing_metadata.get("summary_text", ""),
+        "best_image": best_image if "/" in best_image else f"{camera_id}/{os.path.basename(best_image)}",
+        "images": [path if "/" in path else f"{camera_id}/{path}" for path in selected_images],
+        "image_summaries": normalized_summaries or existing_metadata.get("image_summaries", {}),
+        "has_video": bool(video_paths),
+        "cycle_time": cycle_time,
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def backfill_event_metadata() -> None:
+    processed_events = collect_event_images(PROCESSED_DIR)
+    raw_events = collect_event_images(UPLOAD_DIR)
+    event_keys = set(processed_events.keys()) | set(raw_events.keys())
+    if not event_keys:
+        logger.info("No existing events found for metadata backfill.")
+        return
+
+    updated = 0
+    skipped = 0
+    for camera_id, event_id in sorted(event_keys):
+        try:
+            payload = build_event_metadata_payload(camera_id, event_id)
+            if not payload:
+                skipped += 1
+                continue
+
+            existing_metadata = load_event_metadata(camera_id, event_id)
+            if existing_metadata == payload:
+                skipped += 1
+                continue
+
+            save_event_metadata(camera_id, event_id, payload)
+            updated += 1
+        except Exception as e:
+            logger.error(f"Failed to backfill event metadata for {camera_id}/{event_id}: {e}")
+
+    logger.info(f"Event metadata backfill completed. updated={updated}, skipped={skipped}")
+
+
+def cycle_needs_reinference(camera_id: str, event_id: str) -> bool:
+    processed_images = get_related_processed_images(camera_id, event_id)
+    raw_images = get_related_raw_images(camera_id, event_id)
+    selected_images = processed_images or raw_images
+    if not selected_images:
+        return False
+
+    metadata = load_event_metadata(camera_id, event_id) or {}
+    image_summaries = metadata.get("image_summaries")
+    if not isinstance(image_summaries, dict):
+        return True
+
+    for rel_path in selected_images:
+        filename = os.path.basename(rel_path)
+        summary = image_summaries.get(filename)
+        if not isinstance(summary, str) or not summary.strip():
+            return True
+    return False
+
+
+def reprocess_event_cycle(camera_id: str, event_id: str) -> bool:
+    raw_images = get_related_raw_images(camera_id, event_id)
+    if not raw_images:
+        logger.warning(f"Reinference skipped for {camera_id}/{event_id}: raw images not found.")
+        return False
+
+    analyzed_results = []
+    for rel_path in raw_images:
+        raw_abs = resolve_image_path(UPLOAD_DIR, rel_path)
+        if not os.path.isfile(raw_abs):
+            logger.warning(f"Missing raw image during reinference: {raw_abs}")
+            continue
+        analyzed_results.append(analyze_image_for_cycle(raw_abs, os.path.basename(rel_path), "backfill"))
+
+    if not analyzed_results:
+        return False
+
+    analyzed_results.sort(key=lambda item: item['filename'])
+    labels = sorted({label for item in analyzed_results for label in item.get('labels', [])})
+    detected_images_count = sum(1 for item in analyzed_results if item.get('target_count', 0) > 0)
+    best_data = sorted(analyzed_results, key=lambda item: (item.get('target_count', 0), item.get('max_conf', 0.0)), reverse=True)[0]
+
+    cycle_time = ""
+    match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", best_data['filename'], re.IGNORECASE)
+    if match_new:
+        time_raw = match_new.group(2)
+        cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+
+    source = (load_event_metadata(camera_id, event_id) or {}).get("source", "backfill")
+    payload = {
+        "event_id": event_id,
+        "camera_id": camera_id,
+        "source": source,
+        "labels": labels,
+        "target_count": max((item.get("target_count", 0) for item in analyzed_results), default=0),
+        "detected_images_count": detected_images_count,
+        "max_conf": max((item.get("max_conf", 0.0) for item in analyzed_results), default=0.0),
+        "summary_text": best_data.get("summary_text", ""),
+        "best_image": f"{camera_id}/{best_data['filename']}",
+        "images": [f"{camera_id}/{item['filename']}" for item in analyzed_results],
+        "image_summaries": {item['filename']: item.get("summary_text", "") for item in analyzed_results},
+        "has_video": len(get_video_relpaths_for_event(camera_id, event_id)) > 0,
+        "cycle_time": cycle_time,
+        "updated_at": datetime.now().isoformat(),
+    }
+    save_event_metadata(camera_id, event_id, payload)
+    return True
+
+
+def reinfer_missing_cycles() -> None:
+    processed_events = collect_event_images(PROCESSED_DIR)
+    raw_events = collect_event_images(UPLOAD_DIR)
+    event_keys = sorted(set(processed_events.keys()) | set(raw_events.keys()))
+    if not event_keys:
+        logger.info("No existing events found for reinference scan.")
+        return
+
+    updated = 0
+    skipped = 0
+    for camera_id, event_id in event_keys:
+        try:
+            if not cycle_needs_reinference(camera_id, event_id):
+                skipped += 1
+                continue
+            if reprocess_event_cycle(camera_id, event_id):
+                updated += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            logger.error(f"Failed to reinfer cycle {camera_id}/{event_id}: {e}")
+
+    logger.info(f"Missing cycle reinference completed. updated={updated}, skipped={skipped}")
+
+
+async def run_startup_maintenance() -> None:
+    try:
+        await asyncio.to_thread(backfill_event_metadata)
+        await asyncio.to_thread(reinfer_missing_cycles)
+    except Exception as e:
+        logger.error(f"Startup maintenance failed: {e}")
+
+
 def file_matches_filters(rel_path: str, metadata_map: dict, filters: dict) -> bool:
     if not filters:
         return True
@@ -836,6 +1064,7 @@ cycle_manager = CycleManager()
 
 @app.on_event("startup")
 async def startup_event():
+    asyncio.create_task(run_startup_maintenance())
     asyncio.create_task(cycle_manager.check_timeouts())
 
 def extract_cycle_id(filename: str) -> str:
@@ -865,24 +1094,17 @@ def extract_cycle_id(filename: str) -> str:
         logger.error(f"Failed to extract cycle ID: {e}")
         return "unknown"
 
-async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float, source: str):
-    """
-    Perform inference and Add to Cycle Buffer.
-    """
-    logger.info(f"Processing {filename}...")
-    
-    inference_start = time.perf_counter()
-    # Run inference
-    model.conf = 0.25 
+
+def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
+    model.conf = 0.25
     results = model(image_path)
-    inference_duration = time.perf_counter() - inference_start
-    
+
     detected_targets = {}
     target_found = False
     max_conf = 0.0
-    
+
     df = results.pandas().xyxy[0]
-    
+
     for index, row in df.iterrows():
         cls = int(row['class'])
         if cls in TARGET_CLASSES:
@@ -892,27 +1114,24 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
             detected_targets[label] = detected_targets.get(label, 0) + 1
             if conf > max_conf:
                 max_conf = conf
-    
-    # Generate summary string
+
     if detected_targets:
         counts_str = ", ".join([f"{label}: {count}" for label, count in detected_targets.items()])
     else:
         counts_str = "No targets"
-        
-    annotated_path = image_path # Default to original if no annotation needed
-    
-    # Extract pure cam id for processed directory
+
+    annotated_path = image_path
+
     pure_cam_id = "unknown"
     match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
     if match_new:
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", match_new.group(1))
         if "_" in pure_cam_id:
             parts = pure_cam_id.rsplit("_", 1)
-            if parts[1].isdigit():  # KD1_000121 → KD1 のみ分割、Lab_Entrance はそのまま
+            if parts[1].isdigit():
                 pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
 
-    # 常にPROCESSED_DIRに保存する（ギャラリーですべてのデータを見れるようにするため）
     proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
     os.makedirs(proc_cam_dir, exist_ok=True)
     annotated_path = os.path.join(proc_cam_dir, filename)
@@ -922,12 +1141,11 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
             img = cv2.imread(image_path)
             for index, row in df.iterrows():
                 cls = int(row['class'])
-                # Only draw BB for targets
                 if cls in TARGET_CLASSES:
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
                     name_str = str(row['name']).lower()
-                    box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255) # Person=Green, Animal=Red (BGR)
-                    label_bg_color = (255, 0, 0) # Blue (BGR)
+                    box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255)
+                    label_bg_color = (255, 0, 0)
 
                     label_text = f"{row['name']} {row['confidence']:.2f}"
                     cv2.rectangle(img, (x1, y1), (x2, y2), box_color, 2)
@@ -941,20 +1159,16 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
         except Exception as e:
             logger.error(f"Failed to annotate: {e}")
             import shutil
-            shutil.copy2(image_path, annotated_path) # Fallback
+            shutil.copy2(image_path, annotated_path)
     else:
         logger.info(f"No targets detected in {filename}. Copying original to processed dir.")
         import shutil
         shutil.copy2(image_path, annotated_path)
 
-    # Add to Cycle Buffer
     cycle_id = extract_cycle_id(filename)
-    logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
-    
-    # Calculate total target count
     total_targets = sum(detected_targets.values())
-    
-    result_data = {
+
+    return {
         'filename': filename,
         'target_count': total_targets,
         'max_conf': max_conf,
@@ -965,13 +1179,26 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
         'camera_id': pure_cam_id,
         'event_id': cycle_id
     }
-    
+
+
+async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float, source: str):
+    """
+    Perform inference and Add to Cycle Buffer.
+    """
+    logger.info(f"Processing {filename}...")
+
+    inference_start = time.perf_counter()
+    result_data = analyze_image_for_cycle(image_path, filename, source)
+    inference_duration = time.perf_counter() - inference_start
+    cycle_id = result_data['event_id']
+    logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
+
     timing_info = {
         'receive_start': receive_start,
         'save_duration': save_duration,
         'inference_duration': inference_duration
     }
-    
+
     await cycle_manager.add_result(cycle_id, result_data, timing_info)
 
 @app.post("/upload")
@@ -1315,7 +1542,7 @@ async def event_detail(
             .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 8px 20px rgba(34,51,43,0.05); border:2px solid transparent; transition:transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }}
             .thumb:hover {{ transform:translateY(-2px); }}
             .thumb.active {{ border-color:#2f855a; box-shadow:0 14px 28px rgba(47,133,90,0.18); background:#f2fbf5; }}
-            .thumb img {{ width:100%; height:130px; object-fit:cover; border-radius:10px; display:block; }}
+            .thumb img {{ width:100%; height:130px; object-fit:contain; border-radius:10px; display:block; background:#f8fbf8; }}
             .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; text-align:center; font-weight:600; }}
             .empty-video {{ min-height:320px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
             @media (max-width: 960px) {{ .thumbs {{ grid-template-columns: 1fr; }} .main-image-wrap {{ min-height:260px; }} }}
@@ -1331,7 +1558,6 @@ async def event_detail(
                 <div class="meta-card"><span class="meta-label">Camera ID</span><span class="meta-value">{camera_id}</span></div>
                 <div class="meta-card"><span class="meta-label">Event ID</span><span class="meta-value">{event_id}</span></div>
                 <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or '-'}</span></div>
-                <div class="meta-card"><span class="meta-label">View</span><span class="meta-value">{source_label}</span></div>
                 <div class="meta-card"><span class="meta-label">Detected Labels</span><span class="meta-value">{labels_text}</span></div>
                 <div class="meta-card"><span class="meta-label">Detected Images</span><span class="meta-value">{detected_count}</span></div>
                 <div class="meta-card"><span class="meta-label">Video</span><span class="meta-value">{'yes' if primary_video else 'no'}</span></div>
@@ -2596,6 +2822,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentTelemetry = null;
             let currentViewMode = 'grouped';
             let currentCycleImageMode = {};
+            let currentExpandedSections = {};
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
 
             function arraysEqual(a, b) {
@@ -2623,9 +2850,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 if (!el) return;
                 if (el.style.display === 'none' || el.style.display === '') {
                     el.style.display = 'block';
+                    currentExpandedSections[sectionId] = true;
                     if (arrow) arrow.style.transform = 'rotate(90deg)';
                 } else {
                     el.style.display = 'none';
+                    currentExpandedSections[sectionId] = false;
                     if (arrow) arrow.style.transform = 'rotate(0deg)';
                 }
             }
@@ -2704,8 +2933,10 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
 
             function setCycleImageMode(folder, cycleId, sourceMode, evt) {
                 if (evt) evt.stopPropagation();
+                const scrollY = window.scrollY;
                 currentCycleImageMode[getCycleStateKey(folder, cycleId)] = sourceMode;
                 rerenderGalleries();
+                window.scrollTo(0, scrollY);
             }
 
             function getImageSummary(folder, cycleId, filename) {
@@ -2751,6 +2982,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         const folderImages = groups[folder];
                         const sectionId = `cam-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}`;
                         const cycleGroups = groupImagesByCycle(folderImages);
+                        const isSectionExpanded = !!currentExpandedSections[sectionId];
 
                         let teleHtml = '';
                         if (currentTelemetry && currentTelemetry[folder]) {
@@ -2774,10 +3006,10 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     <span>CAM: ${folder}</span>
                                     <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
                                         ${teleHtml}
-                                        <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
+                                        <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s; transform:${isSectionExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                     </div>
                                 </div>
-                                <div id="${sectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
+                                <div id="${sectionId}" style="display:${isSectionExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease;">
                                     <div class="cycle-list">
                         `;
 
@@ -2798,6 +3030,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
 
                             const previewImage = cycleImages[0];
                             const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
+                            const isCycleExpanded = !!currentExpandedSections[cycleSectionId];
 
                             let labelsHtml = '';
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
@@ -2818,9 +3051,9 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <span class="badge">${cycleImages.length} images</span>
                                             ${labelsHtml}
                                         </div>
-                                        <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s;">▶</span>
+                                        <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s; transform:${isCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                     </div>
-                                    <div id="${cycleSectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
+                                    <div id="${cycleSectionId}" style="display:${isCycleExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
                                         <div class="cycle-toolbar">
                                             <div class="cycle-image-mode">
                                                 <button class="mini-toggle ${cycleSourceMode === 'processed' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'processed', event)">With box</button>
