@@ -2938,6 +2938,39 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return '99999999999999';
             }
 
+            function formatStatusDot(color) {
+                return `<span style="width:8px; height:8px; border-radius:50%; background:${color}; display:inline-block; margin-right:4px; flex-shrink:0;"></span>`;
+            }
+
+            function formatTelemetryBadge(icon, label, value, color) {
+                return `<span style="display:inline-flex; align-items:center; gap:6px; border:1px solid #cbd5e0; border-radius:999px; padding:6px 10px; font-size:0.85rem; color:#2d3748; background:#ffffff; white-space:nowrap;"><span>${formatStatusDot(color)}</span><span>${icon} ${label}: ${value}</span></span>`;
+            }
+
+            function formatUpdateAge(updatedAt) {
+                const dt = new Date(updatedAt);
+                const now = new Date();
+                const diffMs = now - dt;
+                const diffMins = Math.floor(diffMs / (1000 * 60));
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                if (diffDays >= 1) {
+                    return `${diffDays}日前`;
+                }
+                if (diffHours >= 1) {
+                    return `${diffHours}時間前`;
+                }
+                return `${diffMins}分前`;
+            }
+
+            function getTemperatureColor(tempValue) {
+                if (tempValue >= 35) return '#e53e3e';
+                if (tempValue >= 30) return '#dd6b20';
+                if (tempValue >= 20) return '#38a169';
+                if (tempValue >= 10) return '#319795';
+                if (tempValue >= 0) return '#3182ce';
+                return '#2b6cb0';
+            }
+
             function groupImagesByCycle(images) {
                 const groups = {};
                 images.forEach(img => {
@@ -3054,52 +3087,50 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             const t = currentTelemetry[folder];
                             teleHtml = '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">';
 
-                            // Battery status with color coding
                             if (t.battery) {
-                                const batteryValue = parseFloat(t.battery.replace('Median', '').replace('%', ''));
+                                const batteryValue = parseFloat(t.battery.replace(/[^0-9.-]/g, ''));
                                 const batteryColor = batteryValue < 20 ? '#e53e3e' : batteryValue < 50 ? '#dd6b20' : '#38a169';
-                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${batteryColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Battery Level"><span>🔋</span>${t.battery.replace('Median', 'Mid')}</span>`;
+                                const batteryText = t.battery.replace('Median', '');
+                                teleHtml += formatTelemetryBadge('🔋', 'バッテリー', batteryText, batteryColor);
                             }
 
-                            // Signal strength with color coding
                             if (t.signal) {
-                                const signalValue = parseInt(t.signal.replace('%', ''));
+                                const signalValue = parseInt(t.signal.replace(/[^0-9]/g, ''));
                                 const signalColor = signalValue < 30 ? '#e53e3e' : signalValue < 70 ? '#dd6b20' : '#38a169';
-                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${signalColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Signal Strength"><span>📶</span>${t.signal}</span>`;
+                                teleHtml += formatTelemetryBadge('📶', '信号', t.signal, signalColor);
                             }
 
-                            // Temperature
                             if (t.temperature) {
                                 const tempValue = parseFloat(t.temperature.split(' ')[0]);
-                                const tempColor = tempValue > 60 ? '#e53e3e' : tempValue > 40 ? '#dd6b20' : '#38a169';
-                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${tempColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Temperature"><span>🌡️</span>${t.temperature.split(' ')[0]}°C</span>`;
+                                const tempColor = getTemperatureColor(tempValue);
+                                teleHtml += formatTelemetryBadge('🌡️', '温度', `${tempValue}°C`, tempColor);
                             }
 
-                            // Free space with color coding
                             if (t.free_space) {
                                 const spaceMatch = t.free_space.match(/(\d+(?:\.\d+)?)\s*(GB|MB|KB|B)/i);
                                 if (spaceMatch) {
                                     const spaceValue = parseFloat(spaceMatch[1]);
                                     const spaceUnit = spaceMatch[2].toUpperCase();
-                                    const spaceColor = (spaceUnit === 'GB' && spaceValue < 1) || (spaceUnit === 'MB' && spaceValue < 100) ? '#e53e3e' : (spaceUnit === 'GB' && spaceValue < 2) || (spaceUnit === 'MB' && spaceValue < 500) ? '#dd6b20' : '#38a169';
-                                    teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${spaceColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Free Storage"><span>💾</span>${t.free_space}</span>`;
+                                    let spaceColor = '#38a169';
+                                    if ((spaceUnit === 'GB' && spaceValue < 1) || (spaceUnit === 'MB' && spaceValue < 100)) {
+                                        spaceColor = '#e53e3e';
+                                    } else if ((spaceUnit === 'GB' && spaceValue < 2) || (spaceUnit === 'MB' && spaceValue < 500)) {
+                                        spaceColor = '#dd6b20';
+                                    }
+                                    teleHtml += formatTelemetryBadge('💾', '空き容量', t.free_space, spaceColor);
                                 }
                             }
 
-                            // Last update time
                             if (t.updated_at) {
+                                const updateLabel = formatUpdateAge(t.updated_at);
                                 const dt = new Date(t.updated_at);
-                                const now = new Date();
-                                const diffMs = now - dt;
+                                const diffMs = new Date() - dt;
                                 const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-                                const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-                                let timeColor = '#38a169'; // green for recent
-                                if (diffHours > 24) timeColor = '#e53e3e'; // red for very old
-                                else if (diffHours > 6) timeColor = '#dd6b20'; // orange for old
-
+                                let timeColor = '#38a169';
+                                if (diffHours > 24) timeColor = '#e53e3e';
+                                else if (diffHours > 6) timeColor = '#dd6b20';
                                 const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
-                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${timeColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Last Update"><span>🕒</span>${fTime}</span>`;
+                                teleHtml += formatTelemetryBadge('🕒', '更新', `${fTime} (${updateLabel})`, timeColor);
                             }
 
                             teleHtml += '</div>';
