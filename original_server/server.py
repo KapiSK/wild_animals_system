@@ -314,8 +314,8 @@ def get_video_relpaths_for_event(camera_id: str, event_id: str) -> list:
     return relpaths
 
 
-def get_related_processed_images(camera_id: str, event_id: str) -> list:
-    camera_dir = os.path.join(PROCESSED_DIR, camera_id)
+def get_related_event_images(base_dir: str, camera_id: str, event_id: str) -> list:
+    camera_dir = os.path.join(base_dir, camera_id)
     if not os.path.isdir(camera_dir):
         return []
 
@@ -328,8 +328,16 @@ def get_related_processed_images(camera_id: str, event_id: str) -> list:
             continue
         relpaths.append(f"{camera_id}/{name}".replace(os.sep, "/"))
 
-    relpaths.sort(key=lambda x: os.path.getmtime(os.path.join(PROCESSED_DIR, x.replace("/", os.sep))), reverse=True)
+    relpaths.sort(key=lambda x: os.path.getmtime(os.path.join(base_dir, x.replace("/", os.sep))), reverse=True)
     return relpaths
+
+
+def get_related_processed_images(camera_id: str, event_id: str) -> list:
+    return get_related_event_images(PROCESSED_DIR, camera_id, event_id)
+
+
+def get_related_raw_images(camera_id: str, event_id: str) -> list:
+    return get_related_event_images(UPLOAD_DIR, camera_id, event_id)
 
 
 def get_event_metadata_path(camera_id: str, event_id: str) -> str:
@@ -1178,24 +1186,69 @@ async def get_images(
 
 
 @app.get("/event/{image_path:path}", response_class=HTMLResponse)
-async def event_detail(image_path: str, request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+async def event_detail(
+    image_path: str,
+    request: Request,
+    source: str = "processed",
+    credentials: HTTPBasicCredentials = Depends(security)
+):
     principal = get_optional_principal(request, credentials)
     if not principal:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
     verify_camera_access(principal, image_path)
-    processed_abs = resolve_image_path(PROCESSED_DIR, image_path)
-    if not os.path.isfile(processed_abs):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processed image not found")
+    selected_source = "raw" if source == "raw" else "processed"
+    selected_base_dir = UPLOAD_DIR if selected_source == "raw" else PROCESSED_DIR
+    selected_abs = resolve_image_path(selected_base_dir, image_path)
+    if not os.path.isfile(selected_abs):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
 
     camera_id = image_path.replace("\\", "/").split("/", 1)[0]
-    image_name = os.path.basename(processed_abs)
+    image_name = os.path.basename(selected_abs)
     event_id = extract_cycle_id(image_name)
-    related_images = get_related_processed_images(camera_id, event_id)
+    event_metadata = load_event_metadata(camera_id, event_id) or {}
+
+    related_processed = get_related_processed_images(camera_id, event_id)
+    related_raw = get_related_raw_images(camera_id, event_id)
     related_videos = get_video_relpaths_for_event(camera_id, event_id)
     primary_video = related_videos[0] if related_videos else ""
 
-    summary_text = "Detection event"
+    current_images = related_raw if selected_source == "raw" else related_processed
+    fallback_images = related_processed if selected_source == "raw" else related_raw
+    if not current_images:
+        current_images = fallback_images
+        selected_source = "processed" if selected_source == "raw" else "raw"
+
+    if current_images:
+        selected_rel = next((rel for rel in current_images if os.path.basename(rel) == image_name), current_images[0])
+    else:
+        selected_rel = image_path
+    selected_filename = os.path.basename(selected_rel)
+    selected_image_url = f"/images/{selected_source}/{selected_rel}"
+
+    image_summaries = event_metadata.get("image_summaries", {}) if isinstance(event_metadata, dict) else {}
+    selected_summary = image_summaries.get(selected_filename, "")
+    if selected_summary == "No targets":
+        selected_summary = "Detections: none"
+    elif selected_summary:
+        selected_summary = f"Detections: {selected_summary}"
+    else:
+        selected_summary = "Detections: unavailable"
+
+    def build_event_link(rel_path: str, image_source: str) -> str:
+        return f"/event/{rel_path}?source={image_source}"
+
+    def find_rel_for_source(rel_paths: list, filename: str) -> str:
+        if not rel_paths:
+            return ""
+        for rel in rel_paths:
+            if os.path.basename(rel) == filename:
+                return rel
+        return rel_paths[0]
+
+    processed_link_target = find_rel_for_source(related_processed, selected_filename)
+    raw_link_target = find_rel_for_source(related_raw, selected_filename)
+
     cycle_time = ""
     match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", image_name, re.IGNORECASE)
     if match_new:
@@ -1203,26 +1256,32 @@ async def event_detail(image_path: str, request: Request, credentials: HTTPBasic
         cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
 
     thumbs_html = ""
-    for rel in related_images:
+    for rel in current_images:
         file_label = os.path.basename(rel)
+        active_class = " active" if rel == selected_rel else ""
         thumbs_html += f"""
-            <a class="thumb" href="/event/{rel}">
-                <img src="/images/processed/{rel}" alt="{file_label}">
+            <a class="thumb{active_class}" href="{build_event_link(rel, selected_source)}">
+                <img src="/images/{selected_source}/{rel}" alt="{file_label}">
                 <span>{file_label}</span>
             </a>
         """
 
     video_block = """
-        <div class="empty-video">対応する動画はまだありません。</div>
+        <div class="empty-video">No related video yet.</div>
     """
     if primary_video:
         video_block = f"""
             <video controls preload="metadata" class="video-player">
                 <source src="/videos/{primary_video}">
-                お使いのブラウザでは動画を再生できません。
+                Your browser cannot play this video.
             </video>
-            <a class="download-link" href="/videos/{primary_video}" target="_blank">動画をダウンロードして再生</a>
+            <a class="download-link" href="/videos/{primary_video}" target="_blank">Download video</a>
         """
+
+    labels = event_metadata.get("labels", []) if isinstance(event_metadata, dict) else []
+    labels_text = ", ".join(labels) if labels else "none"
+    detected_count = event_metadata.get("detected_images_count", 0) if isinstance(event_metadata, dict) else 0
+    source_label = "No box" if selected_source == "raw" else "With box"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -1233,51 +1292,70 @@ async def event_detail(image_path: str, request: Request, credentials: HTTPBasic
         <title>Event Detail</title>
         <style>
             body {{ font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f3f8f4; color: #22332b; }}
-            .shell {{ max-width: 1400px; margin: 0 auto; }}
+            .shell {{ max-width: 1280px; margin: 0 auto; }}
             .topbar {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }}
             .back-link, .download-link {{ display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:999px; text-decoration:none; background:#ffffff; color:#2d4a3a; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
-            .hero {{ display:grid; grid-template-columns: 1.1fr 1fr; gap:24px; align-items:start; }}
             .panel {{ background:#ffffff; border-radius:20px; padding:20px; box-shadow:0 12px 30px rgba(34,51,43,0.06); }}
             .panel h2 {{ margin:0 0 14px 0; font-size:1.2rem; color:#21543b; }}
-            .main-image {{ width:100%; border-radius:16px; background:#f8fbf8; }}
+            .viewer-panel {{ text-align:center; }}
+            .viewer-head {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }}
+            .viewer-title {{ margin:0; font-size:1.25rem; color:#21543b; }}
+            .image-mode-toggle {{ display:flex; gap:8px; flex-wrap:wrap; }}
+            .toggle-link {{ display:inline-flex; align-items:center; justify-content:center; padding:8px 14px; border-radius:999px; text-decoration:none; background:#edf6f0; color:#21543b; font-weight:600; border:1px solid #d4e5d8; }}
+            .toggle-link.active {{ background:#21543b; color:#ffffff; border-color:#21543b; }}
+            .main-image-wrap {{ display:flex; justify-content:center; align-items:center; padding:16px; border-radius:18px; background:#f8fbf8; min-height:420px; }}
+            .main-image {{ max-width:100%; max-height:72vh; border-radius:16px; background:#f8fbf8; box-shadow:0 12px 32px rgba(34,51,43,0.12); }}
+            .selected-summary {{ margin-top:16px; font-size:0.96rem; font-weight:600; color:#21543b; }}
             .video-player {{ width:100%; border-radius:16px; background:#111; min-height:320px; }}
             .meta {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px; }}
             .meta-card {{ background:#ffffff; border-radius:16px; padding:14px 16px; box-shadow:0 8px 22px rgba(34,51,43,0.05); }}
             .meta-label {{ display:block; font-size:0.82rem; color:#6b7f74; margin-bottom:6px; }}
             .meta-value {{ font-weight:600; word-break:break-word; }}
-            .thumbs {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:14px; margin-top:22px; }}
-            .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 8px 20px rgba(34,51,43,0.05); }}
+            .thumbs {{ display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:14px; margin-top:22px; }}
+            .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 8px 20px rgba(34,51,43,0.05); border:2px solid transparent; transition:transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }}
+            .thumb:hover {{ transform:translateY(-2px); }}
+            .thumb.active {{ border-color:#2f855a; box-shadow:0 14px 28px rgba(47,133,90,0.18); background:#f2fbf5; }}
             .thumb img {{ width:100%; height:130px; object-fit:cover; border-radius:10px; display:block; }}
-            .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; }}
+            .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; text-align:center; font-weight:600; }}
             .empty-video {{ min-height:320px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
-            @media (max-width: 960px) {{ .hero {{ grid-template-columns: 1fr; }} }}
+            @media (max-width: 960px) {{ .thumbs {{ grid-template-columns: 1fr; }} .main-image-wrap {{ min-height:260px; }} }}
         </style>
     </head>
     <body>
         <div class="shell">
             <div class="topbar">
-                <a class="back-link" href="/gallery">← Gallery</a>
+                <a class="back-link" href="/gallery">Gallery</a>
                 <a class="back-link" href="/logout">Logout</a>
             </div>
             <div class="meta">
                 <div class="meta-card"><span class="meta-label">Camera ID</span><span class="meta-value">{camera_id}</span></div>
                 <div class="meta-card"><span class="meta-label">Event ID</span><span class="meta-value">{event_id}</span></div>
-                <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or "-"}</span></div>
-                <div class="meta-card"><span class="meta-label">Video</span><span class="meta-value">{"あり" if primary_video else "なし"}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or '-'}</span></div>
+                <div class="meta-card"><span class="meta-label">View</span><span class="meta-value">{source_label}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected Labels</span><span class="meta-value">{labels_text}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected Images</span><span class="meta-value">{detected_count}</span></div>
+                <div class="meta-card"><span class="meta-label">Video</span><span class="meta-value">{'yes' if primary_video else 'no'}</span></div>
             </div>
-            <div class="hero">
-                <section class="panel">
-                    <h2>検出枠付き画像</h2>
-                    <img class="main-image" src="/images/processed/{image_path}" alt="{image_name}">
-                </section>
-                <section class="panel">
-                    <h2>元動画</h2>
-                    {video_block}
-                </section>
-            </div>
+            <section class="panel viewer-panel">
+                <div class="viewer-head">
+                    <h2 class="viewer-title">Selected Image</h2>
+                    <div class="image-mode-toggle">
+                        {f'<a class="toggle-link {"active" if selected_source == "processed" else ""}" href="{build_event_link(processed_link_target, "processed")}">With box</a>' if processed_link_target else ''}
+                        {f'<a class="toggle-link {"active" if selected_source == "raw" else ""}" href="{build_event_link(raw_link_target, "raw")}">No box</a>' if raw_link_target else ''}
+                    </div>
+                </div>
+                <div class="main-image-wrap">
+                    <img class="main-image" src="{selected_image_url}" alt="{selected_filename}">
+                </div>
+                <div class="selected-summary">{selected_summary}</div>
+            </section>
             <section class="panel" style="margin-top:24px;">
-                <h2>同一イベントの画像</h2>
-                <div class="thumbs">{thumbs_html or '<div class="empty-video" style="min-height:140px;">画像がありません。</div>'}</div>
+                <h2>Cycle Images</h2>
+                <div class="thumbs">{thumbs_html or '<div class="empty-video" style="min-height:140px;">No images available.</div>'}</div>
+            </section>
+            <section class="panel" style="margin-top:24px;">
+                <h2>Video</h2>
+                {video_block}
             </section>
         </div>
     </body>
@@ -2417,6 +2495,10 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .cycle-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
             .cycle-title-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex-shrink: 0; background: #edf2f7; border: 1px solid #d9e5dd; }
             .cycle-title-text { overflow-wrap: anywhere; }
+            .cycle-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+            .cycle-image-mode { display:flex; gap:8px; flex-wrap:wrap; }
+            .mini-toggle { border:1px solid #d4e5d8; background:#ffffff; color:#21543b; border-radius:999px; padding:6px 12px; font:inherit; font-weight:600; cursor:pointer; }
+            .mini-toggle.active { background:#21543b; color:#ffffff; border-color:#21543b; }
             .cycle-latest { margin-bottom: 22px; }
             .latest-container h3 { color: #276749; margin-bottom: 15px; font-weight: 500; }
             .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
@@ -2513,6 +2595,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentMetadata = null;
             let currentTelemetry = null;
             let currentViewMode = 'grouped';
+            let currentCycleImageMode = {};
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
 
             function arraysEqual(a, b) {
@@ -2596,29 +2679,57 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return groups;
             }
 
+            function getCycleStateKey(folder, cycleId) {
+                return `${folder}/${cycleId}`;
+            }
+
+            function getCycleImages(folder, cycleId, sourceMode) {
+                const sourceImages = sourceMode === 'raw' ? currentRaw : currentProcessed;
+                if (!sourceImages) return [];
+                return sourceImages.filter(imagePath => {
+                    const parts = imagePath.split('/');
+                    const imageFolder = parts.length > 1 ? parts[0] : 'Root';
+                    return imageFolder === folder && extractCycleIdFromImagePath(imagePath) === cycleId;
+                });
+            }
+
+            function buildEventUrl(imagePath, sourceMode) {
+                return `/event/${imagePath}?source=${sourceMode}`;
+            }
+
+            function rerenderGalleries() {
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
+
+            function setCycleImageMode(folder, cycleId, sourceMode, evt) {
+                if (evt) evt.stopPropagation();
+                currentCycleImageMode[getCycleStateKey(folder, cycleId)] = sourceMode;
+                rerenderGalleries();
+            }
+
             function getImageSummary(folder, cycleId, filename) {
                 if (!currentMetadata || !currentMetadata[`${folder}/${cycleId}`]) return '';
                 const meta = currentMetadata[`${folder}/${cycleId}`];
                 if (!meta.image_summaries || !meta.image_summaries[filename]) return '';
                 const summary = meta.image_summaries[filename];
-                return summary === 'No targets' ? '検知結果: なし' : `検知結果: ${summary}`;
+                return summary === 'No targets' ? 'Detections: none' : `Detections: ${summary}`;
             }
 
-            function renderImageCard(imagePath, basePath, isProcessed, folder, cycleId) {
+            function renderImageCard(imagePath, sourceMode, folder, cycleId) {
                 const filename = imagePath.split('/').pop();
+                const basePath = sourceMode === 'raw' ? '/images/raw' : '/images/processed';
                 const summaryText = getImageSummary(folder, cycleId, filename);
-                const summaryClass = summaryText && summaryText !== '検知結果: なし' ? 'item-detection detected' : 'item-detection not-detected';
-                const clickAction = isProcessed
-                    ? `window.location.href='/event/${imagePath}'`
-                    : `window.open('${basePath}/${imagePath}', '_blank')`;
+                const summaryClass = summaryText && summaryText !== 'Detections: none' ? 'item-detection detected' : 'item-detection not-detected';
+                const clickAction = `window.location.href='${buildEventUrl(imagePath, sourceMode)}'`;
 
                 return `
                                     <div class="item">
                                         <div class="img-wrapper" onclick="${clickAction}">
-                                            <img src="${basePath}/${imagePath}" title="クリックして詳細または元画像を表示">
+                                            <img src="${basePath}/${imagePath}" title="Click to open event detail">
                                         </div>
                                         <span class="item-filename">${filename}</span>
-                                        <span class="${summaryClass}">${summaryText || '検知結果: 情報なし'}</span>
+                                        <span class="${summaryClass}">${summaryText || 'Detections: unavailable'}</span>
                                     </div>
                                 `;
             }
@@ -2626,8 +2737,9 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             function renderGallery(containerId, images, basePath) {
                 const container = document.getElementById(containerId);
                 const isProcessed = containerId === 'gallery-processed';
+                const defaultSourceMode = isProcessed ? 'processed' : 'raw';
                 if (!images || images.length === 0) {
-                    container.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
+                    container.innerHTML = '<div class="empty-msg">No images found yet. Captured images will appear here.</div>';
                     return;
                 }
 
@@ -2639,27 +2751,27 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         const folderImages = groups[folder];
                         const sectionId = `cam-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}`;
                         const cycleGroups = groupImagesByCycle(folderImages);
-                        
+
                         let teleHtml = '';
                         if (currentTelemetry && currentTelemetry[folder]) {
                             const t = currentTelemetry[folder];
                             teleHtml = '<div style="font-size: 0.9rem; color: #4a5568; display: flex; gap: 12px; font-weight: normal;">';
-                            if (t.battery) teleHtml += `<span title="バッテリー">🔋 バッテリー: ${t.battery.replace('Median','中')}</span>`;
-                            if (t.signal) teleHtml += `<span title="電波">📶 電波: ${t.signal.replace('Very Good','良好').replace('Good','良い').replace('Normal','普通').replace('Weak','弱い')}</span>`;
-                            if (t.temperature) teleHtml += `<span title="温度">🌡️ 温度: ${t.temperature.split(' ')[0]}</span>`;
-                            if (t.free_space) teleHtml += `<span title="空き容量">💾 空き: ${t.free_space}</span>`;
+                            if (t.battery) teleHtml += `<span title="Battery">Battery: ${t.battery.replace('Median', 'Mid')}</span>`;
+                            if (t.signal) teleHtml += `<span title="Signal">Signal: ${t.signal}</span>`;
+                            if (t.temperature) teleHtml += `<span title="Temperature">Temp: ${t.temperature.split(' ')[0]}</span>`;
+                            if (t.free_space) teleHtml += `<span title="Free space">Free: ${t.free_space}</span>`;
                             if (t.updated_at) {
                                 const dt = new Date(t.updated_at);
                                 const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
-                                teleHtml += `<span title="取得時刻">🕒 取得: ${fTime}</span>`;
+                                teleHtml += `<span title="Updated">Updated: ${fTime}</span>`;
                             }
                             teleHtml += '</div>';
                         }
-                        
+
                         html += `
                             <div class="camera-section">
                                 <div class="camera-title" onclick="toggleSection('${sectionId}')" style="cursor:pointer; user-select:none; display:flex; align-items:center;">
-                                    <span>📷 CAM: ${folder}</span>
+                                    <span>CAM: ${folder}</span>
                                     <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
                                         ${teleHtml}
                                         <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
@@ -2670,18 +2782,30 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         `;
 
                         for (const cycleId of Object.keys(cycleGroups).sort().reverse()) {
-                            const cycleImages = cycleGroups[cycleId];
-                            const latestImg = cycleImages[0];
-                            const displayFilename = latestImg.split('/').pop();
+                            let cycleSourceMode = currentCycleImageMode[getCycleStateKey(folder, cycleId)] || defaultSourceMode;
+                            let cycleImages = getCycleImages(folder, cycleId, cycleSourceMode);
+                            if (!cycleImages.length) {
+                                const alternateMode = cycleSourceMode === 'processed' ? 'raw' : 'processed';
+                                const alternateImages = getCycleImages(folder, cycleId, alternateMode);
+                                if (alternateImages.length) {
+                                    cycleImages = alternateImages;
+                                    cycleSourceMode = alternateMode;
+                                }
+                            }
+                            if (!cycleImages.length) {
+                                cycleImages = cycleGroups[cycleId];
+                            }
+
+                            const previewImage = cycleImages[0];
                             const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
 
                             let labelsHtml = '';
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
                                 const meta = currentMetadata[`${folder}/${cycleId}`];
                                 if (meta.labels && meta.labels.length > 0) {
-                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #fff; background: #e53e3e; padding: 3px 10px; border-radius: 12px; font-weight: bold; letter-spacing: 0.5px;">🎯 ${meta.labels.join(', ')}</span>`;
+                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #fff; background: #e53e3e; padding: 3px 10px; border-radius: 12px; font-weight: bold; letter-spacing: 0.5px;">${meta.labels.join(', ')}</span>`;
                                 } else {
-                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #718096; background: #edf2f7; padding: 3px 10px; border-radius: 12px; font-weight: bold;">検知なし</span>`;
+                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #718096; background: #edf2f7; padding: 3px 10px; border-radius: 12px; font-weight: bold;">No detections</span>`;
                                 }
                             }
 
@@ -2689,14 +2813,20 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                 <div class="cycle-section">
                                     <div class="cycle-title" onclick="toggleSection('${cycleSectionId}')">
                                         <div class="cycle-title-main">
-                                            <img src="${basePath}/${latestImg}" class="cycle-title-thumb" alt="thumb" loading="lazy">
+                                            <img src="${cycleSourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}" class="cycle-title-thumb" alt="thumb" loading="lazy">
                                             <span class="cycle-title-text">Cycle: ${cycleId}</span>
-                                            <span class="badge">${cycleImages.length}枚</span>
+                                            <span class="badge">${cycleImages.length} images</span>
                                             ${labelsHtml}
                                         </div>
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s;">▶</span>
                                     </div>
                                     <div id="${cycleSectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
+                                        <div class="cycle-toolbar">
+                                            <div class="cycle-image-mode">
+                                                <button class="mini-toggle ${cycleSourceMode === 'processed' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'processed', event)">With box</button>
+                                                <button class="mini-toggle ${cycleSourceMode === 'raw' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'raw', event)">No box</button>
+                                            </div>
+                                        </div>
                             `;
 
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
@@ -2716,7 +2846,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             html += '<div class="gallery-grid" style="margin-bottom: 10px;">';
                             for (let i = 0; i < cycleImages.length; i++) {
                                 const imagePath = cycleImages[i];
-                                html += renderImageCard(imagePath, basePath, isProcessed, folder, cycleId);
+                                html += renderImageCard(imagePath, cycleSourceMode, folder, cycleId);
                             }
                             html += `
                                         </div>
@@ -2732,13 +2862,13 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         `;
                     }
                 } else {
-                    // Flat / All Folders View
+                    const sourceMode = defaultSourceMode;
                     const latestImg = images[0];
                     html += `
                         <div class="latest-container" style="margin-top: 20px;">
                             <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
                             <div class="latest-item">
-                                <img src="${basePath}/${latestImg}" title="クリックして表示" onclick="${isProcessed ? `window.location.href='/event/${latestImg}'` : `window.open(this.src, '_blank')`}">
+                                <img src="${basePath}/${latestImg}" title="Click to open event detail" onclick="window.location.href='${buildEventUrl(latestImg, sourceMode)}'">
                                 <span>${latestImg}</span>
                             </div>
                         </div>
@@ -2751,16 +2881,16 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             const pathParts = imagePath.split('/');
                             const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
                             const cycleId = extractCycleIdFromImagePath(imagePath);
-                            html += renderImageCard(imagePath, basePath, isProcessed, folder, cycleId);
+                            html += renderImageCard(imagePath, sourceMode, folder, cycleId);
                         }
                         html += '</div>';
                     }
                 }
-                
+
                 container.innerHTML = html;
             }
 
-                        function fetchImages() {
+            function fetchImages() {
                 const params = new URLSearchParams();
                 Object.entries(currentFilters).forEach(([key, value]) => {
                     if (value && value !== 'all') params.set(key, value);
