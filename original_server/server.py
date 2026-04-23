@@ -3095,8 +3095,17 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             }
 
                             if (t.signal) {
-                                const signalValue = parseInt(t.signal.replace(/[^0-9]/g, ''));
-                                const signalColor = signalValue < 30 ? '#e53e3e' : signalValue < 70 ? '#dd6b20' : '#38a169';
+                                const signalLower = t.signal.trim().toLowerCase();
+                                let signalColor;
+                                if (signalLower === 'very good') {
+                                    signalColor = '#38a169';  // 緑
+                                } else if (signalLower === 'good') {
+                                    signalColor = '#68d391';  // 薄緑
+                                } else if (signalLower === 'weak') {
+                                    signalColor = '#dd6b20';  // 橙
+                                } else {
+                                    signalColor = '#e53e3e';  // 赤 (Very Weak)
+                                }
                                 teleHtml += formatTelemetryBadge('📶', '信号', t.signal, signalColor);
                             }
 
@@ -3107,17 +3116,47 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             }
 
                             if (t.free_space) {
-                                const spaceMatch = t.free_space.match(/(\d+(?:\.\d+)?)\s*(GB|MB|KB|B)/i);
+                                const spaceMatch = t.free_space.match(/(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B)/i);
                                 if (spaceMatch) {
                                     const spaceValue = parseFloat(spaceMatch[1]);
-                                    const spaceUnit = spaceMatch[2].toUpperCase();
+                                    const rawUnit = spaceMatch[2].toUpperCase();
+                                    const spaceUnit = rawUnit === 'M' ? 'MB' : rawUnit === 'G' ? 'GB' : rawUnit === 'K' ? 'KB' : rawUnit;
+                                    
+                                    // デフォルトは絶対値ベースの色判定
                                     let spaceColor = '#38a169';
                                     if ((spaceUnit === 'GB' && spaceValue < 1) || (spaceUnit === 'MB' && spaceValue < 100)) {
                                         spaceColor = '#e53e3e';
                                     } else if ((spaceUnit === 'GB' && spaceValue < 2) || (spaceUnit === 'MB' && spaceValue < 500)) {
                                         spaceColor = '#dd6b20';
                                     }
-                                    teleHtml += formatTelemetryBadge('💾', '空き容量', t.free_space, spaceColor);
+
+                                    // %表示の計算（total_spaceがある場合）
+                                    let spaceDisplay = t.free_space;
+                                    if (t.total_space) {
+                                        const totalMatch = t.total_space.match(/(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B)/i);
+                                        if (totalMatch) {
+                                            const totalValue = parseFloat(totalMatch[1]);
+                                            const rawTotalUnit = totalMatch[2].toUpperCase();
+                                            const totalUnit = rawTotalUnit === 'M' ? 'MB' : rawTotalUnit === 'G' ? 'GB' : rawTotalUnit === 'K' ? 'KB' : rawTotalUnit;
+                                            // 単位をMBに統一して計算
+                                            const unitFactor = { 'GB': 1024, 'MB': 1, 'KB': 1/1024, 'B': 1/(1024*1024) };
+                                            const freeInMB = spaceValue * (unitFactor[spaceUnit] || 1);
+                                            const totalInMB = totalValue * (unitFactor[totalUnit] || 1);
+                                            if (totalInMB > 0) {
+                                                const pct = Math.round((freeInMB / totalInMB) * 100);
+                                                spaceDisplay = `${t.free_space} (${pct}%)`;
+                                                // %ベースで色を上書き（絶対値より優先）
+                                                if (pct < 10) {
+                                                    spaceColor = '#e53e3e';  // 赤: 残り10%未満
+                                                } else if (pct < 20) {
+                                                    spaceColor = '#dd6b20';  // 橙: 残り20%未満
+                                                } else {
+                                                    spaceColor = '#38a169';  // 緑: 残り20%以上
+                                                }
+                                            }
+                                        }
+                                    }
+                                    teleHtml += formatTelemetryBadge('💾', '空き容量', spaceDisplay, spaceColor);
                                 }
                             }
 
