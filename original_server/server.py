@@ -355,7 +355,10 @@ def build_event_metadata_map(base_dir: str, files: list) -> dict:
         event_id = extract_cycle_id(os.path.basename(rel_path))
         key = f"{camera_id}/{event_id}"
         if key not in metadata_map:
-            metadata_map[key] = load_event_metadata(camera_id, event_id)
+            meta = load_event_metadata(camera_id, event_id)
+            if meta:
+                meta["video_paths"] = get_video_relpaths_for_event(camera_id, event_id)
+                metadata_map[key] = meta
     return metadata_map
 
 
@@ -771,6 +774,7 @@ class CycleManager:
                 "summary_text": best_data.get("summary_text", ""),
                 "best_image": f"{camera_id}/{best_data['filename']}",
                 "images": [f"{camera_id}/{f['filename']}" for f in files],
+                "image_summaries": {f['filename']: f.get("summary_text", "") for f in files},
                 "has_video": len(get_video_relpaths_for_event(camera_id, cycle_id)) > 0,
                 "cycle_time": cycle_time,
                 "updated_at": datetime.now().isoformat(),
@@ -890,13 +894,12 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
                 pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
 
-    # Save annotated image if target found
+    # 常にPROCESSED_DIRに保存する（ギャラリーですべてのデータを見れるようにするため）
+    proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
+    os.makedirs(proc_cam_dir, exist_ok=True)
+    annotated_path = os.path.join(proc_cam_dir, filename)
+
     if target_found:
-        # フォルダが異なるため processed_ プレフィックス不要
-        proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
-        os.makedirs(proc_cam_dir, exist_ok=True)
-        annotated_path = os.path.join(proc_cam_dir, filename)
-        
         try:
             img = cv2.imread(image_path)
             for index, row in df.iterrows():
@@ -904,20 +907,27 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
                 # Only draw BB for targets
                 if cls in TARGET_CLASSES:
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+                    name_str = str(row['name']).lower()
+                    box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255) # Person=Green, Animal=Red (BGR)
+                    label_bg_color = (255, 0, 0) # Blue (BGR)
+
                     label_text = f"{row['name']} {row['confidence']:.2f}"
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                    cv2.rectangle(img, (x1, y1), (x2, y2), box_color, 2)
                     t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
                     c2 = x1 + t_size[0], y1 - t_size[1] - 3
-                    cv2.rectangle(img, (x1, y1), c2, (0, 0, 255), -1, cv2.LINE_AA)
-                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=2, lineType=cv2.LINE_AA)
+                    cv2.rectangle(img, (x1, y1), c2, label_bg_color, -1, cv2.LINE_AA)
+                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
 
             cv2.imwrite(annotated_path, img)
             logger.info(f"Target detected! Saved annotated image to {annotated_path}")
         except Exception as e:
             logger.error(f"Failed to annotate: {e}")
-            annotated_path = image_path # Fallback
+            import shutil
+            shutil.copy2(image_path, annotated_path) # Fallback
     else:
-        logger.info(f"No targets detected in {filename}")
+        logger.info(f"No targets detected in {filename}. Copying original to processed dir.")
+        import shutil
+        shutil.copy2(image_path, annotated_path)
 
     # Add to Cycle Buffer
     cycle_id = extract_cycle_id(filename)
@@ -1144,6 +1154,7 @@ async def get_images(
             "status": "ok",
             "raw": raw_files,
             "processed": proc_files,
+            "metadata": metadata_map,
             "filters": filters,
             "viewer": {
                 "username": principal.get("username"),
@@ -2483,6 +2494,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <script>
             let currentProcessed = null;
             let currentRaw = null;
+            let currentMetadata = null;
             let currentTelemetry = null;
             let currentViewMode = 'grouped';
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
@@ -2593,6 +2605,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             if (t.signal) teleHtml += `<span title="電波">📶 電波: ${t.signal.replace('Very Good','非常に良い').replace('Good','良い').replace('Normal','普通').replace('Weak','弱い')}</span>`;
                             if (t.temperature) teleHtml += `<span title="温度">🌡️ 温度: ${t.temperature.split(' ')[0]}</span>`;
                             if (t.free_space) teleHtml += `<span title="空き容量">💾 空き: ${t.free_space}</span>`;
+                            if (t.updated_at) {
+                                const dt = new Date(t.updated_at);
+                                const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
+                                teleHtml += `<span title="取得時刻">🕒 取得: ${fTime}</span>`;
+                            }
                             teleHtml += '</div>';
                         }
                         
@@ -2615,6 +2632,16 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             const displayFilename = latestImg.split('/').pop();
                             const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
 
+                            let labelsHtml = '';
+                            if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
+                                const meta = currentMetadata[`${folder}/${cycleId}`];
+                                if (meta.labels && meta.labels.length > 0) {
+                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #fff; background: #e53e3e; padding: 3px 10px; border-radius: 12px; font-weight: bold; letter-spacing: 0.5px;">🎯 ${meta.labels.join(', ')}</span>`;
+                                } else {
+                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #718096; background: #edf2f7; padding: 3px 10px; border-radius: 12px; font-weight: bold;">検知なし</span>`;
+                                }
+                            }
+
                             html += `
                                 <div class="cycle-section">
                                     <div class="cycle-title" onclick="toggleSection('${cycleSectionId}')">
@@ -2622,37 +2649,53 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <img src="${basePath}/${latestImg}" class="cycle-title-thumb" alt="thumb" loading="lazy">
                                             <span class="cycle-title-text">Cycle: ${cycleId}</span>
                                             <span class="badge">${cycleImages.length}枚</span>
+                                            ${labelsHtml}
                                         </div>
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s;">▶</span>
                                     </div>
-                                    <div id="${cycleSectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
-                                        <div class="latest-container cycle-latest">
-                                            <h3>Cycle Latest</h3>
-                                            <div class="latest-item">
-                                                <img src="${basePath}/${latestImg}" title="クリックして表示" onclick="${isProcessed ? `window.location.href='/event/${latestImg}'` : `window.open(this.src, '_blank')`}">
-                                                <span>${displayFilename}</span>
-                                            </div>
-                                        </div>
+                                    <div id="${cycleSectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
                             `;
 
-                            if (cycleImages.length > 1) {
-                                html += '<div class="gallery-grid">';
-                                for (let i = 1; i < cycleImages.length; i++) {
-                                    const imagePath = cycleImages[i];
-                                    const filename = imagePath.split('/').pop();
+                            if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
+                                const meta = currentMetadata[`${folder}/${cycleId}`];
+                                if (meta.video_paths && meta.video_paths.length > 0) {
+                                    const videoPath = meta.video_paths[0];
                                     html += `
-                                        <div class="item">
-                                            <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${imagePath}'` : `window.open('${basePath}/${imagePath}', '_blank')`}">
-                                                <img src="${basePath}/${imagePath}" title="クリックしてフルサイズの画像を表示">
-                                            </div>
-                                            <span>${filename}</span>
+                                        <div style="text-align: center; margin-bottom: 25px;">
+                                            <video controls preload="metadata" style="max-width: 100%; max-height: 450px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); background: #000;">
+                                                <source src="/videos/${videoPath}">
+                                            </video>
                                         </div>
                                     `;
                                 }
-                                html += '</div>';
                             }
 
+                            html += '<div class="gallery-grid" style="margin-bottom: 10px;">';
+                            for (let i = 0; i < cycleImages.length; i++) {
+                                const imagePath = cycleImages[i];
+                                const filename = imagePath.split('/').pop();
+                                
+                                let summaryText = "";
+                                if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
+                                    const meta = currentMetadata[`${folder}/${cycleId}`];
+                                    if (meta.image_summaries && meta.image_summaries[filename]) {
+                                        summaryText = meta.image_summaries[filename];
+                                        if (summaryText === "No targets") summaryText = "検知なし";
+                                    }
+                                }
+
+                                html += `
+                                    <div class="item">
+                                        <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${imagePath}'` : `window.open('${basePath}/${imagePath}', '_blank')`}">
+                                            <img src="${basePath}/${imagePath}" title="クリックしてフルサイズの画像を表示">
+                                        </div>
+                                        <span>${filename}</span>
+                                        ${summaryText ? `<span style="display:block; padding: 0 8px 12px 8px; font-size: 0.8em; color: #e53e3e; font-weight: bold; text-align: center; width: 100%; box-sizing: border-box; line-height: 1.2;">${summaryText}</span>` : ''}
+                                    </div>
+                                `;
+                            }
                             html += `
+                                        </div>
                                     </div>
                                 </div>
                             `;
@@ -2721,6 +2764,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         if (processedChanged || rawChanged || teleChanged) {
                             currentProcessed = data.processed;
                             currentRaw = data.raw;
+                            currentMetadata = data.metadata;
                             renderGallery('gallery-processed', data.processed, '/images/processed');
                             renderGallery('gallery-raw', data.raw, '/images/raw');
                         }
