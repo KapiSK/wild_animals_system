@@ -53,9 +53,9 @@ APP_VERSION = "1.0.0"
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
-    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem; margin-top: 4px;">Gallery</span>'
 else:
-    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem; margin-top: 4px;">Gallery</span>'
 
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
@@ -2683,7 +2683,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Cloud Server Gallery</title>
+        <title>SLAB WILD ANIMALS Web</title>
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
             body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
@@ -2768,7 +2768,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         </style>
     </head>
     <body>
-        <h1>Cloud Server Gallery</h1>
+        <h1>SLAB WILD ANIMALS Web</h1>
         <div style="text-align:center; margin: 0 0 12px 0;">""" + ENV_BADGE + """</div>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
@@ -3052,16 +3052,56 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         let teleHtml = '';
                         if (currentTelemetry && currentTelemetry[folder]) {
                             const t = currentTelemetry[folder];
-                            teleHtml = '<div style="font-size: 0.9rem; color: #4a5568; display: flex; gap: 12px; font-weight: normal;">';
-                            if (t.battery) teleHtml += `<span title="Battery">Battery: ${t.battery.replace('Median', 'Mid')}</span>`;
-                            if (t.signal) teleHtml += `<span title="Signal">Signal: ${t.signal}</span>`;
-                            if (t.temperature) teleHtml += `<span title="Temperature">Temp: ${t.temperature.split(' ')[0]}</span>`;
-                            if (t.free_space) teleHtml += `<span title="Free space">Free: ${t.free_space}</span>`;
+                            teleHtml = '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">';
+
+                            // Battery status with color coding
+                            if (t.battery) {
+                                const batteryValue = parseFloat(t.battery.replace('Median', '').replace('%', ''));
+                                const batteryColor = batteryValue < 20 ? '#e53e3e' : batteryValue < 50 ? '#dd6b20' : '#38a169';
+                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${batteryColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Battery Level"><span>🔋</span>${t.battery.replace('Median', 'Mid')}</span>`;
+                            }
+
+                            // Signal strength with color coding
+                            if (t.signal) {
+                                const signalValue = parseInt(t.signal.replace('%', ''));
+                                const signalColor = signalValue < 30 ? '#e53e3e' : signalValue < 70 ? '#dd6b20' : '#38a169';
+                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${signalColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Signal Strength"><span>📶</span>${t.signal}</span>`;
+                            }
+
+                            // Temperature
+                            if (t.temperature) {
+                                const tempValue = parseFloat(t.temperature.split(' ')[0]);
+                                const tempColor = tempValue > 60 ? '#e53e3e' : tempValue > 40 ? '#dd6b20' : '#38a169';
+                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${tempColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Temperature"><span>🌡️</span>${t.temperature.split(' ')[0]}°C</span>`;
+                            }
+
+                            // Free space with color coding
+                            if (t.free_space) {
+                                const spaceMatch = t.free_space.match(/(\d+(?:\.\d+)?)\s*(GB|MB|KB|B)/i);
+                                if (spaceMatch) {
+                                    const spaceValue = parseFloat(spaceMatch[1]);
+                                    const spaceUnit = spaceMatch[2].toUpperCase();
+                                    const spaceColor = (spaceUnit === 'GB' && spaceValue < 1) || (spaceUnit === 'MB' && spaceValue < 100) ? '#e53e3e' : (spaceUnit === 'GB' && spaceValue < 2) || (spaceUnit === 'MB' && spaceValue < 500) ? '#dd6b20' : '#38a169';
+                                    teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${spaceColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Free Storage"><span>💾</span>${t.free_space}</span>`;
+                                }
+                            }
+
+                            // Last update time
                             if (t.updated_at) {
                                 const dt = new Date(t.updated_at);
+                                const now = new Date();
+                                const diffMs = now - dt;
+                                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                                const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+                                let timeColor = '#38a169'; // green for recent
+                                if (diffHours > 24) timeColor = '#e53e3e'; // red for very old
+                                else if (diffHours > 6) timeColor = '#dd6b20'; // orange for old
+
                                 const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
-                                teleHtml += `<span title="Updated">Updated: ${fTime}</span>`;
+                                teleHtml += `<span style="display: inline-flex; align-items: center; gap: 4px; background: ${timeColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="Last Update"><span>🕒</span>${fTime}</span>`;
                             }
+
                             teleHtml += '</div>';
                         }
 
