@@ -1145,14 +1145,15 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
                     name_str = str(row['name']).lower()
                     box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255)
-                    label_bg_color = (255, 0, 0)
+                    label_bg_color = box_color
+                    label_text_color = (255, 0, 0)
 
                     label_text = f"{row['name']} {row['confidence']:.2f}"
                     cv2.rectangle(img, (x1, y1), (x2, y2), box_color, 2)
                     t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
                     c2 = x1 + t_size[0], y1 - t_size[1] - 3
                     cv2.rectangle(img, (x1, y1), c2, label_bg_color, -1, cv2.LINE_AA)
-                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
+                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, label_text_color, thickness=1, lineType=cv2.LINE_AA)
 
             cv2.imwrite(annotated_path, img)
             logger.info(f"Target detected! Saved annotated image to {annotated_path}")
@@ -2721,10 +2722,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .cycle-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
             .cycle-title-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex-shrink: 0; background: #edf2f7; border: 1px solid #d9e5dd; }
             .cycle-title-text { overflow-wrap: anywhere; }
-            .cycle-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
-            .cycle-image-mode { display:flex; gap:8px; flex-wrap:wrap; }
-            .mini-toggle { border:1px solid #d4e5d8; background:#ffffff; color:#21543b; border-radius:999px; padding:6px 12px; font:inherit; font-weight:600; cursor:pointer; }
-            .mini-toggle.active { background:#21543b; color:#ffffff; border-color:#21543b; }
             .cycle-latest { margin-bottom: 22px; }
             .latest-container h3 { color: #276749; margin-bottom: 15px; font-weight: 500; }
             .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
@@ -2821,7 +2818,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentMetadata = null;
             let currentTelemetry = null;
             let currentViewMode = 'grouped';
-            let currentCycleImageMode = {};
             let currentExpandedSections = {};
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
 
@@ -2908,20 +2904,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return groups;
             }
 
-            function getCycleStateKey(folder, cycleId) {
-                return `${folder}/${cycleId}`;
-            }
-
-            function getCycleImages(folder, cycleId, sourceMode) {
-                const sourceImages = sourceMode === 'raw' ? currentRaw : currentProcessed;
-                if (!sourceImages) return [];
-                return sourceImages.filter(imagePath => {
-                    const parts = imagePath.split('/');
-                    const imageFolder = parts.length > 1 ? parts[0] : 'Root';
-                    return imageFolder === folder && extractCycleIdFromImagePath(imagePath) === cycleId;
-                });
-            }
-
             function buildEventUrl(imagePath, sourceMode) {
                 return `/event/${imagePath}?source=${sourceMode}`;
             }
@@ -2929,14 +2911,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             function rerenderGalleries() {
                 renderGallery('gallery-processed', currentProcessed, '/images/processed');
                 renderGallery('gallery-raw', currentRaw, '/images/raw');
-            }
-
-            function setCycleImageMode(folder, cycleId, sourceMode, evt) {
-                if (evt) evt.stopPropagation();
-                const scrollY = window.scrollY;
-                currentCycleImageMode[getCycleStateKey(folder, cycleId)] = sourceMode;
-                rerenderGalleries();
-                window.scrollTo(0, scrollY);
             }
 
             function getImageSummary(folder, cycleId, filename) {
@@ -3014,20 +2988,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         `;
 
                         for (const cycleId of Object.keys(cycleGroups).sort().reverse()) {
-                            let cycleSourceMode = currentCycleImageMode[getCycleStateKey(folder, cycleId)] || defaultSourceMode;
-                            let cycleImages = getCycleImages(folder, cycleId, cycleSourceMode);
-                            if (!cycleImages.length) {
-                                const alternateMode = cycleSourceMode === 'processed' ? 'raw' : 'processed';
-                                const alternateImages = getCycleImages(folder, cycleId, alternateMode);
-                                if (alternateImages.length) {
-                                    cycleImages = alternateImages;
-                                    cycleSourceMode = alternateMode;
-                                }
-                            }
-                            if (!cycleImages.length) {
-                                cycleImages = cycleGroups[cycleId];
-                            }
-
+                            const cycleSourceMode = defaultSourceMode;
+                            const cycleImages = cycleGroups[cycleId];
                             const previewImage = cycleImages[0];
                             const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
                             const isCycleExpanded = !!currentExpandedSections[cycleSectionId];
@@ -3054,12 +3016,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s; transform:${isCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                     </div>
                                     <div id="${cycleSectionId}" style="display:${isCycleExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
-                                        <div class="cycle-toolbar">
-                                            <div class="cycle-image-mode">
-                                                <button class="mini-toggle ${cycleSourceMode === 'processed' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'processed', event)">With box</button>
-                                                <button class="mini-toggle ${cycleSourceMode === 'raw' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'raw', event)">No box</button>
-                                            </div>
-                                        </div>
                             `;
 
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
