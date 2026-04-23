@@ -2400,7 +2400,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .item .img-wrapper { width: 100%; height: 220px; overflow: hidden; background: #edf2f7; cursor: pointer; }
             .item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
             .item img:hover { transform: scale(1.05); }
-            .item span { padding: 16px 12px; font-size: 13px; color: #718096; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; text-align: center; }
+            .item span { width: 100%; box-sizing: border-box; text-align: center; }
+            .item-filename { padding: 16px 12px 8px 12px; font-size: 13px; color: #718096; font-weight: 500; word-break: break-all; }
+            .item-detection { padding: 0 12px 16px 12px; font-size: 12px; color: #21543b; font-weight: 600; line-height: 1.5; }
+            .item-detection.detected { color: #c53030; }
+            .item-detection.not-detected { color: #4a5568; }
             .empty-msg { text-align: center; color: #718096; font-size: 16px; margin-top: 50px; font-weight: 500; }
             .camera-section { margin-bottom: 60px; background: #ffffff; border-radius: 16px; padding: 30px 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
             .camera-title { font-size: 1.5rem; color: #1c4532; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 30px; display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
@@ -2590,6 +2594,33 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return groups;
             }
 
+            function getImageSummary(folder, cycleId, filename) {
+                if (!currentMetadata || !currentMetadata[`${folder}/${cycleId}`]) return '';
+                const meta = currentMetadata[`${folder}/${cycleId}`];
+                if (!meta.image_summaries || !meta.image_summaries[filename]) return '';
+                const summary = meta.image_summaries[filename];
+                return summary === 'No targets' ? '検知結果: なし' : `検知結果: ${summary}`;
+            }
+
+            function renderImageCard(imagePath, basePath, isProcessed, folder, cycleId) {
+                const filename = imagePath.split('/').pop();
+                const summaryText = getImageSummary(folder, cycleId, filename);
+                const summaryClass = summaryText && summaryText !== '検知結果: なし' ? 'item-detection detected' : 'item-detection not-detected';
+                const clickAction = isProcessed
+                    ? `window.location.href='/event/${imagePath}'`
+                    : `window.open('${basePath}/${imagePath}', '_blank')`;
+
+                return `
+                                    <div class="item">
+                                        <div class="img-wrapper" onclick="${clickAction}">
+                                            <img src="${basePath}/${imagePath}" title="クリックして詳細または元画像を表示">
+                                        </div>
+                                        <span class="item-filename">${filename}</span>
+                                        <span class="${summaryClass}">${summaryText || '検知結果: 情報なし'}</span>
+                                    </div>
+                                `;
+            }
+
             function renderGallery(containerId, images, basePath) {
                 const container = document.getElementById(containerId);
                 const isProcessed = containerId === 'gallery-processed';
@@ -2611,8 +2642,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         if (currentTelemetry && currentTelemetry[folder]) {
                             const t = currentTelemetry[folder];
                             teleHtml = '<div style="font-size: 0.9rem; color: #4a5568; display: flex; gap: 12px; font-weight: normal;">';
-                            if (t.battery) teleHtml += `<span title="バッテリー">🔋 ﾊﾞｯﾃﾘｰ: ${t.battery.replace('Median','中')}</span>`;
-                            if (t.signal) teleHtml += `<span title="電波">📶 電波: ${t.signal.replace('Very Good','非常に良い').replace('Good','良い').replace('Normal','普通').replace('Weak','弱い')}</span>`;
+                            if (t.battery) teleHtml += `<span title="バッテリー">🔋 バッテリー: ${t.battery.replace('Median','中')}</span>`;
+                            if (t.signal) teleHtml += `<span title="電波">📶 電波: ${t.signal.replace('Very Good','良好').replace('Good','良い').replace('Normal','普通').replace('Weak','弱い')}</span>`;
                             if (t.temperature) teleHtml += `<span title="温度">🌡️ 温度: ${t.temperature.split(' ')[0]}</span>`;
                             if (t.free_space) teleHtml += `<span title="空き容量">💾 空き: ${t.free_space}</span>`;
                             if (t.updated_at) {
@@ -2683,26 +2714,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             html += '<div class="gallery-grid" style="margin-bottom: 10px;">';
                             for (let i = 0; i < cycleImages.length; i++) {
                                 const imagePath = cycleImages[i];
-                                const filename = imagePath.split('/').pop();
-                                
-                                let summaryText = "";
-                                if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
-                                    const meta = currentMetadata[`${folder}/${cycleId}`];
-                                    if (meta.image_summaries && meta.image_summaries[filename]) {
-                                        summaryText = meta.image_summaries[filename];
-                                        if (summaryText === "No targets") summaryText = "検知なし";
-                                    }
-                                }
-
-                                html += `
-                                    <div class="item">
-                                        <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${imagePath}'` : `window.open('${basePath}/${imagePath}', '_blank')`}">
-                                            <img src="${basePath}/${imagePath}" title="クリックしてフルサイズの画像を表示">
-                                        </div>
-                                        <span>${filename}</span>
-                                        ${summaryText ? `<span style="display:block; padding: 0 8px 12px 8px; font-size: 0.8em; color: #e53e3e; font-weight: bold; text-align: center; width: 100%; box-sizing: border-box; line-height: 1.2;">${summaryText}</span>` : ''}
-                                    </div>
-                                `;
+                                html += renderImageCard(imagePath, basePath, isProcessed, folder, cycleId);
                             }
                             html += `
                                         </div>
@@ -2733,14 +2745,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     if (images.length > 1) {
                         html += '<div class="gallery-grid" style="margin-top: 30px;">';
                         for (let i = 1; i < images.length; i++) {
-                            html += `
-                                <div class="item">
-                                    <div class="img-wrapper" onclick="${isProcessed ? `window.location.href='/event/${images[i]}'` : `window.open('${basePath}/${images[i]}', '_blank')`}">
-                                        <img src="${basePath}/${images[i]}" title="クリックしてフルサイズの画像を表示">
-                                    </div>
-                                    <span>${images[i]}</span>
-                                </div>
-                            `;
+                            const imagePath = images[i];
+                            const pathParts = imagePath.split('/');
+                            const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
+                            const cycleId = extractCycleIdFromImagePath(imagePath);
+                            html += renderImageCard(imagePath, basePath, isProcessed, folder, cycleId);
                         }
                         html += '</div>';
                     }
