@@ -2745,6 +2745,26 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             }
             .view-mode-selector label { font-size: 14px; font-weight: 500; color: #4a5568; }
             .view-mode-selector select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px 8px; font-family: inherit; color: #2d3748; background: #f8fafc; outline: none; cursor: pointer; }
+            .flat-cycle-item { background: #ffffff; border-radius: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); padding: 16px; margin-bottom: 18px; border: 1px solid #e2e8f0; }
+            .flat-cycle-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; user-select: none; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
+            .flat-cycle-header:hover { opacity: 0.9; }
+            .flat-cycle-thumb { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: #f0f4f1; border: 1px solid #e2e8f0; flex-shrink: 0; }
+            .flat-cycle-info { flex: 1; min-width: 0; }
+            .flat-cycle-title { font-weight: 600; color: #1c4532; margin-bottom: 4px; word-break: break-word; }
+            .flat-cycle-meta { font-size: 0.85rem; color: #718096; display: flex; gap: 12px; flex-wrap: wrap; }
+            .flat-cycle-badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-left: auto; flex-shrink: 0; }
+            .flat-cycle-badge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+            .flat-cycle-badge.count { background: #e2e8f0; color: #2d3748; }
+            .flat-cycle-badge.labels { background: #fed7d7; color: #c53030; }
+            .flat-cycle-badge.no-labels { background: #edf2f7; color: #4a5568; }
+            .flat-cycle-arrow { font-size: 1.2rem; transition: transform 0.3s; flex-shrink: 0; }
+            .flat-cycle-content { display: none; margin-top: 16px; }
+            .flat-cycle-content.open { display: block; }
+            .sort-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; justify-content: center; flex-wrap: wrap; }
+            .sort-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-family: inherit; color: #2d3748; background: #ffffff; outline: none; cursor: pointer; font-weight: 500; }
+            .sort-direction { display: flex; gap: 8px; }
+            .sort-direction button { padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #ffffff; cursor: pointer; font-weight: 500; color: #4a5568; transition: all 0.2s; }
+            .sort-direction button.active { background: #2f855a; color: white; border-color: #2f855a; }
         </style>
     </head>
     <body>
@@ -2769,6 +2789,15 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     <option value="flat">全体表示 (All Photos)</option>
                 </select>
             </div>
+        </div>
+        <div id="sortControls" class="sort-controls" style="display:none;">
+            <label for="sortBy" style="font-weight: 600; color: #2d3748;">並び替え:</label>
+            <select id="sortBy" class="sort-select" onchange="updateSortAndRerender()">
+                <option value="date_desc">日付 (新しい順)</option>
+                <option value="date_asc">日付 (古い順)</option>
+                <option value="detections_desc">検出数 (多い順)</option>
+                <option value="detections_asc">検出数 (少ない順)</option>
+            </select>
         </div>
         <div class="filter-bar">
             <div class="filter-card">
@@ -2820,6 +2849,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentViewMode = 'grouped';
             let currentExpandedSections = {};
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
+            let currentSortMode = 'date_desc';
 
             function arraysEqual(a, b) {
                 if (a === b) return true;
@@ -2857,6 +2887,13 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
 
             function changeViewMode(mode) {
                 currentViewMode = mode;
+                document.getElementById('sortControls').style.display = mode === 'flat' ? 'flex' : 'none';
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
+
+            function updateSortAndRerender() {
+                currentSortMode = document.getElementById('sortBy').value;
                 renderGallery('gallery-processed', currentProcessed, '/images/processed');
                 renderGallery('gallery-raw', currentRaw, '/images/raw');
             }
@@ -2894,6 +2931,13 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return filename.replace(/\\.[^.]+$/, '');
             }
 
+            function extractTimestampFromImagePath(imagePath) {
+                const filename = imagePath.split('/').pop() || imagePath;
+                const matchNew = filename.match(/_(\\d{14})_/);
+                if (matchNew) return matchNew[1];
+                return '99999999999999';
+            }
+
             function groupImagesByCycle(images) {
                 const groups = {};
                 images.forEach(img => {
@@ -2902,6 +2946,42 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     groups[cycleId].push(img);
                 });
                 return groups;
+            }
+
+            function sortCycles(cycles, sortMode) {
+                const entries = Object.entries(cycles);
+                
+                if (sortMode === 'date_desc') {
+                    entries.sort((a, b) => {
+                        const timeA = extractTimestampFromImagePath(a[1][0]);
+                        const timeB = extractTimestampFromImagePath(b[1][0]);
+                        return timeB.localeCompare(timeA);
+                    });
+                } else if (sortMode === 'date_asc') {
+                    entries.sort((a, b) => {
+                        const timeA = extractTimestampFromImagePath(a[1][0]);
+                        const timeB = extractTimestampFromImagePath(b[1][0]);
+                        return timeA.localeCompare(timeB);
+                    });
+                } else if (sortMode === 'detections_desc') {
+                    entries.sort((a, b) => {
+                        const countA = (currentMetadata[`?/${a[0]}`]?.labels?.length || 0);
+                        const countB = (currentMetadata[`?/${b[0]}`]?.labels?.length || 0);
+                        return countB - countA;
+                    });
+                } else if (sortMode === 'detections_asc') {
+                    entries.sort((a, b) => {
+                        const countA = (currentMetadata[`?/${a[0]}`]?.labels?.length || 0);
+                        const countB = (currentMetadata[`?/${b[0]}`]?.labels?.length || 0);
+                        return countA - countB;
+                    });
+                }
+                
+                const result = {};
+                entries.forEach(([key, value]) => {
+                    result[key] = value;
+                });
+                return result;
             }
 
             function buildEventUrl(imagePath, sourceMode) {
@@ -3052,27 +3132,77 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     }
                 } else {
                     const sourceMode = defaultSourceMode;
-                    const latestImg = images[0];
-                    html += `
-                        <div class="latest-container" style="margin-top: 20px;">
-                            <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
-                            <div class="latest-item">
-                                <img src="${basePath}/${latestImg}" title="Click to open event detail" onclick="window.location.href='${buildEventUrl(latestImg, sourceMode)}'">
-                                <span>${latestImg}</span>
-                            </div>
-                        </div>
-                    `;
-
-                    if (images.length > 1) {
-                        html += '<div class="gallery-grid" style="margin-top: 30px;">';
-                        for (let i = 1; i < images.length; i++) {
-                            const imagePath = images[i];
+                    const allCycles = groupImagesByCycle(images);
+                    const sortedCycles = sortCycles(allCycles, currentSortMode);
+                    
+                    const cycleEntries = Object.entries(sortedCycles);
+                    
+                    html += '<div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">';
+                    
+                    cycleEntries.forEach((entry, idx) => {
+                        const cycleId = entry[0];
+                        const cycleImages = entry[1];
+                        const previewImage = cycleImages[0];
+                        const flatCycleSectionId = `flat-cycle-${containerId}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
+                        const isFlatCycleExpanded = !!currentExpandedSections[flatCycleSectionId];
+                        
+                        let cycleMetaKey = null;
+                        let detectionCount = 0;
+                        let labelsStr = 'No detections';
+                        let badgeClass = 'no-labels';
+                        
+                        if (currentMetadata) {
+                            for (const key in currentMetadata) {
+                                if (key.endsWith(`/${cycleId}`)) {
+                                    cycleMetaKey = key;
+                                    const meta = currentMetadata[key];
+                                    if (meta.labels && meta.labels.length > 0) {
+                                        detectionCount = meta.labels.length;
+                                        labelsStr = meta.labels.join(', ');
+                                        badgeClass = 'labels';
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        html += `
+                            <div class="flat-cycle-item">
+                                <div class="flat-cycle-header" onclick="toggleSection('${flatCycleSectionId}')">
+                                    <img src="${sourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}" class="flat-cycle-thumb" alt="thumb" loading="lazy">
+                                    <div class="flat-cycle-info">
+                                        <div class="flat-cycle-title">Cycle: ${cycleId}</div>
+                                        <div class="flat-cycle-meta">
+                                            <span>${cycleImages.length} images</span>
+                                        </div>
+                                    </div>
+                                    <div class="flat-cycle-badges">
+                                        <span class="flat-cycle-badge count">${cycleImages.length} images</span>
+                                        <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
+                                    </div>
+                                    <span class="flat-cycle-arrow" id="${flatCycleSectionId}-arrow" style="transform:${isFlatCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
+                                </div>
+                                <div id="${flatCycleSectionId}" class="flat-cycle-content${isFlatCycleExpanded ? ' open' : ''}">
+                                    <div class="gallery-grid" style="margin-top: 16px;">
+                        `;
+                        
+                        cycleImages.forEach(imagePath => {
                             const pathParts = imagePath.split('/');
                             const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
-                            const cycleId = extractCycleIdFromImagePath(imagePath);
                             html += renderImageCard(imagePath, sourceMode, folder, cycleId);
-                        }
-                        html += '</div>';
+                        });
+                        
+                        html += `
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    
+                    if (cycleEntries.length === 0) {
+                        html = '<div class="empty-msg">No images found yet. Captured images will appear here.</div>';
                     }
                 }
 
