@@ -53,9 +53,9 @@ APP_VERSION = "1.0.0"
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
-    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem; margin-top: 4px;">Gallery</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">Gallery</span>'
 else:
-    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem; margin-top: 4px;">Gallery</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">Gallery</span>'
 
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
