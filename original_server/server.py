@@ -2948,6 +2948,17 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return groups;
             }
 
+            function getDetectionCountForCycle(cycleId) {
+                if (!currentMetadata) return 0;
+                for (const key in currentMetadata) {
+                    if (key.endsWith(`/${cycleId}`)) {
+                        const meta = currentMetadata[key];
+                        return (meta.labels && meta.labels.length) || 0;
+                    }
+                }
+                return 0;
+            }
+
             function sortCycles(cycles, sortMode) {
                 const entries = Object.entries(cycles);
                 
@@ -2965,14 +2976,14 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     });
                 } else if (sortMode === 'detections_desc') {
                     entries.sort((a, b) => {
-                        const countA = (currentMetadata[`?/${a[0]}`]?.labels?.length || 0);
-                        const countB = (currentMetadata[`?/${b[0]}`]?.labels?.length || 0);
+                        const countA = getDetectionCountForCycle(a[0]);
+                        const countB = getDetectionCountForCycle(b[0]);
                         return countB - countA;
                     });
                 } else if (sortMode === 'detections_asc') {
                     entries.sort((a, b) => {
-                        const countA = (currentMetadata[`?/${a[0]}`]?.labels?.length || 0);
-                        const countB = (currentMetadata[`?/${b[0]}`]?.labels?.length || 0);
+                        const countA = getDetectionCountForCycle(a[0]);
+                        const countB = getDetectionCountForCycle(b[0]);
                         return countA - countB;
                     });
                 }
