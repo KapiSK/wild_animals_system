@@ -904,12 +904,16 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
                 # Only draw BB for targets
                 if cls in TARGET_CLASSES:
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+                    name_str = str(row['name']).lower()
+                    box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255) # Person=Green, Animal=Red (BGR)
+                    label_bg_color = (255, 0, 0) # Blue (BGR)
+
                     label_text = f"{row['name']} {row['confidence']:.2f}"
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                    cv2.rectangle(img, (x1, y1), (x2, y2), box_color, 2)
                     t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
                     c2 = x1 + t_size[0], y1 - t_size[1] - 3
-                    cv2.rectangle(img, (x1, y1), c2, (0, 0, 255), -1, cv2.LINE_AA)
-                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=2, lineType=cv2.LINE_AA)
+                    cv2.rectangle(img, (x1, y1), c2, label_bg_color, -1, cv2.LINE_AA)
+                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
 
             cv2.imwrite(annotated_path, img)
             logger.info(f"Target detected! Saved annotated image to {annotated_path}")
@@ -2593,6 +2597,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             if (t.signal) teleHtml += `<span title="電波">📶 電波: ${t.signal.replace('Very Good','非常に良い').replace('Good','良い').replace('Normal','普通').replace('Weak','弱い')}</span>`;
                             if (t.temperature) teleHtml += `<span title="温度">🌡️ 温度: ${t.temperature.split(' ')[0]}</span>`;
                             if (t.free_space) teleHtml += `<span title="空き容量">💾 空き: ${t.free_space}</span>`;
+                            if (t.updated_at) {
+                                const dt = new Date(t.updated_at);
+                                const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
+                                teleHtml += `<span title="取得時刻">🕒 取得: ${fTime}</span>`;
+                            }
                             teleHtml += '</div>';
                         }
                         
