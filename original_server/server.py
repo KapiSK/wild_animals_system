@@ -2716,12 +2716,26 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return summary === 'No targets' ? 'Detections: none' : `Detections: ${summary}`;
             }
 
-            function renderImageCard(imagePath, sourceMode, folder, cycleId) {
+            function getCycleTime(folder, cycleId) {
+                if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
+                    const meta = currentMetadata[`${folder}/${cycleId}`];
+                    if (meta.cycle_time) return meta.cycle_time;
+                }
+                if (cycleId.length === 14 && /^\\d+$/.test(cycleId)) {
+                    return `${cycleId.substring(0,4)}/${cycleId.substring(4,6)}/${cycleId.substring(6,8)} ${cycleId.substring(8,10)}:${cycleId.substring(10,12)}:${cycleId.substring(12,14)}`;
+                }
+                return '';
+            }
+
+            function renderImageCard(imagePath, sourceMode, folder, cycleId, showTime = false) {
                 const filename = imagePath.split('/').pop();
                 const basePath = sourceMode === 'raw' ? '/images/raw' : '/images/processed';
                 const summaryText = getImageSummary(folder, cycleId, filename);
                 const summaryClass = summaryText && summaryText !== 'Detections: none' ? 'item-detection detected' : 'item-detection not-detected';
                 const clickAction = `window.location.href='${buildEventUrl(imagePath, sourceMode)}'`;
+
+                const timeStr = getCycleTime(folder, cycleId);
+                const timeHtml = showTime && timeStr ? `<span style="font-size: 0.8em; color: #4a5568; display: block; margin-top: 4px;">🕒 ${timeStr}</span>` : '';
 
                 return `
                                     <div class="item">
@@ -2729,6 +2743,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <img src="${basePath}/${imagePath}" title="Click to open event detail">
                                         </div>
                                         <span class="item-filename">${filename}</span>
+                                        ${timeHtml}
                                         <span class="${summaryClass}">${summaryText || 'Detections: unavailable'}</span>
                                     </div>
                                 `;
@@ -2855,7 +2870,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             html += '<div class="gallery-grid" style="margin-bottom: 10px;">';
                             for (let i = 0; i < cycleImages.length; i++) {
                                 const imagePath = cycleImages[i];
-                                html += renderImageCard(imagePath, cycleSourceMode, folder, cycleId);
+                                html += renderImageCard(imagePath, cycleSourceMode, folder, cycleId, false);
                             }
                             html += `
                                         </div>
@@ -2873,12 +2888,19 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 } else {
                     const sourceMode = defaultSourceMode;
                     const latestImg = images[0];
+                    const latestPathParts = latestImg.split('/');
+                    const latestFolder = latestPathParts.length > 1 ? latestPathParts[0] : 'Root';
+                    const latestCycleId = extractCycleIdFromImagePath(latestImg);
+                    const latestTimeStr = getCycleTime(latestFolder, latestCycleId);
+                    const latestTimeHtml = latestTimeStr ? `<span style="font-size: 0.9em; color: #4a5568; display: block; margin-top: 4px;">🕒 ${latestTimeStr}</span>` : '';
+
                     html += `
                         <div class="latest-container" style="margin-top: 20px;">
                             <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
                             <div class="latest-item">
                                 <img src="${basePath}/${latestImg}" title="Click to open event detail" onclick="window.location.href='${buildEventUrl(latestImg, sourceMode)}'">
                                 <span>${latestImg}</span>
+                                ${latestTimeHtml}
                             </div>
                         </div>
                     `;
@@ -2890,7 +2912,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             const pathParts = imagePath.split('/');
                             const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
                             const cycleId = extractCycleIdFromImagePath(imagePath);
-                            html += renderImageCard(imagePath, sourceMode, folder, cycleId);
+                            html += renderImageCard(imagePath, sourceMode, folder, cycleId, true);
                         }
                         html += '</div>';
                     }
