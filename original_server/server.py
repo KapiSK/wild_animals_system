@@ -2851,11 +2851,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentTelemetry = null;
             let currentViewMode = 'grouped';
             let currentExpandedSections = {};
-<<<<<<< HEAD
-=======
             let currentCycleImageMode = {};
-            let currentSortMode = 'date_desc';
->>>>>>> origin/test
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
             let currentSortMode = 'date_desc';
 
