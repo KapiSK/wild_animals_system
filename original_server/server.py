@@ -49,13 +49,13 @@ API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = resolve_config_path(os.getenv("USER_ACCESS_FILE", "user_access_config.json"))
 TELEMETRY_FILE = resolve_config_path(os.getenv("TELEMETRY_FILE", "telemetry.json"))
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
-    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">Gallery</span>'
 else:
-    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">Gallery</span>'
 
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
@@ -378,6 +378,234 @@ def build_event_metadata_map(base_dir: str, files: list) -> dict:
                 meta["video_paths"] = get_video_relpaths_for_event(camera_id, event_id)
                 metadata_map[key] = meta
     return metadata_map
+
+
+def collect_event_images(base_dir: str) -> dict:
+    events: dict[tuple[str, str], list[str]] = defaultdict(list)
+    if not os.path.isdir(base_dir):
+        return events
+
+    for root, _, filenames in os.walk(base_dir):
+        for filename in filenames:
+            if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".gif")):
+                continue
+            rel_path = os.path.relpath(os.path.join(root, filename), base_dir).replace(os.sep, "/")
+            camera_id = rel_path.split("/", 1)[0]
+            event_id = extract_cycle_id(filename)
+            events[(camera_id, event_id)].append(rel_path)
+
+    for rel_paths in events.values():
+        rel_paths.sort()
+    return events
+
+
+def build_event_metadata_payload(camera_id: str, event_id: str) -> dict | None:
+    processed_images = get_related_processed_images(camera_id, event_id)
+    raw_images = get_related_raw_images(camera_id, event_id)
+    if not processed_images and not raw_images:
+        return None
+
+    existing_metadata = load_event_metadata(camera_id, event_id) or {}
+    source = existing_metadata.get("source", "unknown")
+
+    selected_images = processed_images or raw_images
+    image_summaries = dict(existing_metadata.get("image_summaries", {}))
+    normalized_summaries = {}
+    labels = set()
+    target_count = 0
+    max_conf = 0.0
+    detected_images_count = 0
+
+    for rel_path in selected_images:
+        filename = os.path.basename(rel_path)
+        summary = image_summaries.get(filename, "")
+        if summary:
+            normalized_summaries[filename] = summary
+        if summary and summary != "No targets":
+            detected_images_count += 1
+            for part in summary.split(","):
+                label_part = part.strip()
+                if not label_part:
+                    continue
+                if ":" in label_part:
+                    label_name, count_text = label_part.split(":", 1)
+                    label_name = label_name.strip()
+                    labels.add(label_name)
+                    try:
+                        count_value = int(count_text.strip())
+                    except ValueError:
+                        count_value = 1
+                else:
+                    label_name = label_part
+                    labels.add(label_name)
+                    count_value = 1
+                target_count += count_value
+                max_conf = max(max_conf, 1.0)
+        elif summary == "No targets":
+            normalized_summaries[filename] = summary
+
+    best_image = existing_metadata.get("best_image", "")
+    if not best_image or os.path.basename(best_image) not in {os.path.basename(path) for path in selected_images}:
+        best_image = selected_images[0]
+
+    cycle_time = existing_metadata.get("cycle_time", "")
+    if not cycle_time and selected_images:
+        sample_name = os.path.basename(selected_images[0])
+        match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", sample_name, re.IGNORECASE)
+        if match_new:
+            time_raw = match_new.group(2)
+            cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+
+    video_paths = get_video_relpaths_for_event(camera_id, event_id)
+
+    return {
+        "event_id": event_id,
+        "camera_id": camera_id,
+        "source": source,
+        "labels": sorted(labels) or existing_metadata.get("labels", []),
+        "target_count": target_count or existing_metadata.get("target_count", 0),
+        "detected_images_count": detected_images_count or existing_metadata.get("detected_images_count", 0),
+        "max_conf": max_conf or existing_metadata.get("max_conf", 0.0),
+        "summary_text": existing_metadata.get("summary_text", ""),
+        "best_image": best_image if "/" in best_image else f"{camera_id}/{os.path.basename(best_image)}",
+        "images": [path if "/" in path else f"{camera_id}/{path}" for path in selected_images],
+        "image_summaries": normalized_summaries or existing_metadata.get("image_summaries", {}),
+        "has_video": bool(video_paths),
+        "cycle_time": cycle_time,
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def backfill_event_metadata() -> None:
+    processed_events = collect_event_images(PROCESSED_DIR)
+    raw_events = collect_event_images(UPLOAD_DIR)
+    event_keys = set(processed_events.keys()) | set(raw_events.keys())
+    if not event_keys:
+        logger.info("No existing events found for metadata backfill.")
+        return
+
+    updated = 0
+    skipped = 0
+    for camera_id, event_id in sorted(event_keys):
+        try:
+            payload = build_event_metadata_payload(camera_id, event_id)
+            if not payload:
+                skipped += 1
+                continue
+
+            existing_metadata = load_event_metadata(camera_id, event_id)
+            if existing_metadata == payload:
+                skipped += 1
+                continue
+
+            save_event_metadata(camera_id, event_id, payload)
+            updated += 1
+        except Exception as e:
+            logger.error(f"Failed to backfill event metadata for {camera_id}/{event_id}: {e}")
+
+    logger.info(f"Event metadata backfill completed. updated={updated}, skipped={skipped}")
+
+
+def cycle_needs_reinference(camera_id: str, event_id: str) -> bool:
+    processed_images = get_related_processed_images(camera_id, event_id)
+    raw_images = get_related_raw_images(camera_id, event_id)
+    selected_images = processed_images or raw_images
+    if not selected_images:
+        return False
+
+    metadata = load_event_metadata(camera_id, event_id) or {}
+    image_summaries = metadata.get("image_summaries")
+    if not isinstance(image_summaries, dict):
+        return True
+
+    for rel_path in selected_images:
+        filename = os.path.basename(rel_path)
+        summary = image_summaries.get(filename)
+        if not isinstance(summary, str) or not summary.strip():
+            return True
+    return False
+
+
+def reprocess_event_cycle(camera_id: str, event_id: str) -> bool:
+    raw_images = get_related_raw_images(camera_id, event_id)
+    if not raw_images:
+        logger.warning(f"Reinference skipped for {camera_id}/{event_id}: raw images not found.")
+        return False
+
+    analyzed_results = []
+    for rel_path in raw_images:
+        raw_abs = resolve_image_path(UPLOAD_DIR, rel_path)
+        if not os.path.isfile(raw_abs):
+            logger.warning(f"Missing raw image during reinference: {raw_abs}")
+            continue
+        analyzed_results.append(analyze_image_for_cycle(raw_abs, os.path.basename(rel_path), "backfill"))
+
+    if not analyzed_results:
+        return False
+
+    analyzed_results.sort(key=lambda item: item['filename'])
+    labels = sorted({label for item in analyzed_results for label in item.get('labels', [])})
+    detected_images_count = sum(1 for item in analyzed_results if item.get('target_count', 0) > 0)
+    best_data = sorted(analyzed_results, key=lambda item: (item.get('target_count', 0), item.get('max_conf', 0.0)), reverse=True)[0]
+
+    cycle_time = ""
+    match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", best_data['filename'], re.IGNORECASE)
+    if match_new:
+        time_raw = match_new.group(2)
+        cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
+
+    source = (load_event_metadata(camera_id, event_id) or {}).get("source", "backfill")
+    payload = {
+        "event_id": event_id,
+        "camera_id": camera_id,
+        "source": source,
+        "labels": labels,
+        "target_count": max((item.get("target_count", 0) for item in analyzed_results), default=0),
+        "detected_images_count": detected_images_count,
+        "max_conf": max((item.get("max_conf", 0.0) for item in analyzed_results), default=0.0),
+        "summary_text": best_data.get("summary_text", ""),
+        "best_image": f"{camera_id}/{best_data['filename']}",
+        "images": [f"{camera_id}/{item['filename']}" for item in analyzed_results],
+        "image_summaries": {item['filename']: item.get("summary_text", "") for item in analyzed_results},
+        "has_video": len(get_video_relpaths_for_event(camera_id, event_id)) > 0,
+        "cycle_time": cycle_time,
+        "updated_at": datetime.now().isoformat(),
+    }
+    save_event_metadata(camera_id, event_id, payload)
+    return True
+
+
+def reinfer_missing_cycles() -> None:
+    processed_events = collect_event_images(PROCESSED_DIR)
+    raw_events = collect_event_images(UPLOAD_DIR)
+    event_keys = sorted(set(processed_events.keys()) | set(raw_events.keys()))
+    if not event_keys:
+        logger.info("No existing events found for reinference scan.")
+        return
+
+    updated = 0
+    skipped = 0
+    for camera_id, event_id in event_keys:
+        try:
+            if not cycle_needs_reinference(camera_id, event_id):
+                skipped += 1
+                continue
+            if reprocess_event_cycle(camera_id, event_id):
+                updated += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            logger.error(f"Failed to reinfer cycle {camera_id}/{event_id}: {e}")
+
+    logger.info(f"Missing cycle reinference completed. updated={updated}, skipped={skipped}")
+
+
+async def run_startup_maintenance() -> None:
+    try:
+        await asyncio.to_thread(backfill_event_metadata)
+        await asyncio.to_thread(reinfer_missing_cycles)
+    except Exception as e:
+        logger.error(f"Startup maintenance failed: {e}")
 
 
 def file_matches_filters(rel_path: str, metadata_map: dict, filters: dict) -> bool:
@@ -836,6 +1064,7 @@ cycle_manager = CycleManager()
 
 @app.on_event("startup")
 async def startup_event():
+    asyncio.create_task(run_startup_maintenance())
     asyncio.create_task(cycle_manager.check_timeouts())
 
 def extract_cycle_id(filename: str) -> str:
@@ -865,24 +1094,17 @@ def extract_cycle_id(filename: str) -> str:
         logger.error(f"Failed to extract cycle ID: {e}")
         return "unknown"
 
-async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float, source: str):
-    """
-    Perform inference and Add to Cycle Buffer.
-    """
-    logger.info(f"Processing {filename}...")
-    
-    inference_start = time.perf_counter()
-    # Run inference
-    model.conf = 0.25 
+
+def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
+    model.conf = 0.25
     results = model(image_path)
-    inference_duration = time.perf_counter() - inference_start
-    
+
     detected_targets = {}
     target_found = False
     max_conf = 0.0
-    
+
     df = results.pandas().xyxy[0]
-    
+
     for index, row in df.iterrows():
         cls = int(row['class'])
         if cls in TARGET_CLASSES:
@@ -892,27 +1114,24 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
             detected_targets[label] = detected_targets.get(label, 0) + 1
             if conf > max_conf:
                 max_conf = conf
-    
-    # Generate summary string
+
     if detected_targets:
         counts_str = ", ".join([f"{label}: {count}" for label, count in detected_targets.items()])
     else:
         counts_str = "No targets"
-        
-    annotated_path = image_path # Default to original if no annotation needed
-    
-    # Extract pure cam id for processed directory
+
+    annotated_path = image_path
+
     pure_cam_id = "unknown"
     match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
     if match_new:
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", match_new.group(1))
         if "_" in pure_cam_id:
             parts = pure_cam_id.rsplit("_", 1)
-            if parts[1].isdigit():  # KD1_000121 → KD1 のみ分割、Lab_Entrance はそのまま
+            if parts[1].isdigit():
                 pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
 
-    # 常にPROCESSED_DIRに保存する（ギャラリーですべてのデータを見れるようにするため）
     proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
     os.makedirs(proc_cam_dir, exist_ok=True)
     annotated_path = os.path.join(proc_cam_dir, filename)
@@ -922,39 +1141,35 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
             img = cv2.imread(image_path)
             for index, row in df.iterrows():
                 cls = int(row['class'])
-                # Only draw BB for targets
                 if cls in TARGET_CLASSES:
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
                     name_str = str(row['name']).lower()
-                    box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255) # Person=Green, Animal=Red (BGR)
-                    label_bg_color = (255, 0, 0) # Blue (BGR)
+                    box_color = (0, 255, 0) if name_str == 'person' else (0, 0, 255)
+                    label_bg_color = box_color
+                    label_text_color = (255, 0, 0)
 
                     label_text = f"{row['name']} {row['confidence']:.2f}"
                     cv2.rectangle(img, (x1, y1), (x2, y2), box_color, 2)
                     t_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
                     c2 = x1 + t_size[0], y1 - t_size[1] - 3
                     cv2.rectangle(img, (x1, y1), c2, label_bg_color, -1, cv2.LINE_AA)
-                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, [255, 255, 255], thickness=1, lineType=cv2.LINE_AA)
+                    cv2.putText(img, label_text, (x1, y1 - 2), 0, 0.5, label_text_color, thickness=1, lineType=cv2.LINE_AA)
 
             cv2.imwrite(annotated_path, img)
             logger.info(f"Target detected! Saved annotated image to {annotated_path}")
         except Exception as e:
             logger.error(f"Failed to annotate: {e}")
             import shutil
-            shutil.copy2(image_path, annotated_path) # Fallback
+            shutil.copy2(image_path, annotated_path)
     else:
         logger.info(f"No targets detected in {filename}. Copying original to processed dir.")
         import shutil
         shutil.copy2(image_path, annotated_path)
 
-    # Add to Cycle Buffer
     cycle_id = extract_cycle_id(filename)
-    logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
-    
-    # Calculate total target count
     total_targets = sum(detected_targets.values())
-    
-    result_data = {
+
+    return {
         'filename': filename,
         'target_count': total_targets,
         'max_conf': max_conf,
@@ -965,13 +1180,26 @@ async def process_and_notify(image_path: str, filename: str, receive_start: floa
         'camera_id': pure_cam_id,
         'event_id': cycle_id
     }
-    
+
+
+async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float, source: str):
+    """
+    Perform inference and Add to Cycle Buffer.
+    """
+    logger.info(f"Processing {filename}...")
+
+    inference_start = time.perf_counter()
+    result_data = analyze_image_for_cycle(image_path, filename, source)
+    inference_duration = time.perf_counter() - inference_start
+    cycle_id = result_data['event_id']
+    logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
+
     timing_info = {
         'receive_start': receive_start,
         'save_duration': save_duration,
         'inference_duration': inference_duration
     }
-    
+
     await cycle_manager.add_result(cycle_id, result_data, timing_info)
 
 @app.post("/upload")
@@ -1315,7 +1543,7 @@ async def event_detail(
             .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 8px 20px rgba(34,51,43,0.05); border:2px solid transparent; transition:transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }}
             .thumb:hover {{ transform:translateY(-2px); }}
             .thumb.active {{ border-color:#2f855a; box-shadow:0 14px 28px rgba(47,133,90,0.18); background:#f2fbf5; }}
-            .thumb img {{ width:100%; height:130px; object-fit:cover; border-radius:10px; display:block; }}
+            .thumb img {{ width:100%; height:130px; object-fit:contain; border-radius:10px; display:block; background:#f8fbf8; }}
             .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; text-align:center; font-weight:600; }}
             .empty-video {{ min-height:320px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
             @media (max-width: 960px) {{ .thumbs {{ grid-template-columns: 1fr; }} .main-image-wrap {{ min-height:260px; }} }}
@@ -1331,7 +1559,6 @@ async def event_detail(
                 <div class="meta-card"><span class="meta-label">Camera ID</span><span class="meta-value">{camera_id}</span></div>
                 <div class="meta-card"><span class="meta-label">Event ID</span><span class="meta-value">{event_id}</span></div>
                 <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or '-'}</span></div>
-                <div class="meta-card"><span class="meta-label">View</span><span class="meta-value">{source_label}</span></div>
                 <div class="meta-card"><span class="meta-label">Detected Labels</span><span class="meta-value">{labels_text}</span></div>
                 <div class="meta-card"><span class="meta-label">Detected Images</span><span class="meta-value">{detected_count}</span></div>
                 <div class="meta-card"><span class="meta-label">Video</span><span class="meta-value">{'yes' if primary_video else 'no'}</span></div>
@@ -2456,7 +2683,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Cloud Server Gallery</title>
+        <title>SLAB WILD ANIMALS Web</title>
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
             body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
@@ -2495,10 +2722,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .cycle-title-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
             .cycle-title-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex-shrink: 0; background: #edf2f7; border: 1px solid #d9e5dd; }
             .cycle-title-text { overflow-wrap: anywhere; }
-            .cycle-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
-            .cycle-image-mode { display:flex; gap:8px; flex-wrap:wrap; }
-            .mini-toggle { border:1px solid #d4e5d8; background:#ffffff; color:#21543b; border-radius:999px; padding:6px 12px; font:inherit; font-weight:600; cursor:pointer; }
-            .mini-toggle.active { background:#21543b; color:#ffffff; border-color:#21543b; }
             .cycle-latest { margin-bottom: 22px; }
             .latest-container h3 { color: #276749; margin-bottom: 15px; font-weight: 500; }
             .controls-container { display: flex; justify-content: center; align-items: center; margin-bottom: 40px; position: relative; max-width: 1200px; margin-left: auto; margin-right: auto; padding: 0 20px; }
@@ -2539,10 +2762,16 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .flat-cycle-content.open { display: block; }
             .sort-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; justify-content: center; flex-wrap: wrap; }
             .sort-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-family: inherit; color: #2d3748; background: #ffffff; outline: none; cursor: pointer; font-weight: 500; }
+<<<<<<< HEAD
+            .sort-direction { display: flex; gap: 8px; }
+            .sort-direction button { padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #ffffff; cursor: pointer; font-weight: 500; color: #4a5568; transition: all 0.2s; }
+            .sort-direction button.active { background: #2f855a; color: white; border-color: #2f855a; }
+=======
+>>>>>>> origin/test
         </style>
     </head>
     <body>
-        <h1>Cloud Server Gallery</h1>
+        <h1>SLAB WILD ANIMALS Web</h1>
         <div style="text-align:center; margin: 0 0 12px 0;">""" + ENV_BADGE + """</div>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
@@ -2623,8 +2852,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentViewMode = 'grouped';
             let currentExpandedSections = {};
             let currentCycleImageMode = {};
-            let currentSortMode = 'date_desc';
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
+            let currentSortMode = 'date_desc';
 
             function arraysEqual(a, b) {
                 if (a === b) return true;
@@ -2651,9 +2880,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 if (!el) return;
                 if (el.style.display === 'none' || el.style.display === '') {
                     el.style.display = 'block';
+                    currentExpandedSections[sectionId] = true;
                     if (arrow) arrow.style.transform = 'rotate(90deg)';
                 } else {
                     el.style.display = 'none';
+                    currentExpandedSections[sectionId] = false;
                     if (arrow) arrow.style.transform = 'rotate(0deg)';
                 }
             }
@@ -2711,15 +2942,37 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return '99999999999999';
             }
 
-            function getDetectionCountForCycle(cycleId) {
-                if (!currentMetadata) return 0;
-                for (const key in currentMetadata) {
-                    if (key.endsWith(`/${cycleId}`)) {
-                        const meta = currentMetadata[key];
-                        return (meta.labels && meta.labels.length) || 0;
-                    }
+            function formatStatusDot(color) {
+                return `<span style="width:8px; height:8px; border-radius:50%; background:${color}; display:inline-block; margin-right:4px; flex-shrink:0;"></span>`;
+            }
+
+            function formatTelemetryBadge(icon, label, value, color) {
+                return `<span style="display:inline-flex; align-items:center; gap:6px; border:1px solid #cbd5e0; border-radius:999px; padding:6px 10px; font-size:0.85rem; color:#2d3748; background:#ffffff; white-space:nowrap;"><span>${formatStatusDot(color)}</span><span>${icon} ${label}: ${value}</span></span>`;
+            }
+
+            function formatUpdateAge(updatedAt) {
+                const dt = new Date(updatedAt);
+                const now = new Date();
+                const diffMs = now - dt;
+                const diffMins = Math.floor(diffMs / (1000 * 60));
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                if (diffDays >= 1) {
+                    return `${diffDays}日前`;
                 }
-                return 0;
+                if (diffHours >= 1) {
+                    return `${diffHours}時間前`;
+                }
+                return `${diffMins}分前`;
+            }
+
+            function getTemperatureColor(tempValue) {
+                if (tempValue >= 35) return '#e53e3e';
+                if (tempValue >= 30) return '#dd6b20';
+                if (tempValue >= 20) return '#38a169';
+                if (tempValue >= 10) return '#319795';
+                if (tempValue >= 0) return '#3182ce';
+                return '#2b6cb0';
             }
 
             function sortCycles(cycles, sortMode) {
@@ -2768,18 +3021,51 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return groups;
             }
 
-            function getCycleStateKey(folder, cycleId) {
-                return `${folder}/${cycleId}`;
+            function getDetectionCountForCycle(cycleId) {
+                if (!currentMetadata) return 0;
+                for (const key in currentMetadata) {
+                    if (key.endsWith(`/${cycleId}`)) {
+                        const meta = currentMetadata[key];
+                        return (meta.labels && meta.labels.length) || 0;
+                    }
+                }
+                return 0;
             }
 
-            function getCycleImages(folder, cycleId, sourceMode) {
-                const sourceImages = sourceMode === 'raw' ? currentRaw : currentProcessed;
-                if (!sourceImages) return [];
-                return sourceImages.filter(imagePath => {
-                    const parts = imagePath.split('/');
-                    const imageFolder = parts.length > 1 ? parts[0] : 'Root';
-                    return imageFolder === folder && extractCycleIdFromImagePath(imagePath) === cycleId;
+            function sortCycles(cycles, sortMode) {
+                const entries = Object.entries(cycles);
+                
+                if (sortMode === 'date_desc') {
+                    entries.sort((a, b) => {
+                        const timeA = extractTimestampFromImagePath(a[1][0]);
+                        const timeB = extractTimestampFromImagePath(b[1][0]);
+                        return timeB.localeCompare(timeA);
+                    });
+                } else if (sortMode === 'date_asc') {
+                    entries.sort((a, b) => {
+                        const timeA = extractTimestampFromImagePath(a[1][0]);
+                        const timeB = extractTimestampFromImagePath(b[1][0]);
+                        return timeA.localeCompare(timeB);
+                    });
+                } else if (sortMode === 'detections_desc') {
+                    entries.sort((a, b) => {
+                        const countA = getDetectionCountForCycle(a[0]);
+                        const countB = getDetectionCountForCycle(b[0]);
+                        return countB - countA;
+                    });
+                } else if (sortMode === 'detections_asc') {
+                    entries.sort((a, b) => {
+                        const countA = getDetectionCountForCycle(a[0]);
+                        const countB = getDetectionCountForCycle(b[0]);
+                        return countA - countB;
+                    });
+                }
+                
+                const result = {};
+                entries.forEach(([key, value]) => {
+                    result[key] = value;
                 });
+                return result;
             }
 
             function buildEventUrl(imagePath, sourceMode) {
@@ -2789,12 +3075,6 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             function rerenderGalleries() {
                 renderGallery('gallery-processed', currentProcessed, '/images/processed');
                 renderGallery('gallery-raw', currentRaw, '/images/raw');
-            }
-
-            function setCycleImageMode(folder, cycleId, sourceMode, evt) {
-                if (evt) evt.stopPropagation();
-                currentCycleImageMode[getCycleStateKey(folder, cycleId)] = sourceMode;
-                rerenderGalleries();
             }
 
             function getImageSummary(folder, cycleId, filename) {
@@ -2855,20 +3135,104 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         const folderImages = groups[folder];
                         const sectionId = `cam-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}`;
                         const cycleGroups = groupImagesByCycle(folderImages);
+                        const isSectionExpanded = !!currentExpandedSections[sectionId];
 
                         let teleHtml = '';
                         if (currentTelemetry && currentTelemetry[folder]) {
                             const t = currentTelemetry[folder];
-                            teleHtml = '<div style="font-size: 0.9rem; color: #4a5568; display: flex; gap: 12px; font-weight: normal;">';
-                            if (t.battery) teleHtml += `<span title="Battery">Battery: ${t.battery.replace('Median', 'Mid')}</span>`;
-                            if (t.signal) teleHtml += `<span title="Signal">Signal: ${t.signal}</span>`;
-                            if (t.temperature) teleHtml += `<span title="Temperature">Temp: ${t.temperature.split(' ')[0]}</span>`;
-                            if (t.free_space) teleHtml += `<span title="Free space">Free: ${t.free_space}</span>`;
-                            if (t.updated_at) {
-                                const dt = new Date(t.updated_at);
-                                const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
-                                teleHtml += `<span title="Updated">Updated: ${fTime}</span>`;
+                            teleHtml = '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">';
+
+                            if (t.battery) {
+                                const batteryValue = parseFloat(t.battery.replace(/[^0-9.-]/g, ''));
+                                const batteryColor = batteryValue < 20 ? '#e53e3e' : batteryValue < 50 ? '#dd6b20' : '#38a169';
+                                const batteryText = t.battery.replace('Median', '');
+                                teleHtml += formatTelemetryBadge('🔋', 'バッテリー', batteryText, batteryColor);
                             }
+
+                            if (t.signal) {
+                                // "Very Good(4G)" のような括弧付きも正しく判定するため、括弧前の部分だけ取得
+                                const signalBase = t.signal.trim().replace(/\(.*\)/, '').trim().toLowerCase();
+                                let signalColor;
+                                if (signalBase === 'very good') {
+                                    signalColor = '#38a169';  // 緑
+                                } else if (signalBase === 'good') {
+                                    signalColor = '#68d391';  // 薄緑
+                                } else if (signalBase === 'weak') {
+                                    signalColor = '#dd6b20';  // 橙
+                                } else {
+                                    signalColor = '#e53e3e';  // 赤 (Very Weak)
+                                }
+                                teleHtml += formatTelemetryBadge('📶', '信号', t.signal, signalColor);
+                            }
+
+                            if (t.temperature) {
+                                const tempValue = parseFloat(t.temperature.split(' ')[0]);
+                                const tempColor = getTemperatureColor(tempValue);
+                                teleHtml += formatTelemetryBadge('🌡️', '温度', `${tempValue}°C`, tempColor);
+                            }
+
+                            if (t.free_space) {
+                                const spaceMatch = t.free_space.match(/(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B)/i);
+                                if (spaceMatch) {
+                                    const spaceValue = parseFloat(spaceMatch[1]);
+                                    const rawUnit = spaceMatch[2].toUpperCase();
+                                    const spaceUnit = rawUnit === 'M' ? 'MB' : rawUnit === 'G' ? 'GB' : rawUnit === 'K' ? 'KB' : rawUnit;
+                                    
+                                    // デフォルトは絶対値ベースの色判定
+                                    let spaceColor = '#38a169';
+                                    if ((spaceUnit === 'GB' && spaceValue < 1) || (spaceUnit === 'MB' && spaceValue < 100)) {
+                                        spaceColor = '#e53e3e';
+                                    } else if ((spaceUnit === 'GB' && spaceValue < 2) || (spaceUnit === 'MB' && spaceValue < 500)) {
+                                        spaceColor = '#dd6b20';
+                                    }
+
+                                    // %表示の計算（total_spaceがある場合）
+                                    let spaceDisplay = t.free_space;
+                                    if (t.total_space) {
+                                        const totalMatch = t.total_space.match(/(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B)/i);
+                                        if (totalMatch) {
+                                            const totalValue = parseFloat(totalMatch[1]);
+                                            const rawTotalUnit = totalMatch[2].toUpperCase();
+                                            const totalUnit = rawTotalUnit === 'M' ? 'MB' : rawTotalUnit === 'G' ? 'GB' : rawTotalUnit === 'K' ? 'KB' : rawTotalUnit;
+                                            // 単位をMBに統一して計算
+                                            const unitFactor = { 'GB': 1024, 'MB': 1, 'KB': 1/1024, 'B': 1/(1024*1024) };
+                                            const freeInMB = spaceValue * (unitFactor[spaceUnit] || 1);
+                                            const totalInMB = totalValue * (unitFactor[totalUnit] || 1);
+                                            if (totalInMB > 0) {
+                                                const pct = Math.round((freeInMB / totalInMB) * 100);
+                                                spaceDisplay = `${t.free_space} (${pct}%)`;
+                                                // %ベースで色を上書き（絶対値より優先）
+                                                if (pct < 10) {
+                                                    spaceColor = '#e53e3e';  // 赤: 残り10%未満
+                                                } else if (pct < 20) {
+                                                    spaceColor = '#dd6b20';  // 橙: 残り20%未満
+                                                } else {
+                                                    spaceColor = '#38a169';  // 緑: 残り20%以上
+                                                }
+                                            }
+                                        }
+                                    }
+                                    teleHtml += formatTelemetryBadge('💾', '空き容量', spaceDisplay, spaceColor);
+                                }
+                            }
+
+                            if (t.updated_at) {
+                                const updateLabel = formatUpdateAge(t.updated_at);
+                                const dt = new Date(t.updated_at);
+                                const diffMs = new Date() - dt;
+                                const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                                let timeColor;
+                                if (diffDays > 3) {
+                                    timeColor = '#e53e3e';   // 赤: 3日以上
+                                } else if (diffDays > 1) {
+                                    timeColor = '#dd6b20';   // 橙: 1〜3日
+                                } else {
+                                    timeColor = '#38a169';   // 緑: 1日以内
+                                }
+                                const fTime = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2, '0')}:${dt.getMinutes().toString().padStart(2, '0')}`;
+                                teleHtml += formatTelemetryBadge('🕒', '更新', `${fTime} (${updateLabel})`, timeColor);
+                            }
+
                             teleHtml += '</div>';
                         }
 
@@ -2878,30 +3242,19 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     <span>CAM: ${folder}</span>
                                     <div style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
                                         ${teleHtml}
-                                        <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s;">▶</span>
+                                        <span id="${sectionId}-arrow" style="font-size:1.2rem; transition: transform 0.3s; transform:${isSectionExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                     </div>
                                 </div>
-                                <div id="${sectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease;">
+                                <div id="${sectionId}" style="display:${isSectionExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease;">
                                     <div class="cycle-list">
                         `;
 
                         for (const cycleId of Object.keys(cycleGroups).sort().reverse()) {
-                            let cycleSourceMode = currentCycleImageMode[getCycleStateKey(folder, cycleId)] || defaultSourceMode;
-                            let cycleImages = getCycleImages(folder, cycleId, cycleSourceMode);
-                            if (!cycleImages.length) {
-                                const alternateMode = cycleSourceMode === 'processed' ? 'raw' : 'processed';
-                                const alternateImages = getCycleImages(folder, cycleId, alternateMode);
-                                if (alternateImages.length) {
-                                    cycleImages = alternateImages;
-                                    cycleSourceMode = alternateMode;
-                                }
-                            }
-                            if (!cycleImages.length) {
-                                cycleImages = cycleGroups[cycleId];
-                            }
-
+                            const cycleSourceMode = defaultSourceMode;
+                            const cycleImages = cycleGroups[cycleId];
                             const previewImage = cycleImages[0];
                             const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
+                            const isCycleExpanded = !!currentExpandedSections[cycleSectionId];
 
                             let labelsHtml = '';
                             let cycleTimeHtml = '';
@@ -2931,15 +3284,9 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <span class="badge" style="margin-left: 15px;">${cycleImages.length} images</span>
                                             ${labelsHtml}
                                         </div>
-                                        <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s;">▶</span>
+                                        <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s; transform:${isCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                     </div>
-                                    <div id="${cycleSectionId}" style="display:none; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
-                                        <div class="cycle-toolbar">
-                                            <div class="cycle-image-mode">
-                                                <button class="mini-toggle ${cycleSourceMode === 'processed' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'processed', event)">With box</button>
-                                                <button class="mini-toggle ${cycleSourceMode === 'raw' ? 'active' : ''}" onclick="setCycleImageMode('${folder}', '${cycleId}', 'raw', event)">No box</button>
-                                            </div>
-                                        </div>
+                                    <div id="${cycleSectionId}" style="display:${isCycleExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
                             `;
 
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {

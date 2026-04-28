@@ -372,12 +372,14 @@ class GmailMovProcessor:
             bat = _re.search(r"Battery:\s*(.*)", clean_body, _re.IGNORECASE)
             temp = _re.search(r"Temperature:\s*(.*)", clean_body, _re.IGNORECASE)
             f_space = _re.search(r"Free space:\s*(.*)", clean_body, _re.IGNORECASE)
+            t_space = _re.search(r"Total space:\s*(.*)", clean_body, _re.IGNORECASE)
             imei = _re.search(r"IMEI/MEID:\s*(.*)", clean_body, _re.IGNORECASE)
             
             if sig: telemetry['signal'] = sig.group(1).strip()
             if bat: telemetry['battery'] = bat.group(1).strip()
             if temp: telemetry['temperature'] = temp.group(1).strip()
             if f_space: telemetry['free_space'] = f_space.group(1).strip()
+            if t_space: telemetry['total_space'] = t_space.group(1).strip()
             if imei: telemetry['imei'] = imei.group(1).strip()
 
         saved_videos = 0
