@@ -2762,9 +2762,12 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .flat-cycle-content.open { display: block; }
             .sort-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; justify-content: center; flex-wrap: wrap; }
             .sort-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-family: inherit; color: #2d3748; background: #ffffff; outline: none; cursor: pointer; font-weight: 500; }
+<<<<<<< HEAD
             .sort-direction { display: flex; gap: 8px; }
             .sort-direction button { padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #ffffff; cursor: pointer; font-weight: 500; color: #4a5568; transition: all 0.2s; }
             .sort-direction button.active { background: #2f855a; color: white; border-color: #2f855a; }
+=======
+>>>>>>> origin/test
         </style>
     </head>
     <body>
@@ -2848,6 +2851,11 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentTelemetry = null;
             let currentViewMode = 'grouped';
             let currentExpandedSections = {};
+<<<<<<< HEAD
+=======
+            let currentCycleImageMode = {};
+            let currentSortMode = 'date_desc';
+>>>>>>> origin/test
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
             let currentSortMode = 'date_desc';
 
@@ -2969,6 +2977,42 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 if (tempValue >= 10) return '#319795';
                 if (tempValue >= 0) return '#3182ce';
                 return '#2b6cb0';
+            }
+
+            function sortCycles(cycles, sortMode) {
+                const entries = Object.entries(cycles);
+                
+                if (sortMode === 'date_desc') {
+                    entries.sort((a, b) => {
+                        const timeA = extractTimestampFromImagePath(a[1][0]);
+                        const timeB = extractTimestampFromImagePath(b[1][0]);
+                        return timeB.localeCompare(timeA);
+                    });
+                } else if (sortMode === 'date_asc') {
+                    entries.sort((a, b) => {
+                        const timeA = extractTimestampFromImagePath(a[1][0]);
+                        const timeB = extractTimestampFromImagePath(b[1][0]);
+                        return timeA.localeCompare(timeB);
+                    });
+                } else if (sortMode === 'detections_desc') {
+                    entries.sort((a, b) => {
+                        const countA = getDetectionCountForCycle(a[0]);
+                        const countB = getDetectionCountForCycle(b[0]);
+                        return countB - countA;
+                    });
+                } else if (sortMode === 'detections_asc') {
+                    entries.sort((a, b) => {
+                        const countA = getDetectionCountForCycle(a[0]);
+                        const countB = getDetectionCountForCycle(b[0]);
+                        return countA - countB;
+                    });
+                }
+                
+                const result = {};
+                entries.forEach(([key, value]) => {
+                    result[key] = value;
+                });
+                return result;
             }
 
             function groupImagesByCycle(images) {
@@ -3283,27 +3327,82 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     }
                 } else {
                     const sourceMode = defaultSourceMode;
-                    const latestImg = images[0];
-                    html += `
-                        <div class="latest-container" style="margin-top: 20px;">
-                            <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
-                            <div class="latest-item">
-                                <img src="${basePath}/${latestImg}" title="Click to open event detail" onclick="window.location.href='${buildEventUrl(latestImg, sourceMode)}'">
-                                <span>${latestImg}</span>
-                            </div>
-                        </div>
-                    `;
-
-                    if (images.length > 1) {
-                        html += '<div class="gallery-grid" style="margin-top: 30px;">';
-                        for (let i = 1; i < images.length; i++) {
-                            const imagePath = images[i];
-                            const pathParts = imagePath.split('/');
-                            const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
-                            const cycleId = extractCycleIdFromImagePath(imagePath);
-                            html += renderImageCard(imagePath, sourceMode, folder, cycleId);
+                    const allCycles = groupImagesByCycle(images);
+                    const sortedCycles = sortCycles(allCycles, currentSortMode);
+                    
+                    const cycleEntries = Object.entries(sortedCycles);
+                    
+                    html += '<div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">';
+                    
+                    cycleEntries.forEach((entry, idx) => {
+                        const cycleId = entry[0];
+                        const cycleImages = entry[1];
+                        const previewImage = cycleImages[0];
+                        const flatCycleSectionId = `flat-cycle-${containerId}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
+                        const isFlatCycleExpanded = !!currentExpandedSections[flatCycleSectionId];
+                        
+                        let cycleMetaKey = null;
+                        let detectionCount = 0;
+                        let labelsStr = 'No detections';
+                        let badgeClass = 'no-labels';
+                        
+                        if (currentMetadata) {
+                            for (const key in currentMetadata) {
+                                if (key.endsWith(`/${cycleId}`)) {
+                                    cycleMetaKey = key;
+                                    const meta = currentMetadata[key];
+                                    if (meta.labels && meta.labels.length > 0) {
+                                        detectionCount = meta.labels.length;
+                                        labelsStr = meta.labels.join(', ');
+                                        badgeClass = 'labels';
+                                    }
+                                    break;
+                                }
+                            }
                         }
-                        html += '</div>';
+                        
+                        const pathParts = previewImage.split('/');
+                        const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
+                        const timeStr = getCycleTime(folder, cycleId);
+                        const timeHtml = timeStr ? `<span style="font-size: 0.9em; color: #4a5568; margin-left: 12px;">🕒 ${timeStr}</span>` : '';
+                        
+                        html += `
+                            <div class="flat-cycle-item">
+                                <div class="flat-cycle-header" onclick="toggleSection('${flatCycleSectionId}')">
+                                    <img src="${sourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}" class="flat-cycle-thumb" alt="thumb" loading="lazy">
+                                    <div class="flat-cycle-info">
+                                        <div class="flat-cycle-title">Cycle: ${cycleId} ${timeHtml}</div>
+                                        <div class="flat-cycle-meta">
+                                            <span>CAM: ${folder}</span>
+                                        </div>
+                                    </div>
+                                    <div class="flat-cycle-badges">
+                                        <span class="flat-cycle-badge count">${cycleImages.length} images</span>
+                                        <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
+                                    </div>
+                                    <span class="flat-cycle-arrow" id="${flatCycleSectionId}-arrow" style="transform:${isFlatCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
+                                </div>
+                                <div id="${flatCycleSectionId}" class="flat-cycle-content${isFlatCycleExpanded ? ' open' : ''}">
+                                    <div class="gallery-grid" style="margin-top: 16px;">
+                        `;
+                        
+                        cycleImages.forEach(imagePath => {
+                            const imgPathParts = imagePath.split('/');
+                            const imgFolder = imgPathParts.length > 1 ? imgPathParts[0] : 'Root';
+                            html += renderImageCard(imagePath, sourceMode, imgFolder, cycleId, true);
+                        });
+                        
+                        html += `
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                    
+                    if (cycleEntries.length === 0) {
+                        html += '<div class="empty-msg">No images found yet. Captured images will appear here.</div>';
                     }
                 }
 
