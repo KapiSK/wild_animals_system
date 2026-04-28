@@ -2800,13 +2800,21 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             const cycleSectionId = `cycle-section-${containerId}-${folder.replace(/[^a-z0-9]/gi, '_')}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
 
                             let labelsHtml = '';
+                            let cycleTimeHtml = '';
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
                                 const meta = currentMetadata[`${folder}/${cycleId}`];
-                                if (meta.labels && meta.labels.length > 0) {
-                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #fff; background: #e53e3e; padding: 3px 10px; border-radius: 12px; font-weight: bold; letter-spacing: 0.5px;">${meta.labels.join(', ')}</span>`;
-                                } else {
-                                    labelsHtml = `<span style="margin-left: 10px; font-size: 0.85em; color: #718096; background: #edf2f7; padding: 3px 10px; border-radius: 12px; font-weight: bold;">No detections</span>`;
+                                if (meta.cycle_time) {
+                                    cycleTimeHtml = `<span style="margin-left: 15px; font-size: 0.9em; color: #4a5568;">🕒 ${meta.cycle_time}</span>`;
                                 }
+                                if (meta.labels && meta.labels.length > 0) {
+                                    labelsHtml = `<span style="margin-left: 15px; font-size: 0.85em; color: #fff; background: #e53e3e; padding: 3px 10px; border-radius: 12px; font-weight: bold; letter-spacing: 0.5px;">${meta.labels.join(', ')}</span>`;
+                                } else {
+                                    labelsHtml = `<span style="margin-left: 15px; font-size: 0.85em; color: #718096; background: #edf2f7; padding: 3px 10px; border-radius: 12px; font-weight: bold;">No detections</span>`;
+                                }
+                            }
+                            
+                            if (!cycleTimeHtml && cycleId.length === 14 && /^\\d+$/.test(cycleId)) {
+                                cycleTimeHtml = `<span style="margin-left: 15px; font-size: 0.9em; color: #4a5568;">🕒 ${cycleId.substring(0,4)}/${cycleId.substring(4,6)}/${cycleId.substring(6,8)} ${cycleId.substring(8,10)}:${cycleId.substring(10,12)}:${cycleId.substring(12,14)}</span>`;
                             }
 
                             html += `
@@ -2815,7 +2823,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                         <div class="cycle-title-main">
                                             <img src="${cycleSourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}" class="cycle-title-thumb" alt="thumb" loading="lazy">
                                             <span class="cycle-title-text">Cycle: ${cycleId}</span>
-                                            <span class="badge">${cycleImages.length} images</span>
+                                            ${cycleTimeHtml}
+                                            <span class="badge" style="margin-left: 15px;">${cycleImages.length} images</span>
                                             ${labelsHtml}
                                         </div>
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s;">▶</span>
