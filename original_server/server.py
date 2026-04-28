@@ -1546,6 +1546,9 @@ async def event_detail(
             .thumb img {{ width:100%; height:130px; object-fit:contain; border-radius:10px; display:block; background:#f8fbf8; }}
             .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; text-align:center; font-weight:600; }}
             .empty-video {{ min-height:320px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
+            .overlay {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }}
+            .overlay.active {{ display:flex; }}
+            .overlay img {{ max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }}
             @media (max-width: 960px) {{ .thumbs {{ grid-template-columns: 1fr; }} .main-image-wrap {{ min-height:260px; }} }}
         </style>
     </head>
@@ -1572,7 +1575,7 @@ async def event_detail(
                     </div>
                 </div>
                 <div class="main-image-wrap">
-                    <img class="main-image" src="{selected_image_url}" alt="{selected_filename}">
+                    <img class="main-image" src="{selected_image_url}" alt="{selected_filename}" onclick="openOverlay(this.src)" style="cursor:zoom-in;" title="Click to enlarge">
                 </div>
                 <div class="selected-summary">{selected_summary}</div>
             </section>
@@ -1585,6 +1588,20 @@ async def event_detail(
                 {video_block}
             </section>
         </div>
+
+        <div id="imageOverlay" class="overlay" onclick="closeOverlay()">
+            <img id="overlayImage" src="" alt="Expanded Image">
+        </div>
+
+        <script>
+            function openOverlay(src) {{
+                document.getElementById('overlayImage').src = src;
+                document.getElementById('imageOverlay').classList.add('active');
+            }}
+            function closeOverlay() {{
+                document.getElementById('imageOverlay').classList.remove('active');
+            }}
+        </script>
     </body>
     </html>
     """
