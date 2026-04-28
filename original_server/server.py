@@ -3045,12 +3045,26 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 return summary === 'No targets' ? 'Detections: none' : `Detections: ${summary}`;
             }
 
-            function renderImageCard(imagePath, sourceMode, folder, cycleId) {
+            function getCycleTime(folder, cycleId) {
+                if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
+                    const meta = currentMetadata[`${folder}/${cycleId}`];
+                    if (meta.cycle_time) return meta.cycle_time;
+                }
+                if (cycleId.length === 14 && /^\\d+$/.test(cycleId)) {
+                    return `${cycleId.substring(0,4)}/${cycleId.substring(4,6)}/${cycleId.substring(6,8)} ${cycleId.substring(8,10)}:${cycleId.substring(10,12)}:${cycleId.substring(12,14)}`;
+                }
+                return '';
+            }
+
+            function renderImageCard(imagePath, sourceMode, folder, cycleId, showTime = false) {
                 const filename = imagePath.split('/').pop();
                 const basePath = sourceMode === 'raw' ? '/images/raw' : '/images/processed';
                 const summaryText = getImageSummary(folder, cycleId, filename);
                 const summaryClass = summaryText && summaryText !== 'Detections: none' ? 'item-detection detected' : 'item-detection not-detected';
                 const clickAction = `window.location.href='${buildEventUrl(imagePath, sourceMode)}'`;
+
+                const timeStr = getCycleTime(folder, cycleId);
+                const timeHtml = showTime && timeStr ? `<span style="font-size: 0.8em; color: #4a5568; display: block; margin-top: 4px;">🕒 ${timeStr}</span>` : '';
 
                 return `
                                     <div class="item">
@@ -3058,6 +3072,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <img src="${basePath}/${imagePath}" title="Click to open event detail">
                                         </div>
                                         <span class="item-filename">${filename}</span>
+                                        ${timeHtml}
                                         <span class="${summaryClass}">${summaryText || 'Detections: unavailable'}</span>
                                     </div>
                                 `;
@@ -3251,7 +3266,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             html += '<div class="gallery-grid" style="margin-bottom: 10px;">';
                             for (let i = 0; i < cycleImages.length; i++) {
                                 const imagePath = cycleImages[i];
-                                html += renderImageCard(imagePath, cycleSourceMode, folder, cycleId);
+                                html += renderImageCard(imagePath, cycleSourceMode, folder, cycleId, false);
                             }
                             html += `
                                         </div>
@@ -3268,77 +3283,27 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     }
                 } else {
                     const sourceMode = defaultSourceMode;
-                    const allCycles = groupImagesByCycle(images);
-                    const sortedCycles = sortCycles(allCycles, currentSortMode);
-                    
-                    const cycleEntries = Object.entries(sortedCycles);
-                    
-                    html += '<div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">';
-                    
-                    cycleEntries.forEach((entry, idx) => {
-                        const cycleId = entry[0];
-                        const cycleImages = entry[1];
-                        const previewImage = cycleImages[0];
-                        const flatCycleSectionId = `flat-cycle-${containerId}-${cycleId.replace(/[^a-z0-9]/gi, '_')}`;
-                        const isFlatCycleExpanded = !!currentExpandedSections[flatCycleSectionId];
-                        
-                        let cycleMetaKey = null;
-                        let detectionCount = 0;
-                        let labelsStr = 'No detections';
-                        let badgeClass = 'no-labels';
-                        
-                        if (currentMetadata) {
-                            for (const key in currentMetadata) {
-                                if (key.endsWith(`/${cycleId}`)) {
-                                    cycleMetaKey = key;
-                                    const meta = currentMetadata[key];
-                                    if (meta.labels && meta.labels.length > 0) {
-                                        detectionCount = meta.labels.length;
-                                        labelsStr = meta.labels.join(', ');
-                                        badgeClass = 'labels';
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        html += `
-                            <div class="flat-cycle-item">
-                                <div class="flat-cycle-header" onclick="toggleSection('${flatCycleSectionId}')">
-                                    <img src="${sourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}" class="flat-cycle-thumb" alt="thumb" loading="lazy">
-                                    <div class="flat-cycle-info">
-                                        <div class="flat-cycle-title">Cycle: ${cycleId}</div>
-                                        <div class="flat-cycle-meta">
-                                            <span>${cycleImages.length} images</span>
-                                        </div>
-                                    </div>
-                                    <div class="flat-cycle-badges">
-                                        <span class="flat-cycle-badge count">${cycleImages.length} images</span>
-                                        <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
-                                    </div>
-                                    <span class="flat-cycle-arrow" id="${flatCycleSectionId}-arrow" style="transform:${isFlatCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
-                                </div>
-                                <div id="${flatCycleSectionId}" class="flat-cycle-content${isFlatCycleExpanded ? ' open' : ''}">
-                                    <div class="gallery-grid" style="margin-top: 16px;">
-                        `;
-                        
-                        cycleImages.forEach(imagePath => {
+                    const latestImg = images[0];
+                    html += `
+                        <div class="latest-container" style="margin-top: 20px;">
+                            <h2 style="color: #276749;">Latest Capture (All Cameras)</h2>
+                            <div class="latest-item">
+                                <img src="${basePath}/${latestImg}" title="Click to open event detail" onclick="window.location.href='${buildEventUrl(latestImg, sourceMode)}'">
+                                <span>${latestImg}</span>
+                            </div>
+                        </div>
+                    `;
+
+                    if (images.length > 1) {
+                        html += '<div class="gallery-grid" style="margin-top: 30px;">';
+                        for (let i = 1; i < images.length; i++) {
+                            const imagePath = images[i];
                             const pathParts = imagePath.split('/');
                             const folder = pathParts.length > 1 ? pathParts[0] : 'Root';
+                            const cycleId = extractCycleIdFromImagePath(imagePath);
                             html += renderImageCard(imagePath, sourceMode, folder, cycleId);
-                        });
-                        
-                        html += `
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    
-                    html += '</div>';
-                    
-                    if (cycleEntries.length === 0) {
-                        html = '<div class="empty-msg">No images found yet. Captured images will appear here.</div>';
+                        }
+                        html += '</div>';
                     }
                 }
 
