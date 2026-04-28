@@ -3,3 +3,17 @@ __pycache__/
 *.pyc
 .DS_Store
 md_v5a.0.0.pt
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Others (Windows, VS Code)
+.vscode/
+.DS_Store
