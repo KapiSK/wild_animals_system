@@ -1,0 +1,11 @@
+- `[x]` 実装計画の更新
+- `[x]` `ai_ex/setup_benchmark_linux.sh` の作成
+- `[x]` `ai_ex/benchmark_v5a_vs_v6_matrix.py` の作成
+  - `[x]` 設定ブロックの定義
+  - `[x]` 両モデルの初期化処理
+  - `[x]` 画像推論ループ（推論時間の計測含む）
+  - `[x]` 混同行列の計算と出力（ターミナル＆PNG）
+  - `[x]` Mismatchケースの横並び画像生成
+  - `[x]` CSVレポート出力
+- `[x]` ローカルでのテスト実行
+- `[x]` `docs/md_v5a_vs_v6_benchmark/walkthrough.md` の作成
