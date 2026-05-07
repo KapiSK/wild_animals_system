@@ -15,22 +15,22 @@ from PytorchWildlife.models import detection as pw_detection
 # 1. 設定ブロック (Configuration)
 # ==========================================
 # 画像フォルダのパス (このスクリプトからの相対パス、または絶対パス)
-INPUT_DIR = Path(__file__).parent / "animals"
+INPUT_DIR = Path(__file__).parent / "/home/satoko/project/hykecam_1010/ALL/day/"
 
 # 出力先フォルダ
-OUTPUT_DIR = Path(__file__).parent / "results_benchmark"
-MISMATCH_DIR = OUTPUT_DIR / "mismatches"
+OUTPUT_DIR = Path(__file__).parent / "/home/satoko/project/hykecam_1010/ALL/day/"
+MISMATCH_DIR = OUTPUT_DIR / "/home/satoko/project/hykecam_1010/ALL/day/mismatch"
 
 # V5a モデルのパス (プロジェクトルート)
 V5A_MODEL_PATH = Path(__file__).parent.parent / "md_v5a.0.0.pt"
 
 # 各モデルの信頼度閾値
 V5A_CONF_THRESHOLD = 0.25
-V6_CONF_THRESHOLD = 0.30
+V6_CONF_THRESHOLD = 0.25
 
 # 対象クラス (V5a: 0=animal, 1=person / V6: 0=animal)
 V5A_TARGET_CLASSES = [0, 1]
-V6_TARGET_CLASSES = [0]
+V6_TARGET_CLASSES = [0,1]
 
 # ==========================================
 # 2. 初期化処理
