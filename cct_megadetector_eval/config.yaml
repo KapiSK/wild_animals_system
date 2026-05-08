@@ -1,0 +1,33 @@
+paths:
+  image_annotations: data/annotations/image_annotations.json
+  bbox_annotations: data/annotations/bbox_annotations.json
+  splits: data/annotations/splits.json
+  subset_csv: data/subsets/cct_eval_subset.csv
+  image_dir: data/images
+  md_results_dir: data/md_results
+  output_dir: data/outputs
+
+dataset:
+  base_image_url: https://lilawildlife.blob.core.windows.net/lila-wildlife/caltech-unzipped/cct_images
+  n_animal: 3000
+  n_empty: 3000
+  random_seed: 42
+
+megadetector:
+  recursive: true
+  output_relative_filenames: true
+  models:
+    mdv5a:
+      model_name: MDV5A
+      output_json: mdv5a_results.json
+    mdv6_compact:
+      model_name: MDV6-Compact
+      output_json: mdv6_compact_results.json
+    mdv6_extra:
+      model_name: MDV6-Extra
+      output_json: mdv6_extra_results.json
+
+evaluation:
+  thresholds: [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]
+  animal_category_id_in_md: "1"
+  iou_threshold: 0.5
