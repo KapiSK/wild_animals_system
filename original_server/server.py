@@ -3618,6 +3618,10 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 const firstDay = new Date(year, month, 1).getDay();
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
                 
+                const sourceMode = document.querySelector('.tab.active').textContent.includes('Raw') ? 'raw' : 'processed';
+                const imagesSource = sourceMode === 'raw' ? currentRaw : currentProcessed;
+                const allCyclesMap = groupImagesByCycle(imagesSource || []);
+
                 const dailyData = {};
                 for (const key in currentMetadata) {
                     const meta = currentMetadata[key];
@@ -3633,16 +3637,22 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     
                     const dateKey = `${cYear}-${(cMonth+1).toString().padStart(2, '0')}-${cDate.toString().padStart(2, '0')}`;
                     if (!dailyData[dateKey]) {
-                        dailyData[dateKey] = { count: 0, icons: new Set(), cycles: [] };
+                        dailyData[dateKey] = { totalCycles: 0, totalImages: 0, detectCycles: 0, iconCounts: {}, cycles: [] };
                     }
                     
-                    dailyData[dateKey].count++;
                     const [folder, cycleId] = key.split('/');
+                    const cycleImagesCount = allCyclesMap[cycleId] ? allCyclesMap[cycleId].length : 0;
+                    
+                    dailyData[dateKey].totalCycles++;
+                    dailyData[dateKey].totalImages += cycleImagesCount;
                     dailyData[dateKey].cycles.push({folder, cycleId});
                     
-                    if (meta.labels) {
-                        meta.labels.forEach(lbl => {
-                            dailyData[dateKey].icons.add(getLabelIcon(lbl));
+                    if (meta.labels && meta.labels.length > 0) {
+                        dailyData[dateKey].detectCycles++;
+                        const uniqueIcons = new Set(meta.labels.map(lbl => getLabelIcon(lbl)));
+                        uniqueIcons.forEach(icon => {
+                            if (!dailyData[dateKey].iconCounts[icon]) dailyData[dateKey].iconCounts[icon] = 0;
+                            dailyData[dateKey].iconCounts[icon]++;
                         });
                     }
                 }
@@ -3670,21 +3680,25 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     const isToday = isCurrentMonth && today.getDate() === d;
                     
                     let badgesHtml = '';
-                    if (data && data.count > 0) {
-                        const iconsArr = Array.from(data.icons).join(' ');
+                    if (data && data.detectCycles > 0) {
+                        let linesHtml = '';
+                        for (const [icon, count] of Object.entries(data.iconCounts)) {
+                            linesHtml += `<div style="display: flex; justify-content: space-between; width: 100%; margin-bottom: 3px;"><span style="font-size: 1.1rem;">${icon}</span> <span style="font-weight: 700;">${count}件</span></div>`;
+                        }
                         badgesHtml = `
                             <div class="calendar-badges">
-                                <div class="calendar-badge has-detection">
-                                    <span>${data.count}件</span>
-                                    <span class="calendar-icon-list">${iconsArr}</span>
+                                <div class="calendar-badge has-detection" style="display: flex; flex-direction: column; align-items: flex-start; padding: 6px 10px;">
+                                    ${linesHtml}
                                 </div>
                             </div>
                         `;
                     }
                     
+                    const totalImgStr = (data && data.totalImages > 0) ? `<span style="font-size: 0.75rem; color: #718096; font-weight: 500; margin-left: 8px;">(総撮影数: ${data.totalImages})</span>` : '';
+                    
                     html += `
                         <div class="calendar-cell ${isToday ? 'today' : ''}" onclick="showCalendarDateEvents('${dateKey}')" id="cal-cell-${dateKey}">
-                            <div class="calendar-date">${d}</div>
+                            <div class="calendar-date">${d}${totalImgStr}</div>
                             ${badgesHtml}
                         </div>
                     `;
