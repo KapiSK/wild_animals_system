@@ -18,6 +18,7 @@ def main():
     if not env_file.exists():
         env_content = """# テスト環境用 .env
 PORT=8000
+APP_VERSION=1.0.1-test
 ADMIN_EMAIL=test@example.com
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587

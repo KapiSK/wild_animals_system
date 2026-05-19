@@ -49,7 +49,7 @@ API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = resolve_config_path(os.getenv("USER_ACCESS_FILE", "user_access_config.json"))
 TELEMETRY_FILE = resolve_config_path(os.getenv("TELEMETRY_FILE", "telemetry.json"))
 
-APP_VERSION = "1.0.1"
+APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
