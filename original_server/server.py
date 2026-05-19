@@ -53,7 +53,7 @@ APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
-    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Version (v{APP_VERSION})</span>'
 else:
     ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
 
@@ -1417,6 +1417,153 @@ async def get_images(
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
+@app.get("/event/{camera_id}/{event_id}", response_class=HTMLResponse)
+async def event_detail_by_cycle(
+    camera_id: str,
+    event_id: str,
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security)
+):
+    principal = get_optional_principal(request, credentials)
+    if not principal:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    verify_camera_access(principal, f"{camera_id}/dummy.jpg")
+
+    event_metadata = load_event_metadata(camera_id, event_id) or {}
+    related_processed = get_related_processed_images(camera_id, event_id)
+    related_raw = get_related_raw_images(camera_id, event_id)
+    related_videos = get_video_relpaths_for_event(camera_id, event_id)
+    primary_video = related_videos[0] if related_videos else ""
+
+    cycle_time = event_metadata.get("cycle_time", "")
+    if not cycle_time and len(event_id) == 14 and event_id.isdigit():
+        cycle_time = f"{event_id[:4]}/{event_id[4:6]}/{event_id[6:8]} {event_id[8:10]}:{event_id[10:12]}:{event_id[12:14]}"
+
+    image_summaries = event_metadata.get("image_summaries", {})
+    
+    def build_thumbs_html(image_list, source):
+        if not image_list:
+            return '<div class="empty-video" style="min-height:140px;">No images available.</div>'
+        html = ""
+        for rel in image_list:
+            file_label = os.path.basename(rel)
+            summary = image_summaries.get(file_label, "")
+            summary_text = f"Detections: {summary}" if summary and summary != "No targets" else "Detections: none"
+            summary_color = "#c53030" if summary and summary != "No targets" else "#4a5568"
+            
+            html += f"""
+                <div class="thumb" onclick="openOverlay('/images/{source}/{rel}')" style="cursor:zoom-in;">
+                    <img src="/images/{source}/{rel}" loading="lazy" alt="{file_label}">
+                    <span>{file_label}</span>
+                    <span style="font-size:0.8rem; color:{summary_color}; margin-top:4px;">{summary_text}</span>
+                </div>
+            """
+        return html
+
+    processed_thumbs_html = build_thumbs_html(related_processed, "processed")
+    raw_thumbs_html = build_thumbs_html(related_raw, "raw")
+
+    video_block = """
+        <div class="empty-video">No related video yet.</div>
+    """
+    if primary_video:
+        video_block = f"""
+            <video controls preload="metadata" class="video-player">
+                <source src="/videos/{primary_video}">
+                Your browser cannot play this video.
+            </video>
+            <div style="text-align:center; margin-top:10px;">
+                <a class="download-link" href="/videos/{primary_video}" target="_blank">Download video</a>
+            </div>
+        """
+
+    labels = event_metadata.get("labels", [])
+    labels_text = ", ".join(labels) if labels else "none"
+    detected_count = event_metadata.get("detected_images_count", 0)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Event Details: {event_id}</title>
+        <style>
+            body {{ font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f3f8f4; color: #22332b; }}
+            .shell {{ max-width: 1280px; margin: 0 auto; }}
+            .topbar {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }}
+            .back-link, .download-link {{ display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:999px; text-decoration:none; background:#ffffff; color:#2d4a3a; box-shadow:0 2px 8px rgba(0,0,0,0.06); font-weight:600; transition:all 0.2s; }}
+            .back-link:hover, .download-link:hover {{ background:#e2e8f0; }}
+            .panel {{ background:#ffffff; border-radius:20px; padding:20px; box-shadow:0 12px 30px rgba(34,51,43,0.06); margin-bottom:24px; }}
+            .panel h2 {{ margin:0 0 14px 0; font-size:1.3rem; color:#21543b; border-bottom:2px solid #e2efe5; padding-bottom:8px; }}
+            .meta {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px; }}
+            .meta-card {{ background:#ffffff; border-radius:16px; padding:14px 16px; box-shadow:0 4px 15px rgba(34,51,43,0.04); border:1px solid #edf2f7; }}
+            .meta-label {{ display:block; font-size:0.82rem; color:#6b7f74; margin-bottom:6px; }}
+            .meta-value {{ font-weight:600; word-break:break-word; font-size:1.05rem; }}
+            .grid-container {{ display:grid; grid-template-columns: 1fr 1fr; gap:24px; }}
+            @media(max-width:900px) {{ .grid-container {{ grid-template-columns: 1fr; }} }}
+            .thumbs {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-top:16px; }}
+            .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 4px 15px rgba(34,51,43,0.04); border:1px solid #edf2f7; transition:all 0.2s; display:flex; flex-direction:column; align-items:center; }}
+            .thumb:hover {{ transform:translateY(-3px); box-shadow:0 8px 25px rgba(47,133,90,0.12); border-color:#2f855a; }}
+            .thumb img {{ width:100%; height:160px; object-fit:contain; border-radius:10px; display:block; background:#f8fbf8; margin-bottom:8px; }}
+            .thumb span {{ display:block; font-size:0.85rem; color:#52645a; word-break:break-all; text-align:center; font-weight:600; }}
+            .video-player {{ width:100%; border-radius:16px; background:#000; min-height:320px; }}
+            .empty-video {{ min-height:200px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
+            
+            /* Overlay */
+            .overlay {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }}
+            .overlay.active {{ display:flex; }}
+            .overlay img {{ max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }}
+        </style>
+    </head>
+    <body>
+        <div class="shell">
+            <div class="topbar">
+                <a class="back-link" href="/gallery">← Back to Gallery</a>
+            </div>
+            
+            <div class="meta">
+                <div class="meta-card"><span class="meta-label">Camera ID</span><span class="meta-value">{camera_id}</span></div>
+                <div class="meta-card"><span class="meta-label">Event ID</span><span class="meta-value">{event_id}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or '-'}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected Labels</span><span class="meta-value">{labels_text}</span></div>
+                <div class="meta-card"><span class="meta-label">Detected Images</span><span class="meta-value">{detected_count}</span></div>
+            </div>
+            
+            <section class="panel">
+                <h2>Event Video</h2>
+                {video_block}
+            </section>
+            
+            <div class="grid-container">
+                <section class="panel">
+                    <h2>Processed Images (With Box)</h2>
+                    <div class="thumbs">{processed_thumbs_html}</div>
+                </section>
+                <section class="panel">
+                    <h2>Raw Images (No Box)</h2>
+                    <div class="thumbs">{raw_thumbs_html}</div>
+                </section>
+            </div>
+        </div>
+        
+        <div id="imageOverlay" class="overlay" onclick="closeOverlay()">
+            <img id="overlayImage" src="" alt="Expanded Image">
+        </div>
+        <script>
+            function openOverlay(src) {{
+                document.getElementById('overlayImage').src = src;
+                document.getElementById('imageOverlay').classList.add('active');
+            }}
+            function closeOverlay() {{
+                document.getElementById('imageOverlay').classList.remove('active');
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
 
 
 @app.get("/api/config/unmapped_cameras")
@@ -3136,6 +3283,9 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s; transform:${isCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                     </div>
                                     <div id="${cycleSectionId}" style="display:${isCycleExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease; padding: 20px 0;">
+                                        <div style="text-align: right; margin-bottom: 15px; padding-right: 15px;">
+                                            <a href="/event/${folder}/${cycleId}" class="action-link primary" style="padding: 6px 16px; font-size: 0.9rem; text-decoration: none;">View Event Details ↗</a>
+                                        </div>
                             `;
 
                             if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
@@ -3229,6 +3379,9 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     <span class="flat-cycle-arrow" id="${flatCycleSectionId}-arrow" style="transform:${isFlatCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
                                 </div>
                                 <div id="${flatCycleSectionId}" class="flat-cycle-content${isFlatCycleExpanded ? ' open' : ''}">
+                                    <div style="text-align: right; margin-top: 10px; margin-bottom: 5px; padding-right: 5px;">
+                                        <a href="/event/${folder}/${cycleId}" class="action-link primary" style="padding: 6px 16px; font-size: 0.9rem; text-decoration: none;">View Event Details ↗</a>
+                                    </div>
                                     <div class="gallery-grid" style="margin-top: 16px;">
                         `;
                         
