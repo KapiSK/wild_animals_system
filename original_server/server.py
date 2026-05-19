@@ -3695,7 +3695,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                         `;
                     }
                     
-                    const totalImgStr = (data && data.totalImages > 0) ? `<span style="font-size: 0.75rem; color: #718096; font-weight: 500; margin-left: 8px;">(総撮影数: ${data.totalImages})</span>` : '';
+                    const totalImgStr = (data && data.totalCycles > 0) ? `<span style="font-size: 0.75rem; color: #718096; font-weight: 500; margin-left: 8px;">(総撮影数: ${data.totalCycles})</span>` : '';
                     
                     html += `
                         <div class="calendar-cell ${isToday ? 'today' : ''}" onclick="showCalendarDateEvents('${dateKey}')" id="cal-cell-${dateKey}">
