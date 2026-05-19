@@ -1399,8 +1399,8 @@ async def get_images(
             "min_conf": min_conf,
         }
         metadata_map = build_event_metadata_map(PROCESSED_DIR, proc_files)
-        proc_files = [path for path in proc_files if file_matches_filters(path, metadata_map, filters)][:500]
-        raw_files = [path for path in raw_files if file_matches_filters(path, metadata_map, filters)][:500]
+        proc_files = [path for path in proc_files if file_matches_filters(path, metadata_map, filters)]
+        raw_files = [path for path in raw_files if file_matches_filters(path, metadata_map, filters)]
         
         return {
             "status": "ok",
@@ -2750,6 +2750,13 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }
             .overlay.active { display:flex; }
             .overlay img { max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }
+            .pagination-controls { display: flex; justify-content: space-between; align-items: center; background: #f8fbf8; padding: 10px 16px; border-radius: 12px; border: 1px solid #e2efe5; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
+            .pagination-controls select { padding: 6px 10px; border-radius: 8px; border: 1px solid #cbd5e0; font-family: inherit; font-size: 0.9rem; }
+            .page-buttons { display: flex; gap: 8px; align-items: center; }
+            .page-buttons button { padding: 6px 12px; border: 1px solid #cbd5e0; border-radius: 8px; background: white; cursor: pointer; font-weight: 500; color: #4a5568; transition: background 0.2s; }
+            .page-buttons button:hover:not(:disabled) { background: #edf2f7; }
+            .page-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }
+            .page-buttons span { font-size: 0.9rem; font-weight: 600; color: #2d3748; margin: 0 8px; }
         </style>
     </head>
     <body>
@@ -2841,6 +2848,34 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentCycleImageMode = {};
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
             let currentSortMode = 'date_desc';
+
+            let flatPagination = { page: 1, limit: 10 };
+            let groupedPagination = {};
+
+            function changeFlatPage(delta) {
+                flatPagination.page += delta;
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
+            function changeFlatLimit(limit) {
+                flatPagination.limit = parseInt(limit, 10);
+                flatPagination.page = 1;
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
+            function changeGroupedPage(folder, delta) {
+                if (!groupedPagination[folder]) groupedPagination[folder] = { page: 1, limit: 10 };
+                groupedPagination[folder].page += delta;
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
+            function changeGroupedLimit(folder, limit) {
+                if (!groupedPagination[folder]) groupedPagination[folder] = { page: 1, limit: 10 };
+                groupedPagination[folder].limit = parseInt(limit, 10);
+                groupedPagination[folder].page = 1;
+                renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                renderGallery('gallery-raw', currentRaw, '/images/raw');
+            }
 
             function openOverlay(src) {
                 document.getElementById('overlayImage').src = src;
@@ -3242,10 +3277,47 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     </div>
                                 </div>
                                 <div id="${sectionId}" style="display:${isSectionExpanded ? 'block' : 'none'}; overflow:hidden; transition: all 0.3s ease;">
+                        `;
+
+                        const allCycleIds = Object.keys(cycleGroups).sort().reverse();
+                        const totalCycles = allCycleIds.length;
+                        if (!groupedPagination[folder]) groupedPagination[folder] = { page: 1, limit: 10 };
+                        const limit = groupedPagination[folder].limit;
+                        const totalPages = Math.ceil(totalCycles / limit) || 1;
+                        let page = groupedPagination[folder].page;
+                        if (page > totalPages) page = totalPages;
+                        if (page < 1) page = 1;
+                        groupedPagination[folder].page = page;
+
+                        const startIdx = (page - 1) * limit;
+                        const currentCycleIds = allCycleIds.slice(startIdx, startIdx + limit);
+
+                        if (totalCycles > 0) {
+                            html += `
+                                <div class="pagination-controls" style="margin: 10px 15px;">
+                                    <div>
+                                        <label style="font-size: 0.85rem; font-weight: 600; color: #4a5568; margin-bottom: 0;">表示件数:</label>
+                                        <select onchange="changeGroupedLimit('${folder}', this.value)" style="margin-left: 8px;">
+                                            <option value="10" ${limit === 10 ? 'selected' : ''}>10件</option>
+                                            <option value="25" ${limit === 25 ? 'selected' : ''}>25件</option>
+                                            <option value="50" ${limit === 50 ? 'selected' : ''}>50件</option>
+                                        </select>
+                                        <span style="margin-left:10px; font-size:0.85rem; color:#718096;">(全 ${totalCycles} サイクル)</span>
+                                    </div>
+                                    <div class="page-buttons">
+                                        <button onclick="changeGroupedPage('${folder}', -1)" ${page <= 1 ? 'disabled' : ''}>＜ 前へ</button>
+                                        <span>${page} / ${totalPages}</span>
+                                        <button onclick="changeGroupedPage('${folder}', 1)" ${page >= totalPages ? 'disabled' : ''}>次へ ＞</button>
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        html += `
                                     <div class="cycle-list">
                         `;
 
-                        for (const cycleId of Object.keys(cycleGroups).sort().reverse()) {
+                        for (const cycleId of currentCycleIds) {
                             const cycleSourceMode = defaultSourceMode;
                             const cycleImages = cycleGroups[cycleId];
                             const previewImage = cycleImages[0];
@@ -3327,10 +3399,43 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                     const sortedCycles = sortCycles(allCycles, currentSortMode);
                     
                     const cycleEntries = Object.entries(sortedCycles);
-                    
+                    const totalCycles = cycleEntries.length;
+                    const limit = flatPagination.limit;
+                    const totalPages = Math.ceil(totalCycles / limit) || 1;
+                    let page = flatPagination.page;
+                    if (page > totalPages) page = totalPages;
+                    if (page < 1) page = 1;
+                    flatPagination.page = page;
+
+                    const startIdx = (page - 1) * limit;
+                    const currentCycleEntries = cycleEntries.slice(startIdx, startIdx + limit);
+
+                    let paginationHtml = '';
+                    if (totalCycles > 0) {
+                        paginationHtml = `
+                            <div class="pagination-controls" style="max-width: 1200px; margin: 0 auto 20px auto;">
+                                <div>
+                                    <label style="font-size: 0.85rem; font-weight: 600; color: #4a5568; margin-bottom: 0;">表示件数:</label>
+                                    <select onchange="changeFlatLimit(this.value)" style="margin-left: 8px;">
+                                        <option value="10" ${limit === 10 ? 'selected' : ''}>10件</option>
+                                        <option value="25" ${limit === 25 ? 'selected' : ''}>25件</option>
+                                        <option value="50" ${limit === 50 ? 'selected' : ''}>50件</option>
+                                    </select>
+                                    <span style="margin-left:10px; font-size:0.85rem; color:#718096;">(全 ${totalCycles} サイクル)</span>
+                                </div>
+                                <div class="page-buttons">
+                                    <button onclick="changeFlatPage(-1)" ${page <= 1 ? 'disabled' : ''}>＜ 前へ</button>
+                                    <span>${page} / ${totalPages}</span>
+                                    <button onclick="changeFlatPage(1)" ${page >= totalPages ? 'disabled' : ''}>次へ ＞</button>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    html += paginationHtml;
                     html += '<div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">';
                     
-                    cycleEntries.forEach((entry, idx) => {
+                    currentCycleEntries.forEach((entry, idx) => {
                         const cycleId = entry[0];
                         const cycleImages = entry[1];
                         const previewImage = cycleImages[0];
@@ -3382,6 +3487,24 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     <div style="text-align: right; margin-top: 10px; margin-bottom: 5px; padding-right: 5px;">
                                         <a href="/event/${folder}/${cycleId}" class="action-link primary" style="padding: 6px 16px; font-size: 0.9rem; text-decoration: none;">View Event Details ↗</a>
                                     </div>
+                        `;
+
+                        if (currentMetadata && currentMetadata[`${folder}/${cycleId}`]) {
+                            const meta = currentMetadata[`${folder}/${cycleId}`];
+                            if (meta.video_paths && meta.video_paths.length > 0) {
+                                const videoPath = meta.video_paths[0];
+                                const posterPath = `${sourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}`;
+                                html += `
+                                    <div style="text-align: center; margin-bottom: 25px;">
+                                        <video controls preload="none" poster="${posterPath}" style="max-width: 100%; max-height: 450px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); background: #000;">
+                                            <source src="/videos/${videoPath}">
+                                        </video>
+                                    </div>
+                                `;
+                            }
+                        }
+
+                        html += `
                                     <div class="gallery-grid" style="margin-top: 16px;">
                         `;
                         
