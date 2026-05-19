@@ -53,9 +53,15 @@ APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 
 PORT_STR = os.getenv("PORT", "8000")
 if PORT_STR == "8000":
-    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">Gallery</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #28a745; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Production (v{APP_VERSION})</span>'
 else:
-    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span><br><span style="display:inline-block; background: #2f855a; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">Gallery</span>'
+    ENV_BADGE = f'<span style="display:inline-block; background: #dc3545; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.95rem;">Test Environment (v{APP_VERSION} - Port {PORT_STR})</span>'
+
+def get_env_badge(page_name: str = "") -> str:
+    if not page_name:
+        return ENV_BADGE
+    color = "#2b6cb0" if page_name == "Admin Settings" else "#2f855a" if page_name == "Gallery" else "#4a5568"
+    return f'{ENV_BADGE}<br><span style="display:inline-block; background: {color}; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.82rem; margin-top: 4px;">{page_name}</span>'
 
 security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
@@ -1626,7 +1632,7 @@ async def login_page(request: Request):
     <body>
         <form class="card" method="post" action="/login">
             <h1>Wild Animals Login</h1>
-            <div style="text-align:center; margin: 0 0 12px 0;">""" + ENV_BADGE + """</div>
+            <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
             <p>管理者または閲覧ユーザとしてログインしてください。</p>
             <label for="username">User Name</label>
             <input id="username" name="username" type="text" autocomplete="username" required>
@@ -1867,8 +1873,14 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
         <div class="blob"></div>
         <div class="container">
             <h1>Admin Dashboard</h1>
-            <div style="text-align:center; margin: 0 0 16px 0;">""" + ENV_BADGE + """</div>
+            <div style="text-align:center; margin: 0 0 16px 0;">""" + get_env_badge("Admin Settings") + """</div>
             
+            <div class="page-actions" style="margin-bottom: 30px;">
+                <a class="btn btn-secondary" href="/gallery" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+                    <span style="font-size:1.2rem;">←</span> Back to Gallery
+                </a>
+                <a class="btn btn-danger" href="/logout" style="text-decoration:none;">Logout</a>
+            </div>
             <div class="glass-card">
                 <div class="card-header">
                     <h2>Camera Edge Mapping</h2>
@@ -2595,7 +2607,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     </head>
     <body>
         <h1>SLAB WILD ANIMALS Web</h1>
-        <div style="text-align:center; margin: 0 0 12px 0;">""" + ENV_BADGE + """</div>
+        <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
