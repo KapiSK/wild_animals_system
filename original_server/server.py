@@ -3598,6 +3598,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
 
             // --- Calendar Logic ---
             let currentCalendarDate = new Date();
+            let currentSelectedDateKey = null;
 
             function getLabelIcon(labelStr) {
                 const lower = labelStr.toLowerCase();
@@ -3714,6 +3715,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             }
 
             function showCalendarDateEvents(dateKey) {
+                currentSelectedDateKey = dateKey;
                 document.querySelectorAll('.calendar-cell').forEach(el => el.classList.remove('active'));
                 const cell = document.getElementById(`cal-cell-${dateKey}`);
                 if (cell) cell.classList.add('active');
@@ -3853,6 +3855,9 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             currentMetadata = data.metadata;
                             if (currentViewMode === 'calendar') {
                                 renderCalendar();
+                                if (currentSelectedDateKey) {
+                                    showCalendarDateEvents(currentSelectedDateKey);
+                                }
                             } else {
                                 renderGallery('gallery-processed', data.processed, '/images/processed');
                                 renderGallery('gallery-raw', data.raw, '/images/raw');
