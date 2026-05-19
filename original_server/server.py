@@ -1393,8 +1393,8 @@ async def get_images(
             "min_conf": min_conf,
         }
         metadata_map = build_event_metadata_map(PROCESSED_DIR, proc_files)
-        proc_files = [path for path in proc_files if file_matches_filters(path, metadata_map, filters)]
-        raw_files = [path for path in raw_files if file_matches_filters(path, metadata_map, filters)]
+        proc_files = [path for path in proc_files if file_matches_filters(path, metadata_map, filters)][:500]
+        raw_files = [path for path in raw_files if file_matches_filters(path, metadata_map, filters)][:500]
         
         return {
             "status": "ok",
@@ -1412,200 +1412,6 @@ async def get_images(
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
 
-
-@app.get("/event/{image_path:path}", response_class=HTMLResponse)
-async def event_detail(
-    image_path: str,
-    request: Request,
-    source: str = "processed",
-    credentials: HTTPBasicCredentials = Depends(security)
-):
-    principal = get_optional_principal(request, credentials)
-    if not principal:
-        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-
-    verify_camera_access(principal, image_path)
-    selected_source = "raw" if source == "raw" else "processed"
-    selected_base_dir = UPLOAD_DIR if selected_source == "raw" else PROCESSED_DIR
-    selected_abs = resolve_image_path(selected_base_dir, image_path)
-    if not os.path.isfile(selected_abs):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-
-    camera_id = image_path.replace("\\", "/").split("/", 1)[0]
-    image_name = os.path.basename(selected_abs)
-    event_id = extract_cycle_id(image_name)
-    event_metadata = load_event_metadata(camera_id, event_id) or {}
-
-    related_processed = get_related_processed_images(camera_id, event_id)
-    related_raw = get_related_raw_images(camera_id, event_id)
-    related_videos = get_video_relpaths_for_event(camera_id, event_id)
-    primary_video = related_videos[0] if related_videos else ""
-
-    current_images = related_raw if selected_source == "raw" else related_processed
-    fallback_images = related_processed if selected_source == "raw" else related_raw
-    if not current_images:
-        current_images = fallback_images
-        selected_source = "processed" if selected_source == "raw" else "raw"
-
-    if current_images:
-        selected_rel = next((rel for rel in current_images if os.path.basename(rel) == image_name), current_images[0])
-    else:
-        selected_rel = image_path
-    selected_filename = os.path.basename(selected_rel)
-    selected_image_url = f"/images/{selected_source}/{selected_rel}"
-
-    image_summaries = event_metadata.get("image_summaries", {}) if isinstance(event_metadata, dict) else {}
-    selected_summary = image_summaries.get(selected_filename, "")
-    if selected_summary == "No targets":
-        selected_summary = "Detections: none"
-    elif selected_summary:
-        selected_summary = f"Detections: {selected_summary}"
-    else:
-        selected_summary = "Detections: unavailable"
-
-    def build_event_link(rel_path: str, image_source: str) -> str:
-        return f"/event/{rel_path}?source={image_source}"
-
-    def find_rel_for_source(rel_paths: list, filename: str) -> str:
-        if not rel_paths:
-            return ""
-        for rel in rel_paths:
-            if os.path.basename(rel) == filename:
-                return rel
-        return rel_paths[0]
-
-    processed_link_target = find_rel_for_source(related_processed, selected_filename)
-    raw_link_target = find_rel_for_source(related_raw, selected_filename)
-
-    cycle_time = ""
-    match_new = re.search(r"^(.*?)_(\d{14})_(\d+)_([1-3][nd]?)\.jpg$", image_name, re.IGNORECASE)
-    if match_new:
-        time_raw = match_new.group(2)
-        cycle_time = f"{time_raw[:4]}/{time_raw[4:6]}/{time_raw[6:8]} {time_raw[8:10]}:{time_raw[10:12]}:{time_raw[12:14]}"
-
-    thumbs_html = ""
-    for rel in current_images:
-        file_label = os.path.basename(rel)
-        active_class = " active" if rel == selected_rel else ""
-        thumbs_html += f"""
-            <a class="thumb{active_class}" href="{build_event_link(rel, selected_source)}">
-                <img src="/images/{selected_source}/{rel}" alt="{file_label}">
-                <span>{file_label}</span>
-            </a>
-        """
-
-    video_block = """
-        <div class="empty-video">No related video yet.</div>
-    """
-    if primary_video:
-        video_block = f"""
-            <video controls preload="metadata" class="video-player">
-                <source src="/videos/{primary_video}">
-                Your browser cannot play this video.
-            </video>
-            <a class="download-link" href="/videos/{primary_video}" target="_blank">Download video</a>
-        """
-
-    labels = event_metadata.get("labels", []) if isinstance(event_metadata, dict) else []
-    labels_text = ", ".join(labels) if labels else "none"
-    detected_count = event_metadata.get("detected_images_count", 0) if isinstance(event_metadata, dict) else 0
-    source_label = "No box" if selected_source == "raw" else "With box"
-
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="ja">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Event Detail</title>
-        <style>
-            body {{ font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f3f8f4; color: #22332b; }}
-            .shell {{ max-width: 1280px; margin: 0 auto; }}
-            .topbar {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }}
-            .back-link, .download-link {{ display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:999px; text-decoration:none; background:#ffffff; color:#2d4a3a; box-shadow:0 2px 8px rgba(0,0,0,0.06); }}
-            .panel {{ background:#ffffff; border-radius:20px; padding:20px; box-shadow:0 12px 30px rgba(34,51,43,0.06); }}
-            .panel h2 {{ margin:0 0 14px 0; font-size:1.2rem; color:#21543b; }}
-            .viewer-panel {{ text-align:center; }}
-            .viewer-head {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:18px; }}
-            .viewer-title {{ margin:0; font-size:1.25rem; color:#21543b; }}
-            .image-mode-toggle {{ display:flex; gap:8px; flex-wrap:wrap; }}
-            .toggle-link {{ display:inline-flex; align-items:center; justify-content:center; padding:8px 14px; border-radius:999px; text-decoration:none; background:#edf6f0; color:#21543b; font-weight:600; border:1px solid #d4e5d8; }}
-            .toggle-link.active {{ background:#21543b; color:#ffffff; border-color:#21543b; }}
-            .main-image-wrap {{ display:flex; justify-content:center; align-items:center; padding:16px; border-radius:18px; background:#f8fbf8; min-height:420px; }}
-            .main-image {{ max-width:100%; max-height:72vh; border-radius:16px; background:#f8fbf8; box-shadow:0 12px 32px rgba(34,51,43,0.12); }}
-            .selected-summary {{ margin-top:16px; font-size:0.96rem; font-weight:600; color:#21543b; }}
-            .video-player {{ width:100%; border-radius:16px; background:#111; min-height:320px; }}
-            .meta {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px; }}
-            .meta-card {{ background:#ffffff; border-radius:16px; padding:14px 16px; box-shadow:0 8px 22px rgba(34,51,43,0.05); }}
-            .meta-label {{ display:block; font-size:0.82rem; color:#6b7f74; margin-bottom:6px; }}
-            .meta-value {{ font-weight:600; word-break:break-word; }}
-            .thumbs {{ display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:14px; margin-top:22px; }}
-            .thumb {{ text-decoration:none; color:inherit; background:#ffffff; border-radius:14px; padding:10px; box-shadow:0 8px 20px rgba(34,51,43,0.05); border:2px solid transparent; transition:transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }}
-            .thumb:hover {{ transform:translateY(-2px); }}
-            .thumb.active {{ border-color:#2f855a; box-shadow:0 14px 28px rgba(47,133,90,0.18); background:#f2fbf5; }}
-            .thumb img {{ width:100%; height:130px; object-fit:contain; border-radius:10px; display:block; background:#f8fbf8; }}
-            .thumb span {{ display:block; margin-top:8px; font-size:0.85rem; color:#52645a; word-break:break-all; text-align:center; font-weight:600; }}
-            .empty-video {{ min-height:320px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#f6faf7; color:#6b7f74; border:1px dashed #cfe0d5; }}
-            .overlay {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }}
-            .overlay.active {{ display:flex; }}
-            .overlay img {{ max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }}
-            @media (max-width: 960px) {{ .thumbs {{ grid-template-columns: 1fr; }} .main-image-wrap {{ min-height:260px; }} }}
-        </style>
-    </head>
-    <body>
-        <div class="shell">
-            <div class="topbar">
-                <a class="back-link" href="/gallery">Gallery</a>
-                <a class="back-link" href="/logout">Logout</a>
-            </div>
-            <div class="meta">
-                <div class="meta-card"><span class="meta-label">Camera ID</span><span class="meta-value">{camera_id}</span></div>
-                <div class="meta-card"><span class="meta-label">Event ID</span><span class="meta-value">{event_id}</span></div>
-                <div class="meta-card"><span class="meta-label">Detected At</span><span class="meta-value">{cycle_time or '-'}</span></div>
-                <div class="meta-card"><span class="meta-label">Detected Labels</span><span class="meta-value">{labels_text}</span></div>
-                <div class="meta-card"><span class="meta-label">Detected Images</span><span class="meta-value">{detected_count}</span></div>
-                <div class="meta-card"><span class="meta-label">Video</span><span class="meta-value">{'yes' if primary_video else 'no'}</span></div>
-            </div>
-            <section class="panel viewer-panel">
-                <div class="viewer-head">
-                    <h2 class="viewer-title">Selected Image</h2>
-                    <div class="image-mode-toggle">
-                        {f'<a class="toggle-link {"active" if selected_source == "processed" else ""}" href="{build_event_link(processed_link_target, "processed")}">With box</a>' if processed_link_target else ''}
-                        {f'<a class="toggle-link {"active" if selected_source == "raw" else ""}" href="{build_event_link(raw_link_target, "raw")}">No box</a>' if raw_link_target else ''}
-                    </div>
-                </div>
-                <div class="main-image-wrap">
-                    <img class="main-image" src="{selected_image_url}" alt="{selected_filename}" onclick="openOverlay(this.src)" style="cursor:zoom-in;" title="Click to enlarge">
-                </div>
-                <div class="selected-summary">{selected_summary}</div>
-            </section>
-            <section class="panel" style="margin-top:24px;">
-                <h2>Cycle Images</h2>
-                <div class="thumbs">{thumbs_html or '<div class="empty-video" style="min-height:140px;">No images available.</div>'}</div>
-            </section>
-            <section class="panel" style="margin-top:24px;">
-                <h2>Video</h2>
-                {video_block}
-            </section>
-        </div>
-
-        <div id="imageOverlay" class="overlay" onclick="closeOverlay()">
-            <img id="overlayImage" src="" alt="Expanded Image">
-        </div>
-
-        <script>
-            function openOverlay(src) {{
-                document.getElementById('overlayImage').src = src;
-                document.getElementById('imageOverlay').classList.add('active');
-            }}
-            function closeOverlay() {{
-                document.getElementById('imageOverlay').classList.remove('active');
-            }}
-        </script>
-    </body>
-    </html>
-    """
-    return html_content
 
 @app.get("/api/config/unmapped_cameras")
 async def get_unmapped_cameras(admin: dict = Depends(verify_admin)):
@@ -2779,12 +2585,12 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .flat-cycle-content.open { display: block; }
             .sort-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; justify-content: center; flex-wrap: wrap; }
             .sort-select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-family: inherit; color: #2d3748; background: #ffffff; outline: none; cursor: pointer; font-weight: 500; }
-<<<<<<< HEAD
             .sort-direction { display: flex; gap: 8px; }
             .sort-direction button { padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #ffffff; cursor: pointer; font-weight: 500; color: #4a5568; transition: all 0.2s; }
             .sort-direction button.active { background: #2f855a; color: white; border-color: #2f855a; }
-=======
->>>>>>> origin/test
+            .overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }
+            .overlay.active { display:flex; }
+            .overlay img { max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }
         </style>
     </head>
     <body>
@@ -2861,7 +2667,12 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <div class="gallery-container active" id="gallery-processed"></div>
         <div class="gallery-container" id="gallery-raw"></div>
         
+        <div id="imageOverlay" class="overlay" onclick="closeOverlay()">
+            <img id="overlayImage" src="" alt="Expanded Image">
+        </div>
+
         <script>
+            // Initialization and state logic
             let currentProcessed = null;
             let currentRaw = null;
             let currentMetadata = null;
@@ -2871,6 +2682,15 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             let currentCycleImageMode = {};
             let currentFilters = {detection: 'all', label: 'all', video: 'all', source: 'all', min_conf: ''};
             let currentSortMode = 'date_desc';
+
+            function openOverlay(src) {
+                document.getElementById('overlayImage').src = src;
+                document.getElementById('imageOverlay').classList.add('active');
+            }
+
+            function closeOverlay() {
+                document.getElementById('imageOverlay').classList.remove('active');
+            }
 
             function arraysEqual(a, b) {
                 if (a === b) return true;
@@ -3118,15 +2938,15 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 const basePath = sourceMode === 'raw' ? '/images/raw' : '/images/processed';
                 const summaryText = getImageSummary(folder, cycleId, filename);
                 const summaryClass = summaryText && summaryText !== 'Detections: none' ? 'item-detection detected' : 'item-detection not-detected';
-                const clickAction = `window.location.href='${buildEventUrl(imagePath, sourceMode)}'`;
+                const clickAction = `openOverlay('${basePath}/${imagePath}')`;
 
                 const timeStr = getCycleTime(folder, cycleId);
                 const timeHtml = showTime && timeStr ? `<span style="font-size: 0.8em; color: #4a5568; display: block; margin-top: 4px;">🕒 ${timeStr}</span>` : '';
 
                 return `
                                     <div class="item">
-                                        <div class="img-wrapper" onclick="${clickAction}">
-                                            <img src="${basePath}/${imagePath}" title="Click to open event detail">
+                                        <div class="img-wrapper" onclick="${clickAction}" style="cursor: zoom-in;">
+                                            <img src="${basePath}/${imagePath}" loading="lazy" decoding="async" title="Click to enlarge">
                                         </div>
                                         <span class="item-filename">${filename}</span>
                                         ${timeHtml}
@@ -3310,9 +3130,10 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                 const meta = currentMetadata[`${folder}/${cycleId}`];
                                 if (meta.video_paths && meta.video_paths.length > 0) {
                                     const videoPath = meta.video_paths[0];
+                                    const posterPath = `${cycleSourceMode === 'raw' ? '/images/raw' : '/images/processed'}/${previewImage}`;
                                     html += `
                                         <div style="text-align: center; margin-bottom: 25px;">
-                                            <video controls preload="metadata" style="max-width: 100%; max-height: 450px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); background: #000;">
+                                            <video controls preload="none" poster="${posterPath}" style="max-width: 100%; max-height: 450px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); background: #000;">
                                                 <source src="/videos/${videoPath}">
                                             </video>
                                         </div>
