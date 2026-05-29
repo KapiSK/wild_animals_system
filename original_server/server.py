@@ -2757,6 +2757,27 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .page-buttons button:hover:not(:disabled) { background: #edf2f7; }
             .page-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }
             .page-buttons span { font-size: 0.9rem; font-weight: 600; color: #2d3748; margin: 0 8px; }
+            
+            /* Calendar Styles */
+            .calendar-header { display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 15px 20px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; }
+            .calendar-header h2 { margin: 0; font-size: 1.5rem; color: #1c4532; font-weight: 600; }
+            .calendar-nav-btn { background: #e2e8f0; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; color: #4a5568; cursor: pointer; transition: all 0.2s; }
+                .calendar-nav-btn:hover { background: #cbd5e0; color: #2d3748; }
+            .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 30px; }
+            .calendar-day-header { text-align: center; font-weight: 600; color: #718096; font-size: 0.9rem; padding: 10px 0; }
+            .calendar-cell { background: #ffffff; border-radius: 12px; min-height: 100px; padding: 10px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; flex-direction: column; cursor: pointer; transition: all 0.2s; position: relative; }
+            .calendar-cell:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(47, 133, 90, 0.1); border-color: #9ae6b4; }
+            .calendar-cell.empty { background: transparent; border: none; box-shadow: none; cursor: default; }
+            .calendar-cell.empty:hover { transform: none; }
+            .calendar-cell.active { border: 2px solid #38a169; background: #f0fdf4; }
+            .calendar-date { font-weight: 600; color: #2d3748; font-size: 1.1rem; margin-bottom: 5px; }
+            .calendar-cell.today .calendar-date { color: #e53e3e; }
+            .calendar-badges { display: flex; flex-direction: column; gap: 4px; margin-top: auto; }
+            .calendar-badge { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; color: #4a5568; display: flex; justify-content: space-between; align-items: center; }
+            .calendar-badge.has-detection { background: #fff5f5; border-color: #feb2b2; color: #c53030; font-weight: 600; }
+            .calendar-icon-list { font-size: 1rem; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+            #calendar-events-container { background: #ffffff; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; display: none; }
+            .calendar-events-title { font-size: 1.3rem; color: #1c4532; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
         </style>
     </head>
     <body>
@@ -2779,6 +2800,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 <select id="viewMode" onchange="changeViewMode(this.value)">
                     <option value="grouped">カメラ別 (By Camera)</option>
                     <option value="flat">全体表示 (All Photos)</option>
+                    <option value="calendar">カレンダー (Calendar)</option>
                 </select>
             </div>
         </div>
@@ -2832,6 +2854,23 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         
         <div class="gallery-container active" id="gallery-processed"></div>
         <div class="gallery-container" id="gallery-raw"></div>
+        
+        <!-- Calendar View -->
+        <div id="gallery-calendar" class="gallery-container" style="display:none; max-width: 1000px; margin: 0 auto; padding-bottom: 60px;">
+            <div class="calendar-header">
+                <button class="calendar-nav-btn" onclick="changeCalendarMonth(-1)">◀ 前月</button>
+                <h2 id="calendar-title">2026年 5月</h2>
+                <button class="calendar-nav-btn" onclick="changeCalendarMonth(1)">次月 ▶</button>
+            </div>
+            <div class="calendar-grid" id="calendar-grid">
+                <!-- JavaScriptで生成 -->
+            </div>
+            
+            <div id="calendar-events-container">
+                <div class="calendar-events-title" id="calendar-events-title">日付を選択してください</div>
+                <div id="calendar-events-content"></div>
+            </div>
+        </div>
         
         <div id="imageOverlay" class="overlay" onclick="closeOverlay()">
             <img id="overlayImage" src="" alt="Expanded Image">
@@ -2922,9 +2961,35 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
 
             function changeViewMode(mode) {
                 currentViewMode = mode;
-                document.getElementById('sortControls').style.display = mode === 'flat' ? 'flex' : 'none';
-                renderGallery('gallery-processed', currentProcessed, '/images/processed');
-                renderGallery('gallery-raw', currentRaw, '/images/raw');
+                
+                // カレンダーモードの時はProcessed/RawタブとSort/Filterを非表示にする
+                const calendarContainer = document.getElementById('gallery-calendar');
+                const processedContainer = document.getElementById('gallery-processed');
+                const rawContainer = document.getElementById('gallery-raw');
+                
+                if (mode === 'calendar') {
+                    calendarContainer.style.display = 'block';
+                    processedContainer.style.display = 'none';
+                    rawContainer.style.display = 'none';
+                    document.getElementById('sortControls').style.display = 'none';
+                    document.querySelector('.tabs').style.display = 'none';
+                    renderCalendar();
+                } else {
+                    calendarContainer.style.display = 'none';
+                    document.querySelector('.tabs').style.display = 'flex';
+                    // 元のタブの表示状態を復元（activeなタブのコンテナを表示）
+                    const activeTab = document.querySelector('.tab.active');
+                    if (activeTab && activeTab.textContent.includes('Raw')) {
+                        rawContainer.style.display = 'block';
+                        processedContainer.style.display = 'none';
+                    } else {
+                        processedContainer.style.display = 'block';
+                        rawContainer.style.display = 'none';
+                    }
+                    document.getElementById('sortControls').style.display = mode === 'flat' ? 'flex' : 'none';
+                    renderGallery('gallery-processed', currentProcessed, '/images/processed');
+                    renderGallery('gallery-raw', currentRaw, '/images/raw');
+                }
             }
 
             function updateSortAndRerender() {
@@ -3531,6 +3596,237 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 container.innerHTML = html;
             }
 
+            // --- Calendar Logic ---
+            let currentCalendarDate = new Date();
+            let currentSelectedDateKey = null;
+
+            function getLabelIcon(labelStr) {
+                const lower = labelStr.toLowerCase();
+                if (lower.includes('person') || lower.includes('human')) return '👤';
+                if (lower.includes('animal') || lower.includes('deer') || lower.includes('bear') || lower.includes('boar')) return '🐾';
+                if (lower.includes('vehicle') || lower.includes('car')) return '🚙';
+                return '❓';
+            }
+
+            function renderCalendar() {
+                if (!currentMetadata) return;
+
+                const year = currentCalendarDate.getFullYear();
+                const month = currentCalendarDate.getMonth();
+                
+                document.getElementById('calendar-title').textContent = `${year}年 ${month + 1}月`;
+                
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                
+                const sourceMode = document.querySelector('.tab.active').textContent.includes('Raw') ? 'raw' : 'processed';
+                const imagesSource = sourceMode === 'raw' ? currentRaw : currentProcessed;
+                const allCyclesMap = groupImagesByCycle(imagesSource || []);
+
+                const dailyData = {};
+                for (const key in currentMetadata) {
+                    const meta = currentMetadata[key];
+                    if (!meta.cycle_time) continue;
+                    
+                    const parts = meta.cycle_time.split(' ')[0].split('/');
+                    if (parts.length !== 3) continue;
+                    const cYear = parseInt(parts[0], 10);
+                    const cMonth = parseInt(parts[1], 10) - 1;
+                    const cDate = parseInt(parts[2], 10);
+                    
+                    if (cYear !== year || cMonth !== month) continue;
+                    
+                    const dateKey = `${cYear}-${(cMonth+1).toString().padStart(2, '0')}-${cDate.toString().padStart(2, '0')}`;
+                    if (!dailyData[dateKey]) {
+                        dailyData[dateKey] = { totalCycles: 0, totalImages: 0, detectCycles: 0, iconCounts: {}, cycles: [] };
+                    }
+                    
+                    const [folder, cycleId] = key.split('/');
+                    const cycleImagesCount = allCyclesMap[cycleId] ? allCyclesMap[cycleId].length : 0;
+                    
+                    dailyData[dateKey].totalCycles++;
+                    dailyData[dateKey].totalImages += cycleImagesCount;
+                    dailyData[dateKey].cycles.push({folder, cycleId});
+                    
+                    if (meta.labels && meta.labels.length > 0) {
+                        dailyData[dateKey].detectCycles++;
+                        const uniqueIcons = new Set(meta.labels.map(lbl => getLabelIcon(lbl)));
+                        uniqueIcons.forEach(icon => {
+                            if (!dailyData[dateKey].iconCounts[icon]) dailyData[dateKey].iconCounts[icon] = 0;
+                            dailyData[dateKey].iconCounts[icon]++;
+                        });
+                    }
+                }
+
+                let html = `
+                    <div class="calendar-day-header">日</div>
+                    <div class="calendar-day-header">月</div>
+                    <div class="calendar-day-header">火</div>
+                    <div class="calendar-day-header">水</div>
+                    <div class="calendar-day-header">木</div>
+                    <div class="calendar-day-header">金</div>
+                    <div class="calendar-day-header">土</div>
+                `;
+
+                for (let i = 0; i < firstDay; i++) {
+                    html += `<div class="calendar-cell empty"></div>`;
+                }
+
+                const today = new Date();
+                const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateKey = `${year}-${(month+1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+                    const data = dailyData[dateKey];
+                    const isToday = isCurrentMonth && today.getDate() === d;
+                    
+                    let badgesHtml = '';
+                    if (data && data.detectCycles > 0) {
+                        let linesHtml = '';
+                        for (const [icon, count] of Object.entries(data.iconCounts)) {
+                            linesHtml += `<div style="display: flex; justify-content: space-between; width: 100%; margin-bottom: 3px;"><span style="font-size: 1.1rem;">${icon}</span> <span style="font-weight: 700;">${count}件</span></div>`;
+                        }
+                        badgesHtml = `
+                            <div class="calendar-badges">
+                                <div class="calendar-badge has-detection" style="display: flex; flex-direction: column; align-items: flex-start; padding: 6px 10px;">
+                                    ${linesHtml}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    const totalImgStr = (data && data.totalCycles > 0) ? `<span style="font-size: 0.75rem; color: #718096; font-weight: 500; margin-left: 8px;">(総撮影数: ${data.totalCycles})</span>` : '';
+                    
+                    html += `
+                        <div class="calendar-cell ${isToday ? 'today' : ''}" onclick="showCalendarDateEvents('${dateKey}')" id="cal-cell-${dateKey}">
+                            <div class="calendar-date">${d}${totalImgStr}</div>
+                            ${badgesHtml}
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('calendar-grid').innerHTML = html;
+            }
+
+            function changeCalendarMonth(delta) {
+                currentCalendarDate.setMonth(currentCalendarDate.getMonth() + delta);
+                renderCalendar();
+                document.getElementById('calendar-events-container').style.display = 'none';
+            }
+
+            function showCalendarDateEvents(dateKey) {
+                currentSelectedDateKey = dateKey;
+                document.querySelectorAll('.calendar-cell').forEach(el => el.classList.remove('active'));
+                const cell = document.getElementById(`cal-cell-${dateKey}`);
+                if (cell) cell.classList.add('active');
+
+                const container = document.getElementById('calendar-events-container');
+                const titleEl = document.getElementById('calendar-events-title');
+                const contentEl = document.getElementById('calendar-events-content');
+                
+                container.style.display = 'block';
+                const parts = dateKey.split('-');
+                titleEl.textContent = `${parts[0]}年 ${parts[1]}月 ${parts[2]}日の検知リスト`;
+                
+                if (!currentProcessed && !currentRaw) return;
+                
+                const targetCycles = [];
+                for (const key in currentMetadata) {
+                    const meta = currentMetadata[key];
+                    if (!meta.cycle_time) continue;
+                    const cDateStr = meta.cycle_time.split(' ')[0].replace(/\\//g, '-');
+                    if (cDateStr === dateKey) {
+                        const [folder, cycleId] = key.split('/');
+                        targetCycles.push({folder, cycleId, meta});
+                    }
+                }
+                
+                if (targetCycles.length === 0) {
+                    contentEl.innerHTML = '<div class="empty-msg">この日の検知イベントはありません。</div>';
+                    return;
+                }
+                
+                targetCycles.sort((a, b) => b.cycleId.localeCompare(a.cycleId));
+                
+                const sourceMode = document.querySelector('.tab.active').textContent.includes('Raw') ? 'raw' : 'processed';
+                const imagesSource = sourceMode === 'raw' ? currentRaw : currentProcessed;
+                const allCyclesMap = groupImagesByCycle(imagesSource || []);
+                
+                let html = '';
+                targetCycles.forEach(target => {
+                    const cycleId = target.cycleId;
+                    const folder = target.folder;
+                    const cycleImages = allCyclesMap[cycleId] || [];
+                    if (cycleImages.length === 0) return;
+                    
+                    const previewImage = cycleImages[0];
+                    const flatCycleSectionId = `cal-flat-${folder}-${cycleId}`;
+                    const isFlatCycleExpanded = !!currentExpandedSections[flatCycleSectionId];
+                    
+                    let labelsStr = 'No detections';
+                    let badgeClass = 'no-labels';
+                    if (target.meta.labels && target.meta.labels.length > 0) {
+                        labelsStr = target.meta.labels.join(', ');
+                        badgeClass = 'labels';
+                    }
+                    
+                    const timeStr = getCycleTime(folder, cycleId);
+                    const timeHtml = timeStr ? `<span style="font-size: 0.9em; color: #4a5568; margin-left: 12px;">🕒 ${timeStr}</span>` : '';
+                    
+                    html += `
+                        <div class="flat-cycle-item">
+                            <div class="flat-cycle-header" onclick="toggleSection('${flatCycleSectionId}')">
+                                <img src="/images/${sourceMode}/${previewImage}" class="flat-cycle-thumb" alt="thumb" loading="lazy">
+                                <div class="flat-cycle-info">
+                                    <div class="flat-cycle-title">Cycle: ${cycleId} ${timeHtml}</div>
+                                    <div class="flat-cycle-meta">
+                                        <span>CAM: ${folder}</span>
+                                    </div>
+                                </div>
+                                <div class="flat-cycle-badges">
+                                    <span class="flat-cycle-badge count">${cycleImages.length} images</span>
+                                    <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
+                                </div>
+                                <span class="flat-cycle-arrow" id="${flatCycleSectionId}-arrow" style="transform:${isFlatCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
+                            </div>
+                            <div id="${flatCycleSectionId}" class="flat-cycle-content${isFlatCycleExpanded ? ' open' : ''}">
+                                <div style="text-align: right; margin-top: 10px; margin-bottom: 5px; padding-right: 5px;">
+                                    <a href="/event/${folder}/${cycleId}" class="action-link primary" style="padding: 6px 16px; font-size: 0.9rem; text-decoration: none;">View Event Details ↗</a>
+                                </div>
+                    `;
+
+                    if (target.meta.video_paths && target.meta.video_paths.length > 0) {
+                        const videoPath = target.meta.video_paths[0];
+                        const posterPath = `/images/${sourceMode}/${previewImage}`;
+                        html += `
+                            <div style="text-align: center; margin-bottom: 25px;">
+                                <video controls preload="none" poster="${posterPath}" style="max-width: 100%; max-height: 450px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); background: #000;">
+                                    <source src="/videos/${videoPath}">
+                                </video>
+                            </div>
+                        `;
+                    }
+
+                    html += `
+                                <div class="gallery-grid" style="margin-top: 16px;">
+                    `;
+                    
+                    cycleImages.forEach(imagePath => {
+                        const imgPathParts = imagePath.split('/');
+                        const imgFolder = imgPathParts.length > 1 ? imgPathParts[0] : 'Root';
+                        html += renderImageCard(imagePath, sourceMode, imgFolder, cycleId, true);
+                    });
+                    
+                    html += `
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                contentEl.innerHTML = html;
+            }
+
             function fetchImages() {
                 const params = new URLSearchParams();
                 Object.entries(currentFilters).forEach(([key, value]) => {
@@ -3557,8 +3853,15 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                             currentProcessed = data.processed;
                             currentRaw = data.raw;
                             currentMetadata = data.metadata;
-                            renderGallery('gallery-processed', data.processed, '/images/processed');
-                            renderGallery('gallery-raw', data.raw, '/images/raw');
+                            if (currentViewMode === 'calendar') {
+                                renderCalendar();
+                                if (currentSelectedDateKey) {
+                                    showCalendarDateEvents(currentSelectedDateKey);
+                                }
+                            } else {
+                                renderGallery('gallery-processed', data.processed, '/images/processed');
+                                renderGallery('gallery-raw', data.raw, '/images/raw');
+                            }
                         }
                     } else {
                         console.error('API Error:', data.message);
