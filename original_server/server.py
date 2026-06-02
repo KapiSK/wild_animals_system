@@ -1435,7 +1435,7 @@ def export_filter_data(
     target_labels = [l.strip().lower() for l in labels.split(",")] if labels else []
     matched_images_data = []
     
-    for root, dirs, files in os.walk(METADATA_DIR):
+    for root, dirs, files in os.walk(EVENT_METADATA_DIR):
         for f in files:
             if f.startswith("metadata_") and f.endswith(".json"):
                 meta_path = os.path.join(root, f)
