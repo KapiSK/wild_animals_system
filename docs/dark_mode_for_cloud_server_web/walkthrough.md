@@ -1,34 +1,28 @@
-# ダークモード実装のウォークスルー
+# ダークモード実装のウォークスルー (トグルボタン対応版)
 
-クラウドサーバ（`original_server`）の各Web画面に対して、OSの設定に自動追従するダークモード（`@media (prefers-color-scheme: dark)`）を実装しました。
+クラウドサーバ（`original_server`）の各Web画面に対して、手動でライト/ダークを切り替えられるフローティングトグルボタン機能を追加しました。
 
 ## 変更内容
 
-`original_server/server.py` 内で直接HTML/CSSを出力している4つのエンドポイントについて、それぞれダークモード用のCSSオーバーライドを適用しました。
+各画面で OS の設定に自動追従するのみだったダークモード機能を、**「手動で切り替えられ、その設定が `localStorage` によって全画面で保持される」** 仕様にアップグレードしました。
 
-### 1. [Event Detail 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L1515)
-- 背景色を暗い緑・黒系 (`#121915`) に変更
-- パネルやカードの背景を一段明るいダークグレー (`#1e2923`) に変更
-- テキストカラーをライトグレーに変更して視認性を向上
+### 1. 共通スクリプト・UIの追加 (`server.py`)
+`server.py` の上部に、全画面で共通利用する2つの定数を追加しました。
+- `THEME_TOGGLE_SCRIPT`: ページ描画前に `localStorage` の保存状態（またはOS設定）を読み取り、`<html>` に `data-theme="dark"` を付与する処理。
+- `THEME_TOGGLE_UI`: 画面右下に固定配置されるフローティングボタン（☀️ / 🌙 アイコン）とそのクリックイベントのJSロジック。クリック時に `data-theme` を切り替え、`localStorage` に状態を保存します。
 
-### 2. [Login 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L1776)
-- ページ全体のグラデーション背景をダークな色合いに調整
-- ログインカードの背景透過度やボーダーをダークモード用に微調整
-- インプットフィールドの背景と文字色を暗転対応
+### 2. 各画面の HTML/CSS の書き換え
+以下の4つの画面に対して、共通スクリプトとUIを埋め込み、CSSの適用条件を変更しました。
+- [Event Detail 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L1525)
+- [Login 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L1817)
+- [Admin Settings 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L1904)
+- [Gallery 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L2756)
 
-### 3. [Admin Settings 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L2015)
-- `:root` で定義されているCSS変数 (`--glass-bg`, `--text-main` など) をダークモード用に上書き
-- 背景の丸みのある装飾 (`.blob`) のグラデーション色を調整し、ダークモード時のコントラストを最適化
-- テーブルやインプットフィールドのホバー時などのデザインを暗転対応
-
-### 4. [Gallery 画面](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py#L2778)
-- タブ、カード、検索フィルター、カレンダーなど多くのコンポーネントがあるため、それぞれに対して背景色・枠線・文字色を一括指定
-- 検知ラベル（赤色）などのアクセントカラーについて、明度を調整し、黒背景でも見やすい色（`#fc8181` 等）に変更
+**CSSの変更点**:
+前回追加した `@media (prefers-color-scheme: dark)` をすべて、`[data-theme="dark"]` を起点とする属性セレクタ（例: `[data-theme="dark"] body`）に置き換えました。
 
 ## 確認結果
 
-- Pythonの構文チェック (`python -m py_compile server.py`) にて、f-stringの構文エラーや括弧の閉じ忘れが発生していないことを確認しました。
-- 次回サーバ起動時より、OSやブラウザの設定が「ダークモード」になっている場合、自動的に暗い配色の画面が表示されます。
-
-> [!TIP]
-> 任意のPC環境でOSの設定を切り替えるか、Chrome等の開発者ツールの「Rendering」タブにある「Emulate CSS media feature prefers-color-scheme: dark」から動作を確認することが可能です。
+- Pythonの構文チェック (`python -m py_compile server.py`) にてエラーがないことを確認しました。
+- ブラウザで画面右下に表示されるボタンをクリックすることで、シームレスにテーマが切り替わります。
+- 一度切り替えたテーマは、他画面（例：GalleryからEventへ）に遷移しても `localStorage` により維持されます。

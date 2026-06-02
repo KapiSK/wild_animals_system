@@ -1,55 +1,39 @@
-# クラウドサーバWeb画面へのダークモード実装計画
+# ダークモード実装計画 (トグルボタン追加版)
 
-クラウドサーバ(`original_server/server.py`)内で生成されているHTMLにダークモードの対応を追加します。
+Web画面上のボタンで手動でライト/ダークを切り替えられるようにしたいというご要望に合わせ、実装方針を更新しました。
 
 ## 🎯 目的とアプローチ
-現在、`original_server/server.py` 内の以下の4つのエンドポイントでHTML画面が提供されています。
-- **Event Detail**: `/event/{camera_id}/{event_id}`
-- **Login**: `/login`
-- **Admin Settings**: `/admin`
-- **Gallery**: `/gallery`
-
-これらの画面は、それぞれ直接 `server.py` 内にインラインの `<style>` でCSSが記述されています。
-今回のアプローチとしては、各画面の `<style>` に `@media (prefers-color-scheme: dark)` を追加し、OSやブラウザのダークモード設定に合わせて自動で切り替わる「ネイティブ対応」なダークモードを実装します。
-
-> [!TIP]
-> トグルスイッチ（画面上のボタンによる手動切り替え）を設けることも可能ですが、JavaScriptやCookie等での状態管理が必要になり複雑化するため、まずは設定不要でOS連動する手法（CSSメディアクエリ）を推奨します。
-
-## 📝 User Review Required
-
-1. **トグルスイッチの要否**: 今回の提案は「OS設定に自動追従するダークモード」ですが、画面上に「ライト/ダーク手動切り替えボタン」を配置したいご要望はございますでしょうか？（手動切り替えを実装する場合、JavaScriptとlocalStorageを用いた状態管理を追加します。）
-2. **デザインの方向性**: 現在のライトテーマ（白、薄い緑などのグラデーション）に対して、ダークモード時は「深緑・黒系のダークテーマ（Vercel等のモダンなダークUIに近いイメージ）」を想定していますが、指定のカラーコード等があればお知らせください。
+CSSのメディアクエリ (`prefers-color-scheme`) だけで自動判定していた状態から、**JavaScriptを用いた状態管理とトグルボタン**による手動切り替え方式に変更します。切り替え状態はブラウザの `localStorage` に保存され、ページ遷移時や再訪問時にも維持されます。
 
 ## 🛠️ Proposed Changes
 
-### 1. `server.py` の修正
-各エンドポイントのHTMLレスポンス生成部分 (`f"""..."""` 形式の文字列) に含まれる `<style>` ブロックの末尾に、ダークモード用のCSSオーバーライドを追記します。
+### 1. 共通トグルスクリプト・UIの追加
+`server.py` 内で各画面を生成する前に、以下の共通HTML/JSスニペットを変数として定義し、4つの画面すべてに注入します。
+
+- **Theme Toggle Script**: `<head>` タグ内に配置し、画面描画前に `localStorage` の状態（あるいはOSのデフォルト状態）を読み取って `<html>` 要素に `data-theme="dark"` などの属性を付与します。（画面のチラつきを防止します）
+- **Toggle Button**: 太陽(☀️)と月(🌙)のアイコンを持つシンプルなフローティングボタン（画面の右下などを想定）や、各画面のヘッダー部分に切り替えボタンを追加します。クリック時に `localStorage` を更新し、`data-theme` を切り替えます。
+
+### 2. CSSの書き換え
+前回追加した `@media (prefers-color-scheme: dark) { ... }` の部分を、`[data-theme="dark"] { ... }` をベースとするスタイルに変更します。
 
 #### [MODIFY] [server.py](file:///c:/Users/kapib/vscodegit/wild_animals/test2/original_server/server.py)
+以下の4つのエンドポイント（およびHTML文字列生成箇所）を修正します。
+- **Event Detail**: 1485行目付近
+- **Login**: 1768行目付近
+- **Admin Settings**: 1845行目付近
+- **Gallery**: 2669行目付近
 
-1. **Event Detail 画面** (1485行目付近):
-   - 背景色を黒緑系に変更
-   - カード（パネル）の背景色をダークグレー系に変更
-   - テキスト色を明るい色（白やライトグレー）に変更
-   - ボタン（Back to Gallery等）のホバー色を調整
+**具体的な変更作業**:
+1. `server.py` の上部に `THEME_TOGGLE_SCRIPT` および `THEME_TOGGLE_BUTTON` の文字列定数を定義します。
+2. 各エンドポイントのHTMLの `<head>` に `THEME_TOGGLE_SCRIPT` を、`<body>` 内に `THEME_TOGGLE_BUTTON` を埋め込みます。
+3. すでに追記した `@media (prefers-color-scheme: dark)` を `[data-theme="dark"] body` など、属性セレクタを利用したスタイルに一括置換します。
 
-2. **Login 画面** (1768行目付近):
-   - `linear-gradient` の背景を暗い色調に変更
-   - ログインフォーム（カード）の背景色、枠線をダークテーマ用に調整
-   - Inputフィールドの背景色と文字色を暗転対応
+## 📝 User Review Required
 
-3. **Admin Settings 画面** (1845行目付近):
-   - すでにCSS変数が使用されているため、`@media (prefers-color-scheme: dark)` 内で `--glass-bg`, `--primary`, `--text-main`, `--text-sub` 等の変数をダークモード向けの値に上書き
-   - `linear-gradient` の背景も暗い色へ変更
-
-4. **Gallery 画面** (2669行目付近):
-   - 背景色 `#f2f7f4` を `#1a202c` のような暗い色に変更
-   - タブやカード (`.item`, `.latest-item`) の背景を `#2d3748` のような色に変更
-   - テキスト色、影（box-shadow）の調整
+- **ボタンの配置**: 画面の右下などに固定で浮いている「フローティングボタン」にするか、それとも画面の上部バー（Backボタン等の横）に配置するか、どちらがよろしいでしょうか？（全画面共通で手軽に実装・配置できるのはフローティングボタンです）
 
 ## ✅ Verification Plan
-
-### Manual Verification
-1. `original_server/setup_local_test.py` などを実行してローカルでサーバを起動します。
-2. ブラウザから `http://localhost:8000/gallery` (または設定されたポート) にアクセスします。
-3. OSの設定、またはブラウザの開発者ツールで「ダークモード (prefers-color-scheme: dark)」をエミュレートし、4つの画面すべてでダークモードが正しく、視認性良く適用されることを確認します。
+1. ローカルでサーバを起動します。
+2. 各画面にアクセスし、トグルボタンが表示されていることを確認します。
+3. ボタンをクリックすると、ライト/ダークが即座に切り替わることを確認します。
+4. ページをリロードしたり、他の画面（GalleryからAdmin等）へ遷移しても、切り替えたテーマが維持されることを確認します。

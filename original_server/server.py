@@ -67,6 +67,46 @@ security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
 SESSION_STORE = {}
 
+THEME_TOGGLE_SCRIPT = """
+<script>
+(function() {
+    var storedTheme = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+</script>
+"""
+
+THEME_TOGGLE_UI = """
+<button id="theme-toggle" style="position: fixed; bottom: 24px; right: 24px; width: 48px; height: 48px; border-radius: 50%; background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.1); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10000; transition: all 0.2s ease; padding: 0;">
+    <span id="theme-icon">☀️</span>
+</button>
+<script>
+(function() {
+    var btn = document.getElementById('theme-toggle');
+    var icon = document.getElementById('theme-icon');
+    
+    function updateIcon() {
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        icon.textContent = isDark ? '🌙' : '☀️';
+        btn.style.background = isDark ? '#1e293b' : '#ffffff';
+        btn.style.borderColor = isDark ? '#334155' : '#e2e8f0';
+    }
+    
+    updateIcon();
+    
+    btn.addEventListener('click', function() {
+        var currentTheme = document.documentElement.getAttribute('data-theme');
+        var newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        updateIcon();
+    });
+})();
+</script>
+"""
 
 def load_user_access_config() -> dict:
     default_config = {"users": {}}
@@ -1489,6 +1529,7 @@ async def event_detail_by_cycle(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Event Details: {event_id}</title>
+        {THEME_TOGGLE_SCRIPT}
         <style>
             body {{ font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f3f8f4; color: #22332b; }}
             .shell {{ max-width: 1280px; margin: 0 auto; }}
@@ -1516,24 +1557,23 @@ async def event_detail_by_cycle(
             .overlay.active {{ display:flex; }}
             .overlay img {{ max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }}
             
-            @media (prefers-color-scheme: dark) {{
-                body {{ background: #121915; color: #e2e8f0; }}
-                .back-link, .download-link {{ background: #1e2923; color: #a5d2b7; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 1px solid #2d3a33; }}
-                .back-link:hover, .download-link:hover {{ background: #2d3a33; }}
-                .panel {{ background: #1e2923; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }}
-                .panel h2 {{ color: #86c4a0; border-bottom-color: #2d3a33; }}
-                .meta-card {{ background: #1e2923; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-color: #2d3a33; }}
-                .meta-label {{ color: #8a9c92; }}
-                .meta-value {{ color: #e2e8f0; }}
-                .thumb {{ background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }}
-                .thumb:hover {{ border-color: #48bb78; box-shadow: 0 8px 25px rgba(72,187,120,0.15); }}
-                .thumb img {{ background: #121915; border: none; }}
-                .thumb span {{ color: #cbd5e0; }}
-                .empty-video {{ background: #121915; color: #8a9c92; border-color: #2d3a33; }}
-            }}
+            [data-theme="dark"] body {{ background: #121915; color: #e2e8f0; }}
+            [data-theme="dark"] .back-link, [data-theme="dark"] .download-link {{ background: #1e2923; color: #a5d2b7; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 1px solid #2d3a33; }}
+            [data-theme="dark"] .back-link:hover, [data-theme="dark"] .download-link:hover {{ background: #2d3a33; }}
+            [data-theme="dark"] .panel {{ background: #1e2923; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }}
+            [data-theme="dark"] .panel h2 {{ color: #86c4a0; border-bottom-color: #2d3a33; }}
+            [data-theme="dark"] .meta-card {{ background: #1e2923; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-color: #2d3a33; }}
+            [data-theme="dark"] .meta-label {{ color: #8a9c92; }}
+            [data-theme="dark"] .meta-value {{ color: #e2e8f0; }}
+            [data-theme="dark"] .thumb {{ background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }}
+            [data-theme="dark"] .thumb:hover {{ border-color: #48bb78; box-shadow: 0 8px 25px rgba(72,187,120,0.15); }}
+            [data-theme="dark"] .thumb img {{ background: #121915; border: none; }}
+            [data-theme="dark"] .thumb span {{ color: #cbd5e0; }}
+            [data-theme="dark"] .empty-video {{ background: #121915; color: #8a9c92; border-color: #2d3a33; }}
         </style>
     </head>
     <body>
+        {THEME_TOGGLE_UI}
         <div class="shell">
             <div class="topbar">
                 <a class="back-link" href="/gallery">← Back to Gallery</a>
@@ -1781,6 +1821,7 @@ async def login_page(request: Request):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Login</title>
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             body { font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #eef7f1 0%, #d8efe3 100%); color: #234034; }
             .card { width: min(420px, 92vw); background: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.7); border-radius: 20px; padding: 32px; box-shadow: 0 20px 40px rgba(35, 64, 52, 0.08); }
@@ -1791,18 +1832,17 @@ async def login_page(request: Request):
             button { width: 100%; padding: 12px 16px; border: none; border-radius: 12px; background: #2f855a; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
             button:hover { background: #276749; }
             
-            @media (prefers-color-scheme: dark) {
-                body { background: linear-gradient(135deg, #121915 0%, #1c2b22 100%); color: #e2e8f0; }
-                .card { background: rgba(30,41,35,0.92); border-color: rgba(255,255,255,0.1); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
-                p { color: #a0b2aa; }
-                label { color: #cbd5e0; }
-                input { background: #121915; border-color: #2d3a33; color: #fff; }
-                button { background: #38a169; }
-                button:hover { background: #2f855a; }
-            }
+            [data-theme="dark"] body { background: linear-gradient(135deg, #121915 0%, #1c2b22 100%); color: #e2e8f0; }
+            [data-theme="dark"] .card { background: rgba(30,41,35,0.92); border-color: rgba(255,255,255,0.1); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+            [data-theme="dark"] p { color: #a0b2aa; }
+            [data-theme="dark"] label { color: #cbd5e0; }
+            [data-theme="dark"] input { background: #121915; border-color: #2d3a33; color: #fff; }
+            [data-theme="dark"] button { background: #38a169; }
+            [data-theme="dark"] button:hover { background: #2f855a; }
         </style>
     </head>
     <body>
+        """ + THEME_TOGGLE_UI + """
         <form class="card" method="post" action="/login">
             <h1>Wild Animals Login</h1>
             <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
@@ -1868,6 +1908,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>System Admin & Settings</title>
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Inter:wght@400;500;600&display=swap');
             
@@ -2041,36 +2082,35 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                 .user-card-actions .btn { width: 100%; }
             }
             
-            @media (prefers-color-scheme: dark) {
-                :root {
-                    --glass-bg: rgba(30, 41, 59, 0.75);
-                    --glass-border: rgba(255, 255, 255, 0.15);
-                    --primary: #6366f1;
-                    --primary-hover: #818cf8;
-                    --text-main: #f8fafc;
-                    --text-sub: #cbd5e1;
-                }
-                body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
-                .blob { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(236,72,153,0.2)); }
-                h1 { color: #f8fafc; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-                .btn-secondary { background: #334155; color: #f8fafc; box-shadow: 0 4px 15px rgba(0,0,0,0.25); border: 1px solid #475569; }
-                .btn-secondary:hover { background: #475569; }
-                tr.row-item { background: rgba(30, 41, 59, 0.5); }
-                tr.row-item:hover { background: rgba(30, 41, 59, 0.8); }
-                input[type="text"], input[type="email"] { background: rgba(15, 23, 42, 0.8); color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); }
-                input:focus { background: #0f172a; }
-                .inline-edit-input { background: rgba(15, 23, 42, 0.9); color: #818cf8; border: 1px solid #475569; }
-                .camera-checkbox-item { background: rgba(30, 41, 59, 0.65); border: 1px solid rgba(255,255,255,0.1); }
-                .collapsible-block { background: rgba(30, 41, 59, 0.35); border: 1px solid rgba(255,255,255,0.1); }
-                .collapsible-block summary { color: #cbd5e1; }
-                .checkbox-panel { background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.1); }
-                .user-card { background: rgba(30, 41, 59, 0.55); border: 1px solid rgba(255,255,255,0.15); }
-                .user-card-name { color: #f8fafc; }
-                .unmapped-highlight { background: rgba(153, 27, 27, 0.2); border: 1px solid #991b1b; }
+            [data-theme="dark"] {
+                --glass-bg: rgba(30, 41, 59, 0.75);
+                --glass-border: rgba(255, 255, 255, 0.15);
+                --primary: #6366f1;
+                --primary-hover: #818cf8;
+                --text-main: #f8fafc;
+                --text-sub: #cbd5e1;
             }
+            [data-theme="dark"] body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+            [data-theme="dark"] .blob { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(236,72,153,0.2)); }
+            [data-theme="dark"] h1 { color: #f8fafc; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+            [data-theme="dark"] .btn-secondary { background: #334155; color: #f8fafc; box-shadow: 0 4px 15px rgba(0,0,0,0.25); border: 1px solid #475569; }
+            [data-theme="dark"] .btn-secondary:hover { background: #475569; }
+            [data-theme="dark"] tr.row-item { background: rgba(30, 41, 59, 0.5); }
+            [data-theme="dark"] tr.row-item:hover { background: rgba(30, 41, 59, 0.8); }
+            [data-theme="dark"] input[type="text"], [data-theme="dark"] input[type="email"] { background: rgba(15, 23, 42, 0.8); color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] input:focus { background: #0f172a; }
+            [data-theme="dark"] .inline-edit-input { background: rgba(15, 23, 42, 0.9); color: #818cf8; border: 1px solid #475569; }
+            [data-theme="dark"] .camera-checkbox-item { background: rgba(30, 41, 59, 0.65); border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] .collapsible-block { background: rgba(30, 41, 59, 0.35); border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] .collapsible-block summary { color: #cbd5e1; }
+            [data-theme="dark"] .checkbox-panel { background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] .user-card { background: rgba(30, 41, 59, 0.55); border: 1px solid rgba(255,255,255,0.15); }
+            [data-theme="dark"] .user-card-name { color: #f8fafc; }
+            [data-theme="dark"] .unmapped-highlight { background: rgba(153, 27, 27, 0.2); border: 1px solid #991b1b; }
         </style>
     </head>
     <body>
+        """ + THEME_TOGGLE_UI + """
         <div class="blob"></div>
         <div class="container">
             <h1>Admin Dashboard</h1>
@@ -2720,6 +2760,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>SLAB WILD ANIMALS Web</title>
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
             body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
@@ -2833,57 +2874,56 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             #calendar-events-container { background: #ffffff; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; display: none; }
             .calendar-events-title { font-size: 1.3rem; color: #1c4532; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
             
-            @media (prefers-color-scheme: dark) {
-                body { background-color: #121915; color: #e2e8f0; }
-                h1 { color: #a5d2b7; }
-                h2, .latest-container h3, .calendar-header h2, .calendar-events-title { color: #86c4a0; border-color: #2d3a33; }
-                .header-accent { background: #48bb78; }
-                .tab { background: #1e2923; color: #cbd5e0; border: 1px solid #2d3a33; }
-                .tab:hover { background: #2d3a33; }
-                .tab.active { background: #38a169; color: #fff; border-color: #38a169; }
-                .latest-item, .item, .camera-section, .flat-cycle-item, .calendar-cell, #calendar-events-container, .calendar-header { background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
-                .latest-item img, .item .img-wrapper, .flat-cycle-thumb { background: #121915; border-color: #2d3a33; }
-                .latest-item span, .item-filename, .flat-cycle-title, .calendar-date { color: #e2e8f0; }
-                .item-detection { color: #86c4a0; }
-                .item-detection.detected { color: #fc8181; }
-                .item-detection.not-detected { color: #a0aec0; }
-                .cycle-section { background: #1e2923; border-color: #2d3a33; }
-                .cycle-title { color: #a5d2b7; border-color: #2d3a33; }
-                .cycle-title .badge { background: #38a169; }
-                .cycle-title-thumb { background: #121915; border-color: #2d3a33; }
-                .view-mode-selector { background: #1e2923; }
-                .view-mode-selector label { color: #cbd5e0; }
-                .view-mode-selector select, .sort-select, .filter-card select, .filter-card input, .pagination-controls select { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
-                .filter-card { background: #1e2923; border: 1px solid #2d3a33; }
-                .filter-card label { color: #cbd5e0; }
-                .action-link.primary { background: #38a169; }
-                .action-link.primary:hover { background: #2f855a; }
-                .action-link.secondary { background: #1e2923; color: #e2e8f0; border: 1px solid #2d3a33; }
-                .action-link.secondary:hover { background: #2d3a33; }
-                .action-link.danger { background: #742a2a; color: #fc8181; }
-                .action-link.danger:hover { background: #9b2c2c; }
-                .flat-cycle-meta, .empty-msg { color: #a0aec0; }
-                .flat-cycle-badge.count { background: #2d3748; color: #e2e8f0; }
-                .flat-cycle-badge.labels { background: #742a2a; color: #fc8181; }
-                .flat-cycle-badge.no-labels { background: #2d3748; color: #a0aec0; }
-                .flat-cycle-header { border-color: #2d3a33; }
-                .sort-direction button { background: #1e2923; color: #cbd5e0; border-color: #2d3a33; }
-                .sort-direction button.active { background: #38a169; color: white; border-color: #38a169; }
-                .pagination-controls { background: #1e2923; border-color: #2d3a33; }
-                .page-buttons button { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
-                .page-buttons button:hover:not(:disabled) { background: #2d3a33; }
-                .page-buttons span { color: #e2e8f0; }
-                .calendar-nav-btn { background: #2d3a33; color: #cbd5e0; }
-                .calendar-nav-btn:hover { background: #4a5568; color: #e2e8f0; }
-                .calendar-day-header { color: #a0aec0; }
-                .calendar-cell.active { border-color: #48bb78; background: #22332a; }
-                .calendar-cell.today .calendar-date { color: #fc8181; }
-                .calendar-badge { background: #121915; border-color: #2d3a33; color: #cbd5e0; }
-                .calendar-badge.has-detection { background: #4a1d1d; border-color: #742a2a; color: #fc8181; }
-            }
+            [data-theme="dark"] body { background-color: #121915; color: #e2e8f0; }
+            [data-theme="dark"] h1 { color: #a5d2b7; }
+            [data-theme="dark"] h2, [data-theme="dark"] .latest-container h3, [data-theme="dark"] .calendar-header h2, [data-theme="dark"] .calendar-events-title { color: #86c4a0; border-color: #2d3a33; }
+            [data-theme="dark"] .header-accent { background: #48bb78; }
+            [data-theme="dark"] .tab { background: #1e2923; color: #cbd5e0; border: 1px solid #2d3a33; }
+            [data-theme="dark"] .tab:hover { background: #2d3a33; }
+            [data-theme="dark"] .tab.active { background: #38a169; color: #fff; border-color: #38a169; }
+            [data-theme="dark"] .latest-item, [data-theme="dark"] .item, [data-theme="dark"] .camera-section, [data-theme="dark"] .flat-cycle-item, [data-theme="dark"] .calendar-cell, [data-theme="dark"] #calendar-events-container, [data-theme="dark"] .calendar-header { background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+            [data-theme="dark"] .latest-item img, [data-theme="dark"] .item .img-wrapper, [data-theme="dark"] .flat-cycle-thumb { background: #121915; border-color: #2d3a33; }
+            [data-theme="dark"] .latest-item span, [data-theme="dark"] .item-filename, [data-theme="dark"] .flat-cycle-title, [data-theme="dark"] .calendar-date { color: #e2e8f0; }
+            [data-theme="dark"] .item-detection { color: #86c4a0; }
+            [data-theme="dark"] .item-detection.detected { color: #fc8181; }
+            [data-theme="dark"] .item-detection.not-detected { color: #a0aec0; }
+            [data-theme="dark"] .cycle-section { background: #1e2923; border-color: #2d3a33; }
+            [data-theme="dark"] .cycle-title { color: #a5d2b7; border-color: #2d3a33; }
+            [data-theme="dark"] .cycle-title .badge { background: #38a169; }
+            [data-theme="dark"] .cycle-title-thumb { background: #121915; border-color: #2d3a33; }
+            [data-theme="dark"] .view-mode-selector { background: #1e2923; }
+            [data-theme="dark"] .view-mode-selector label { color: #cbd5e0; }
+            [data-theme="dark"] .view-mode-selector select, [data-theme="dark"] .sort-select, [data-theme="dark"] .filter-card select, [data-theme="dark"] .filter-card input, [data-theme="dark"] .pagination-controls select { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
+            [data-theme="dark"] .filter-card { background: #1e2923; border: 1px solid #2d3a33; }
+            [data-theme="dark"] .filter-card label { color: #cbd5e0; }
+            [data-theme="dark"] .action-link.primary { background: #38a169; }
+            [data-theme="dark"] .action-link.primary:hover { background: #2f855a; }
+            [data-theme="dark"] .action-link.secondary { background: #1e2923; color: #e2e8f0; border: 1px solid #2d3a33; }
+            [data-theme="dark"] .action-link.secondary:hover { background: #2d3a33; }
+            [data-theme="dark"] .action-link.danger { background: #742a2a; color: #fc8181; }
+            [data-theme="dark"] .action-link.danger:hover { background: #9b2c2c; }
+            [data-theme="dark"] .flat-cycle-meta, [data-theme="dark"] .empty-msg { color: #a0aec0; }
+            [data-theme="dark"] .flat-cycle-badge.count { background: #2d3748; color: #e2e8f0; }
+            [data-theme="dark"] .flat-cycle-badge.labels { background: #742a2a; color: #fc8181; }
+            [data-theme="dark"] .flat-cycle-badge.no-labels { background: #2d3748; color: #a0aec0; }
+            [data-theme="dark"] .flat-cycle-header { border-color: #2d3a33; }
+            [data-theme="dark"] .sort-direction button { background: #1e2923; color: #cbd5e0; border-color: #2d3a33; }
+            [data-theme="dark"] .sort-direction button.active { background: #38a169; color: white; border-color: #38a169; }
+            [data-theme="dark"] .pagination-controls { background: #1e2923; border-color: #2d3a33; }
+            [data-theme="dark"] .page-buttons button { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
+            [data-theme="dark"] .page-buttons button:hover:not(:disabled) { background: #2d3a33; }
+            [data-theme="dark"] .page-buttons span { color: #e2e8f0; }
+            [data-theme="dark"] .calendar-nav-btn { background: #2d3a33; color: #cbd5e0; }
+            [data-theme="dark"] .calendar-nav-btn:hover { background: #4a5568; color: #e2e8f0; }
+            [data-theme="dark"] .calendar-day-header { color: #a0aec0; }
+            [data-theme="dark"] .calendar-cell.active { border-color: #48bb78; background: #22332a; }
+            [data-theme="dark"] .calendar-cell.today .calendar-date { color: #fc8181; }
+            [data-theme="dark"] .calendar-badge { background: #121915; border-color: #2d3a33; color: #cbd5e0; }
+            [data-theme="dark"] .calendar-badge.has-detection { background: #4a1d1d; border-color: #742a2a; color: #fc8181; }
         </style>
     </head>
     <body>
+        """ + THEME_TOGGLE_UI + """
         <h1>SLAB WILD ANIMALS Web</h1>
         <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
         <div class="header-accent"></div>
