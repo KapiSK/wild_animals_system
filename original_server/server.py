@@ -1466,12 +1466,31 @@ def export_filter_data(
                         pass
                 
                 image_detections = meta.get("detections", {})
+                event_labels = meta.get("labels", [])
+                
                 for img_rel_path in meta.get("images", []):
                     img_filename = os.path.basename(img_rel_path)
                     dets = image_detections.get(img_filename, [])
                     
                     if not dets:
-                        if include_empty:
+                        # 過去データ(BBなし)のフォールバック処理
+                        has_target = False
+                        if event_labels and event_labels != ['None'] and event_labels != "None":
+                            for lbl in event_labels:
+                                cat_str = str(lbl).lower()
+                                cat_name = "animal"
+                                if "person" in cat_str or cat_str == "1":
+                                    cat_name = "person"
+                                elif "vehicle" in cat_str or cat_str == "2":
+                                    cat_name = "vehicle"
+                                    
+                                if not target_labels or "all" in target_labels or cat_name in target_labels:
+                                    has_target = True
+                                    break
+                                    
+                        if has_target:
+                            matched_images_data.append((meta, img_filename, []))
+                        elif include_empty:
                             matched_images_data.append((meta, img_filename, []))
                         continue
                         
@@ -1574,6 +1593,8 @@ async def export_download(
             for meta, img_filename, dets in target_images:
                 cam_id = meta.get("camera_id")
                 img_path = os.path.join(UPLOAD_DIR, cam_id, img_filename)
+                if not os.path.exists(img_path):
+                    img_path = os.path.join(PROCESSED_DIR, cam_id, img_filename)
                 
                 md_detections = []
                 for d in dets:
