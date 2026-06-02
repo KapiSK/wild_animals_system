@@ -3,10 +3,13 @@ import logging
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header, Request, Form
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header, Request, Form, Query
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from typing import Optional
+import tempfile
+import zipfile
 from dotenv import load_dotenv
 import yolov5
 import cv2
@@ -1071,6 +1074,7 @@ class CycleManager:
                 "best_image": f"{camera_id}/{best_data['filename']}",
                 "images": [f"{camera_id}/{f['filename']}" for f in files],
                 "image_summaries": {f['filename']: f.get("summary_text", "") for f in files},
+                "detections": {f['filename']: f.get("detections", []) for f in files},
                 "has_video": len(get_video_relpaths_for_event(camera_id, cycle_id)) > 0,
                 "cycle_time": cycle_time,
                 "temperature": temperature,
@@ -1169,6 +1173,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
     max_conf = 0.0
 
     df = results.pandas().xyxy[0]
+    df_n = results.pandas().xyxyn[0]
+    detections = []
 
     for index, row in df.iterrows():
         cls = int(row['class'])
@@ -1179,6 +1185,21 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
             detected_targets[label] = detected_targets.get(label, 0) + 1
             if conf > max_conf:
                 max_conf = conf
+
+            row_n = df_n.iloc[index]
+            w_norm = row_n['xmax'] - row_n['xmin']
+            h_norm = row_n['ymax'] - row_n['ymin']
+            bbox = [
+                round(row_n['xmin'], 4),
+                round(row_n['ymin'], 4),
+                round(w_norm, 4),
+                round(h_norm, 4)
+            ]
+            detections.append({
+                "category": str(cls),
+                "conf": round(conf, 4),
+                "bbox": bbox
+            })
 
     if detected_targets:
         counts_str = ", ".join([f"{label}: {count}" for label, count in detected_targets.items()])
@@ -1243,7 +1264,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
         'labels': sorted(detected_targets.keys()),
         'source': source,
         'camera_id': pure_cam_id,
-        'event_id': cycle_id
+        'event_id': cycle_id,
+        'detections': detections
     }
 
 
@@ -1399,6 +1421,190 @@ async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_toke
 async def get_telemetry(principal: dict = Depends(verify_credentials)):
     return {"status": "ok", "telemetry": load_telemetry()}
 
+# --- Dataset Export APIs ---
+def export_filter_data(
+    start_date: str = None,
+    end_date: str = None,
+    camera: str = None,
+    labels: str = None,
+    include_empty: bool = True,
+    min_conf: float = 0.0,
+    max_conf: float = 1.0,
+    principal: dict = None
+):
+    target_labels = [l.strip().lower() for l in labels.split(",")] if labels else []
+    matched_images_data = []
+    
+    for root, dirs, files in os.walk(METADATA_DIR):
+        for f in files:
+            if f.startswith("metadata_") and f.endswith(".json"):
+                meta_path = os.path.join(root, f)
+                try:
+                    with open(meta_path, 'r', encoding='utf-8') as jf:
+                        meta = json.load(jf)
+                except Exception:
+                    continue
+                
+                cam_id = meta.get("camera_id")
+                if principal and principal["role"] == "user":
+                    if cam_id not in principal.get("allowed_cameras", []):
+                        continue
+                
+                if camera and camera != "all" and cam_id != camera:
+                    continue
+                
+                cycle_time_str = meta.get("cycle_time", "")
+                if cycle_time_str:
+                    try:
+                        dt = datetime.strptime(cycle_time_str, "%Y/%m/%d %H:%M:%S")
+                        date_str = dt.strftime("%Y-%m-%d")
+                        if start_date and date_str < start_date:
+                            continue
+                        if end_date and date_str > end_date:
+                            continue
+                    except:
+                        pass
+                
+                image_detections = meta.get("detections", {})
+                for img_rel_path in meta.get("images", []):
+                    img_filename = os.path.basename(img_rel_path)
+                    dets = image_detections.get(img_filename, [])
+                    
+                    if not dets:
+                        if include_empty:
+                            matched_images_data.append((meta, img_filename, []))
+                        continue
+                        
+                    filtered_dets = []
+                    for d in dets:
+                        cat_str = str(d.get("category", "")).lower()
+                        cat_name = "animal"
+                        if "person" in cat_str or cat_str == "1":
+                            cat_name = "person"
+                        elif "vehicle" in cat_str or cat_str == "2":
+                            cat_name = "vehicle"
+                            
+                        if target_labels and "all" not in target_labels and cat_name not in target_labels:
+                            continue
+                            
+                        conf = float(d.get("conf", 0.0))
+                        if not (min_conf <= conf <= max_conf):
+                            continue
+                            
+                        filtered_dets.append(d)
+                        
+                    if filtered_dets:
+                        matched_images_data.append((meta, img_filename, filtered_dets))
+                    elif include_empty:
+                        matched_images_data.append((meta, img_filename, []))
+                        
+    matched_images_data.sort(key=lambda x: x[0].get("cycle_time", ""), reverse=True)
+    return matched_images_data
+
+@app.get("/api/export/preview")
+async def export_preview(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    camera: Optional[str] = Query(None),
+    labels: Optional[str] = Query(None),
+    include_empty: str = Query("true"),
+    min_conf: float = Query(0.0),
+    max_conf: float = Query(1.0),
+    principal: dict = Depends(verify_credentials)
+):
+    try:
+        inc_empty = include_empty.lower() == "true"
+        matched = export_filter_data(start, end, camera, labels, inc_empty, min_conf, max_conf, principal)
+        return {"status": "ok", "total_images": len(matched)}
+    except Exception as e:
+        logger.error(f"Preview API Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+def cleanup_temp_dir(path: str):
+    try:
+        import shutil
+        shutil.rmtree(path)
+    except Exception as e:
+        logger.error(f"Failed to cleanup {path}: {e}")
+
+@app.get("/api/export/download")
+async def export_download(
+    background_tasks: BackgroundTasks,
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    camera: Optional[str] = Query(None),
+    labels: Optional[str] = Query(None),
+    include_empty: str = Query("true"),
+    min_conf: float = Query(0.0),
+    max_conf: float = Query(1.0),
+    page: int = Query(1),
+    principal: dict = Depends(verify_credentials)
+):
+    try:
+        inc_empty = include_empty.lower() == "true"
+        matched = export_filter_data(start, end, camera, labels, inc_empty, min_conf, max_conf, principal)
+        
+        limit = 1000
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        target_images = matched[start_idx:end_idx]
+        
+        if not target_images:
+            raise HTTPException(status_code=404, detail="No data found for this page.")
+            
+        md_json = {
+            "info": {
+                "version": "1.0",
+                "description": "Exported from WILD ANIMALS Server",
+                "date_created": datetime.now().isoformat()
+            },
+            "detection_categories": {
+                "0": "animal",
+                "1": "person",
+                "2": "vehicle"
+            },
+            "images": []
+        }
+        
+        temp_dir = tempfile.mkdtemp()
+        zip_filename = f"dataset_export_part{page}.zip"
+        zip_path = os.path.join(temp_dir, zip_filename)
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for meta, img_filename, dets in target_images:
+                cam_id = meta.get("camera_id")
+                img_path = os.path.join(UPLOAD_DIR, cam_id, img_filename)
+                
+                md_detections = []
+                for d in dets:
+                    cat = str(d.get("category", "0"))
+                    md_detections.append({
+                        "category": cat,
+                        "conf": d.get("conf"),
+                        "bbox": d.get("bbox")
+                    })
+                    
+                md_json["images"].append({
+                    "file": f"images/{img_filename}",
+                    "location": cam_id,
+                    "datetime": meta.get("cycle_time"),
+                    "detections": md_detections
+                })
+                
+                if os.path.exists(img_path):
+                    zipf.write(img_path, arcname=f"images/{img_filename}")
+            
+            json_str = json.dumps(md_json, indent=2)
+            zipf.writestr("md_results.json", json_str)
+            
+        background_tasks.add_task(cleanup_temp_dir, temp_dir)
+        return FileResponse(zip_path, media_type="application/zip", filename=zip_filename)
+        
+    except Exception as e:
+        logger.error(f"Download API Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/statistics")
 async def get_statistics(principal: dict = Depends(verify_credentials)):
     data = []
@@ -1487,6 +1693,25 @@ async def statistics_page(request: Request, credentials: HTTPBasicCredentials = 
             @media (max-width: 768px) {{
                 .charts-grid {{ grid-template-columns: 1fr; }}
             }}
+            .btn-export {{ background: #38a169; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }}
+            .btn-export:hover {{ background: #2f855a; }}
+            .modal-overlay {{ display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }}
+            .modal-content {{ background: var(--card-bg); padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; color: var(--text-main); }}
+            .modal-content h2 {{ margin-top: 0; color: var(--text-main); font-size: 1.5rem; }}
+            .form-group {{ margin-bottom: 15px; }}
+            .form-group label {{ display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }}
+            .form-group input, .form-group select {{ width: 100%; padding: 8px; border: 1px solid var(--card-border); border-radius: 6px; box-sizing: border-box; background: var(--bg-main); color: var(--text-main); }}
+            .form-row {{ display: flex; gap: 10px; }}
+            .checkbox-group {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+            .checkbox-item {{ display: flex; align-items: center; gap: 5px; font-size: 0.9rem; cursor: pointer; }}
+            #export-preview-msg {{ margin: 15px 0; padding: 10px; border-radius: 6px; background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; display: none; font-size: 0.95rem; }}
+            #export-actions {{ display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }}
+            .btn-check {{ background: #3182ce; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
+            .btn-check:hover {{ background: #2b6cb0; }}
+            .btn-dl {{ background: #38a169; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; text-decoration: none; }}
+            .btn-cancel {{ background: #a0aec0; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
+            [data-theme="dark"] .modal-overlay {{ background: rgba(0,0,0,0.7); }}
+            [data-theme="dark"] #export-preview-msg {{ background: #2a4365; color: #90cdf4; border-color: #2c5282; }}
         </style>
     </head>
     <body>
@@ -1494,7 +1719,10 @@ async def statistics_page(request: Request, credentials: HTTPBasicCredentials = 
         <div class="container">
             <div class="header">
                 <h1>Statistics Dashboard</h1>
-                <a href="/gallery" class="btn-back"><span>←</span> Back to Gallery</a>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="openExportModal()" class="btn-export">📦 Export Dataset</button>
+                    <a href="/gallery" class="btn-back"><span>←</span> Back to Gallery</a>
+                </div>
             </div>
             
             <div class="overview-grid">
@@ -1530,6 +1758,57 @@ async def statistics_page(request: Request, credentials: HTTPBasicCredentials = 
             </div>
         </div>
         
+        <!-- Export Modal -->
+        <div id="exportModal" class="modal-overlay">
+            <div class="modal-content">
+                <h2>Export Dataset (MD Format)</h2>
+                <div class="form-group">
+                    <label>Camera</label>
+                    <select id="exp-camera">
+                        <option value="all">All Cameras</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;">
+                        <label>Start Date</label>
+                        <input type="date" id="exp-start">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>End Date</label>
+                        <input type="date" id="exp-end">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Labels</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="animal" checked> Animal</label>
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="person" checked> Person</label>
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="vehicle" checked> Vehicle</label>
+                        <label class="checkbox-item"><input type="checkbox" id="exp-empty" checked> Empty / No Detection</label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;">
+                        <label>Min Confidence</label>
+                        <input type="number" id="exp-min-conf" min="0" max="1" step="0.1" value="0.0">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Max Confidence</label>
+                        <input type="number" id="exp-max-conf" min="0" max="1" step="0.1" value="1.0">
+                    </div>
+                </div>
+                
+                <div id="export-preview-msg"></div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                    <button class="btn-check" onclick="checkExportSize()">Check Data Size</button>
+                    <button class="btn-cancel" onclick="closeExportModal()">Cancel</button>
+                </div>
+                
+                <div id="export-actions"></div>
+            </div>
+        </div>
+
         <script>
             const getChartColors = () => {{
                 const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -1714,6 +1993,95 @@ async def statistics_page(request: Request, credentials: HTTPBasicCredentials = 
             }}
             
             initDashboard();
+
+            // --- Export Modal Logic ---
+            function openExportModal() {{
+                const camSelect = document.getElementById('exp-camera');
+                if (camSelect.options.length === 1) {{
+                    fetch('/api/config/available_cameras')
+                        .then(r => r.json())
+                        .then(d => {{
+                            if(d.status==='ok') {{
+                                d.cameras.forEach(c => {{
+                                    const opt = document.createElement('option');
+                                    opt.value = c; opt.innerText = c;
+                                    camSelect.appendChild(opt);
+                                }});
+                            }}
+                        }});
+                }}
+                document.getElementById('exportModal').style.display = 'flex';
+                document.getElementById('export-preview-msg').style.display = 'none';
+                document.getElementById('export-actions').innerHTML = '';
+            }}
+            
+            function closeExportModal() {{
+                document.getElementById('exportModal').style.display = 'none';
+            }}
+            
+            function buildExportQuery() {{
+                const cam = document.getElementById('exp-camera').value;
+                const start = document.getElementById('exp-start').value;
+                const end = document.getElementById('exp-end').value;
+                const empty = document.getElementById('exp-empty').checked;
+                const minC = document.getElementById('exp-min-conf').value;
+                const maxC = document.getElementById('exp-max-conf').value;
+                
+                const labelBoxes = document.querySelectorAll('.exp-label:checked');
+                const labels = Array.from(labelBoxes).map(b => b.value).join(',');
+                
+                let q = `include_empty=${{empty}}&min_conf=${{minC}}&max_conf=${{maxC}}`;
+                if(cam !== 'all') q += `&camera=${{cam}}`;
+                if(start) q += `&start=${{start}}`;
+                if(end) q += `&end=${{end}}`;
+                if(labels) q += `&labels=${{labels}}`;
+                return q;
+            }}
+
+            async function checkExportSize() {{
+                const btn = document.querySelector('.btn-check');
+                btn.innerText = 'Checking...';
+                
+                const q = buildExportQuery();
+                try {{
+                    const res = await fetch(`/api/export/preview?${{q}}`);
+                    const json = await res.json();
+                    
+                    const msgDiv = document.getElementById('export-preview-msg');
+                    const actionsDiv = document.getElementById('export-actions');
+                    msgDiv.style.display = 'block';
+                    actionsDiv.innerHTML = '';
+                    
+                    if (json.status !== 'ok') {{
+                        msgDiv.innerHTML = `⚠️ Error: ${{json.message}}`;
+                        return;
+                    }}
+                    
+                    const total = json.total_images;
+                    const limit = 1000;
+                    
+                    if (total === 0) {{
+                        msgDiv.innerHTML = `No data found matching these conditions.`;
+                    }} else if (total <= limit) {{
+                        msgDiv.innerHTML = `✅ <b>${{total}}</b> images found. Ready to download.`;
+                        actionsDiv.innerHTML = `<a href="/api/export/download?${{q}}&page=1" class="btn-dl">Download ZIP</a>`;
+                    }} else {{
+                        msgDiv.innerHTML = `⚠️ <b>${{total}} images found.</b><br>This exceeds the single download limit (${{limit}}).<br>Please refine your conditions or download in parts below.`;
+                        const parts = Math.ceil(total / limit);
+                        let html = '';
+                        for(let i=1; i<=parts; i++) {{
+                            const pStart = (i-1)*limit + 1;
+                            const pEnd = Math.min(i*limit, total);
+                            html += `<a href="/api/export/download?${{q}}&page=${{i}}" class="btn-dl" style="background:#3182ce;">Download Part ${{i}} (${{pStart}} - ${{pEnd}})</a>`;
+                        }}
+                        actionsDiv.innerHTML = html;
+                    }}
+                }} catch(e) {{
+                    alert('Error checking size');
+                }} finally {{
+                    btn.innerText = 'Check Data Size';
+                }}
+            }}
         </script>
     </body>
     </html>
@@ -2185,7 +2553,7 @@ async def login_page(request: Request):
         """ + THEME_TOGGLE_UI + """
         <form class="card" method="post" action="/login">
             <h1>Wild Animals Login</h1>
-            <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
+            <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge() + """</div>
             <p>管理者または閲覧ユーザとしてログインしてください。</p>
             <label for="username">User Name</label>
             <input id="username" name="username" type="text" autocomplete="username" required>
@@ -3265,7 +3633,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     <body>
         """ + THEME_TOGGLE_UI + """
         <h1>SLAB WILD ANIMALS Web</h1>
-        <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
+        <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge() + """</div>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
