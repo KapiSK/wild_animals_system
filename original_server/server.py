@@ -3,10 +3,13 @@ import logging
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header, Request, Form
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Depends, HTTPException, status, Header, Request, Form, Query
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from typing import Optional
+import tempfile
+import zipfile
 from dotenv import load_dotenv
 import yolov5
 import cv2
@@ -17,6 +20,7 @@ import re
 import json
 import secrets
 import shutil
+import csv
 
 # Load environment variables
 load_dotenv()
@@ -67,6 +71,46 @@ security = HTTPBasic(auto_error=False)
 SESSION_COOKIE_NAME = "wild_animals_session"
 SESSION_STORE = {}
 
+THEME_TOGGLE_SCRIPT = """
+<script>
+(function() {
+    var storedTheme = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+})();
+</script>
+"""
+
+THEME_TOGGLE_UI = """
+<button id="theme-toggle" style="position: fixed; bottom: 24px; right: 24px; width: 48px; height: 48px; border-radius: 50%; background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.1); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10000; transition: all 0.2s ease; padding: 0;">
+    <span id="theme-icon">☀️</span>
+</button>
+<script>
+(function() {
+    var btn = document.getElementById('theme-toggle');
+    var icon = document.getElementById('theme-icon');
+    
+    function updateIcon() {
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        icon.textContent = isDark ? '🌙' : '☀️';
+        btn.style.background = isDark ? '#1e293b' : '#ffffff';
+        btn.style.borderColor = isDark ? '#334155' : '#e2e8f0';
+    }
+    
+    updateIcon();
+    
+    btn.addEventListener('click', function() {
+        var currentTheme = document.documentElement.getAttribute('data-theme');
+        var newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        updateIcon();
+    });
+})();
+</script>
+"""
 
 def load_user_access_config() -> dict:
     default_config = {"users": {}}
@@ -1014,6 +1058,9 @@ class CycleManager:
         logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
         logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Email={email_duration:.2f}ms")
 
+        current_telemetry = load_telemetry().get(camera_id, {})
+        temperature = current_telemetry.get("temperature", "")
+
         try:
             event_metadata = {
                 "event_id": cycle_id,
@@ -1027,13 +1074,29 @@ class CycleManager:
                 "best_image": f"{camera_id}/{best_data['filename']}",
                 "images": [f"{camera_id}/{f['filename']}" for f in files],
                 "image_summaries": {f['filename']: f.get("summary_text", "") for f in files},
+                "detections": {f['filename']: f.get("detections", []) for f in files},
                 "has_video": len(get_video_relpaths_for_event(camera_id, cycle_id)) > 0,
                 "cycle_time": cycle_time,
+                "temperature": temperature,
                 "updated_at": datetime.now().isoformat(),
             }
             save_event_metadata(camera_id, cycle_id, event_metadata)
         except Exception as e:
             logger.error(f"Failed to save event metadata for {cycle_id}: {e}")
+
+        # --- Statistics Logging ---
+        try:
+            stat_csv = "statistics.csv"
+            stat_exists = os.path.isfile(stat_csv)
+            with open(stat_csv, "a", encoding="utf-8") as f:
+                if not stat_exists:
+                    f.write("timestamp,camera_id,temperature,labels,target_count\n")
+                
+                labels_str = "|".join(labels) if labels else "None"
+                # timestamp として画像の撮影日時(cycle_time)を使用
+                f.write(f"{cycle_time},{camera_id},{temperature},{labels_str},{event_metadata['target_count']}\n")
+        except Exception as e:
+            logger.error(f"Failed to write statistics: {e}")
 
         # --- CSV Logging ---
         try:
@@ -1110,6 +1173,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
     max_conf = 0.0
 
     df = results.pandas().xyxy[0]
+    df_n = results.pandas().xyxyn[0]
+    detections = []
 
     for index, row in df.iterrows():
         cls = int(row['class'])
@@ -1120,6 +1185,21 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
             detected_targets[label] = detected_targets.get(label, 0) + 1
             if conf > max_conf:
                 max_conf = conf
+
+            row_n = df_n.iloc[index]
+            w_norm = row_n['xmax'] - row_n['xmin']
+            h_norm = row_n['ymax'] - row_n['ymin']
+            bbox = [
+                round(row_n['xmin'], 4),
+                round(row_n['ymin'], 4),
+                round(w_norm, 4),
+                round(h_norm, 4)
+            ]
+            detections.append({
+                "category": str(cls),
+                "conf": round(conf, 4),
+                "bbox": bbox
+            })
 
     if detected_targets:
         counts_str = ", ".join([f"{label}: {count}" for label, count in detected_targets.items()])
@@ -1184,7 +1264,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
         'labels': sorted(detected_targets.keys()),
         'source': source,
         'camera_id': pure_cam_id,
-        'event_id': cycle_id
+        'event_id': cycle_id,
+        'detections': detections
     }
 
 
@@ -1340,6 +1421,696 @@ async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_toke
 async def get_telemetry(principal: dict = Depends(verify_credentials)):
     return {"status": "ok", "telemetry": load_telemetry()}
 
+# --- Dataset Export APIs ---
+def export_filter_data(
+    start_date: str = None,
+    end_date: str = None,
+    camera: str = None,
+    labels: str = None,
+    include_empty: bool = True,
+    min_conf: float = 0.0,
+    max_conf: float = 1.0,
+    principal: dict = None
+):
+    target_labels = [l.strip().lower() for l in labels.split(",")] if labels else []
+    matched_images_data = []
+    
+    for root, dirs, files in os.walk(EVENT_METADATA_DIR):
+        for f in files:
+            if f.endswith(".json"):
+                meta_path = os.path.join(root, f)
+                try:
+                    with open(meta_path, 'r', encoding='utf-8') as jf:
+                        meta = json.load(jf)
+                except Exception:
+                    continue
+                
+                cam_id = meta.get("camera_id")
+                if principal and principal["role"] == "user":
+                    if cam_id not in principal.get("allowed_cameras", []):
+                        continue
+                
+                if camera and camera != "all" and cam_id != camera:
+                    continue
+                
+                cycle_time_str = meta.get("cycle_time", "")
+                if cycle_time_str:
+                    try:
+                        dt = datetime.strptime(cycle_time_str, "%Y/%m/%d %H:%M:%S")
+                        date_str = dt.strftime("%Y-%m-%d")
+                        if start_date and date_str < start_date:
+                            continue
+                        if end_date and date_str > end_date:
+                            continue
+                    except:
+                        pass
+                
+                image_detections = meta.get("detections", {})
+                event_labels = meta.get("labels", [])
+                
+                for img_rel_path in meta.get("images", []):
+                    img_filename = os.path.basename(img_rel_path)
+                    dets = image_detections.get(img_filename, [])
+                    
+                    if not dets:
+                        # 過去データ(BBなし)のフォールバック処理
+                        has_target = False
+                        if event_labels and event_labels != ['None'] and event_labels != "None":
+                            for lbl in event_labels:
+                                cat_str = str(lbl).lower()
+                                cat_name = "animal"
+                                if "person" in cat_str or cat_str == "1":
+                                    cat_name = "person"
+                                elif "vehicle" in cat_str or cat_str == "2":
+                                    cat_name = "vehicle"
+                                    
+                                if not target_labels or "all" in target_labels or cat_name in target_labels:
+                                    has_target = True
+                                    break
+                                    
+                        if has_target:
+                            matched_images_data.append((meta, img_filename, []))
+                        elif include_empty:
+                            matched_images_data.append((meta, img_filename, []))
+                        continue
+                        
+                    filtered_dets = []
+                    for d in dets:
+                        cat_str = str(d.get("category", "")).lower()
+                        cat_name = "animal"
+                        if "person" in cat_str or cat_str == "1":
+                            cat_name = "person"
+                        elif "vehicle" in cat_str or cat_str == "2":
+                            cat_name = "vehicle"
+                            
+                        if target_labels and "all" not in target_labels and cat_name not in target_labels:
+                            continue
+                            
+                        conf = float(d.get("conf", 0.0))
+                        if not (min_conf <= conf <= max_conf):
+                            continue
+                            
+                        filtered_dets.append(d)
+                        
+                    if filtered_dets:
+                        matched_images_data.append((meta, img_filename, filtered_dets))
+                    elif include_empty:
+                        matched_images_data.append((meta, img_filename, []))
+                        
+    matched_images_data.sort(key=lambda x: x[0].get("cycle_time", ""), reverse=True)
+    return matched_images_data
+
+@app.get("/api/export/preview")
+async def export_preview(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    camera: Optional[str] = Query(None),
+    labels: Optional[str] = Query(None),
+    include_empty: str = Query("true"),
+    min_conf: float = Query(0.0),
+    max_conf: float = Query(1.0),
+    principal: dict = Depends(verify_credentials)
+):
+    try:
+        inc_empty = include_empty.lower() == "true"
+        matched = export_filter_data(start, end, camera, labels, inc_empty, min_conf, max_conf, principal)
+        return {"status": "ok", "total_images": len(matched)}
+    except Exception as e:
+        logger.error(f"Preview API Error: {e}")
+        return {"status": "error", "message": str(e)}
+
+def cleanup_temp_dir(path: str):
+    try:
+        import shutil
+        shutil.rmtree(path)
+    except Exception as e:
+        logger.error(f"Failed to cleanup {path}: {e}")
+
+@app.get("/api/export/download")
+async def export_download(
+    background_tasks: BackgroundTasks,
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    camera: Optional[str] = Query(None),
+    labels: Optional[str] = Query(None),
+    include_empty: str = Query("true"),
+    min_conf: float = Query(0.0),
+    max_conf: float = Query(1.0),
+    page: int = Query(1),
+    principal: dict = Depends(verify_credentials)
+):
+    try:
+        inc_empty = include_empty.lower() == "true"
+        matched = export_filter_data(start, end, camera, labels, inc_empty, min_conf, max_conf, principal)
+        
+        limit = 1000
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        target_images = matched[start_idx:end_idx]
+        
+        if not target_images:
+            raise HTTPException(status_code=404, detail="No data found for this page.")
+            
+        md_json = {
+            "info": {
+                "version": "1.0",
+                "description": "Exported from WILD ANIMALS Server",
+                "date_created": datetime.now().isoformat()
+            },
+            "detection_categories": {
+                "0": "animal",
+                "1": "person",
+                "2": "vehicle"
+            },
+            "images": []
+        }
+        
+        temp_dir = tempfile.mkdtemp()
+        zip_filename = f"dataset_export_part{page}.zip"
+        zip_path = os.path.join(temp_dir, zip_filename)
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for meta, img_filename, dets in target_images:
+                cam_id = meta.get("camera_id")
+                img_path = os.path.join(UPLOAD_DIR, cam_id, img_filename)
+                if not os.path.exists(img_path):
+                    img_path = os.path.join(PROCESSED_DIR, cam_id, img_filename)
+                
+                md_detections = []
+                for d in dets:
+                    cat = str(d.get("category", "0"))
+                    md_detections.append({
+                        "category": cat,
+                        "conf": d.get("conf"),
+                        "bbox": d.get("bbox")
+                    })
+                    
+                md_json["images"].append({
+                    "file": f"images/{img_filename}",
+                    "location": cam_id,
+                    "datetime": meta.get("cycle_time"),
+                    "detections": md_detections
+                })
+                
+                if os.path.exists(img_path):
+                    zipf.write(img_path, arcname=f"images/{img_filename}")
+            
+            json_str = json.dumps(md_json, indent=2)
+            zipf.writestr("md_results.json", json_str)
+            
+        background_tasks.add_task(cleanup_temp_dir, temp_dir)
+        return FileResponse(zip_path, media_type="application/zip", filename=zip_filename)
+        
+    except Exception as e:
+        logger.error(f"Download API Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/statistics")
+async def get_statistics(principal: dict = Depends(verify_credentials)):
+    data = []
+    try:
+        if os.path.exists("statistics.csv"):
+            with open("statistics.csv", "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    data.append(row)
+    except Exception as e:
+        logger.error(f"Error reading statistics.csv: {e}")
+    return {"status": "ok", "data": data}
+
+@app.get("/statistics", response_class=HTMLResponse)
+async def statistics_page(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    principal = get_optional_principal(request, credentials)
+    if not principal:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if principal.get("role") != "admin":
+        return RedirectResponse(url="/gallery", status_code=status.HTTP_303_SEE_OTHER)
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Statistics Dashboard</title>
+        {THEME_TOGGLE_SCRIPT}
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+            :root {{
+                --bg-main: #f8fafc;
+                --text-main: #1e293b;
+                --text-sub: #64748b;
+                --card-bg: #ffffff;
+                --card-border: #e2e8f0;
+                --accent: #3b82f6;
+            }}
+            [data-theme="dark"] {{
+                --bg-main: #0f172a;
+                --text-main: #f8fafc;
+                --text-sub: #94a3b8;
+                --card-bg: #1e293b;
+                --card-border: #334155;
+                --accent: #60a5fa;
+            }}
+            body {{
+                font-family: 'Inter', sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: var(--bg-main);
+                color: var(--text-main);
+                transition: all 0.3s ease;
+            }}
+            .container {{ max-width: 1200px; margin: 0 auto; }}
+            .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }}
+            h1 {{ margin: 0; font-size: 2rem; font-weight: 700; }}
+            .btn-back {{
+                display: inline-flex; align-items: center; gap: 8px;
+                padding: 8px 16px; background: var(--card-bg); color: var(--text-main);
+                border: 1px solid var(--card-border); border-radius: 8px; text-decoration: none;
+                font-weight: 500; transition: all 0.2s;
+            }}
+            .btn-back:hover {{ background: var(--card-border); }}
+            
+            .overview-grid {{
+                display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;
+            }}
+            .kpi-card {{
+                background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px;
+                padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            }}
+            .kpi-title {{ font-size: 0.9rem; color: var(--text-sub); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }}
+            .kpi-value {{ font-size: 2.5rem; font-weight: 700; color: var(--accent); margin: 0; }}
+            
+            .charts-grid {{
+                display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;
+            }}
+            .chart-card {{
+                background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px;
+                padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            }}
+            .chart-card.full-width {{ grid-column: 1 / -1; }}
+            .chart-title {{ margin-top: 0; margin-bottom: 20px; font-size: 1.2rem; font-weight: 600; }}
+            
+            @media (max-width: 768px) {{
+                .charts-grid {{ grid-template-columns: 1fr; }}
+            }}
+            .btn-export {{ background: #38a169; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }}
+            .btn-export:hover {{ background: #2f855a; }}
+            .modal-overlay {{ display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }}
+            .modal-content {{ background: var(--card-bg); padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; color: var(--text-main); }}
+            .modal-content h2 {{ margin-top: 0; color: var(--text-main); font-size: 1.5rem; }}
+            .form-group {{ margin-bottom: 15px; }}
+            .form-group label {{ display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }}
+            .form-group input, .form-group select {{ width: 100%; padding: 8px; border: 1px solid var(--card-border); border-radius: 6px; box-sizing: border-box; background: var(--bg-main); color: var(--text-main); }}
+            .form-row {{ display: flex; gap: 10px; }}
+            .checkbox-group {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+            .checkbox-item {{ display: flex; align-items: center; gap: 5px; font-size: 0.9rem; cursor: pointer; }}
+            #export-preview-msg {{ margin: 15px 0; padding: 10px; border-radius: 6px; background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; display: none; font-size: 0.95rem; }}
+            #export-actions {{ display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }}
+            .btn-check {{ background: #3182ce; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
+            .btn-check:hover {{ background: #2b6cb0; }}
+            .btn-dl {{ background: #38a169; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; text-decoration: none; }}
+            .btn-cancel {{ background: #a0aec0; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
+            [data-theme="dark"] .modal-overlay {{ background: rgba(0,0,0,0.7); }}
+            [data-theme="dark"] #export-preview-msg {{ background: #2a4365; color: #90cdf4; border-color: #2c5282; }}
+        </style>
+    </head>
+    <body>
+        {THEME_TOGGLE_UI}
+        <div class="container">
+            <div class="header">
+                <h1>Statistics Dashboard</h1>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="openExportModal()" class="btn-export">📦 Export Dataset</button>
+                    <a href="/gallery" class="btn-back"><span>←</span> Back to Gallery</a>
+                </div>
+            </div>
+            
+            <div class="overview-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">Total Detections</div>
+                    <div class="kpi-value" id="kpi-total">0</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Active Cameras</div>
+                    <div class="kpi-value" id="kpi-cameras">0</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Most Detected Animal</div>
+                    <div class="kpi-value" id="kpi-top-animal" style="font-size: 1.8rem;">-</div>
+                </div>
+            </div>
+            
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <h2 class="chart-title">Daily Trends & Temperature</h2>
+                    <canvas id="trendChart" height="80"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h2 class="chart-title">Activity by Hour</h2>
+                    <canvas id="hourChart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h2 class="chart-title">Distribution by Animal</h2>
+                    <canvas id="animalChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Export Modal -->
+        <div id="exportModal" class="modal-overlay">
+            <div class="modal-content">
+                <h2>Export Dataset (MD Format)</h2>
+                <div class="form-group">
+                    <label>Camera</label>
+                    <select id="exp-camera">
+                        <option value="all">All Cameras</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;">
+                        <label>Start Date</label>
+                        <input type="date" id="exp-start">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>End Date</label>
+                        <input type="date" id="exp-end">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Labels</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="animal" checked> Animal</label>
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="person" checked> Person</label>
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="vehicle" checked> Vehicle</label>
+                        <label class="checkbox-item"><input type="checkbox" id="exp-empty" checked> Empty / No Detection</label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;">
+                        <label>Min Confidence</label>
+                        <input type="number" id="exp-min-conf" min="0" max="1" step="0.1" value="0.0">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Max Confidence</label>
+                        <input type="number" id="exp-max-conf" min="0" max="1" step="0.1" value="1.0">
+                    </div>
+                </div>
+                
+                <div id="export-preview-msg"></div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                    <button class="btn-check" onclick="checkExportSize()">Check Data Size</button>
+                    <button class="btn-cancel" onclick="closeExportModal()">Cancel</button>
+                </div>
+                
+                <div id="export-actions"></div>
+            </div>
+        </div>
+
+        <script>
+            const getChartColors = () => {{
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                return {{
+                    text: isDark ? '#f8fafc' : '#1e293b',
+                    grid: isDark ? '#334155' : '#e2e8f0',
+                    primary: '#3b82f6',
+                    secondary: '#10b981',
+                    colors: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
+                }};
+            }};
+
+            Chart.defaults.color = getChartColors().text;
+            Chart.defaults.font.family = "'Inter', sans-serif";
+
+            let charts = [];
+
+            const observer = new MutationObserver((mutations) => {{
+                mutations.forEach((mutation) => {{
+                    if (mutation.attributeName === 'data-theme') {{
+                        const colors = getChartColors();
+                        Chart.defaults.color = colors.text;
+                        charts.forEach(c => {{
+                            if(c.options.scales && c.options.scales.x) {{
+                                c.options.scales.x.grid.color = colors.grid;
+                                c.options.scales.x.ticks.color = colors.text;
+                            }}
+                            if(c.options.scales && c.options.scales.y) {{
+                                c.options.scales.y.grid.color = colors.grid;
+                                c.options.scales.y.ticks.color = colors.text;
+                            }}
+                            c.update();
+                        }});
+                    }}
+                }});
+            }});
+            observer.observe(document.documentElement, {{ attributes: true }});
+
+            async function initDashboard() {{
+                try {{
+                    const res = await fetch('/api/statistics');
+                    const json = await res.json();
+                    if(json.status !== 'ok') return;
+                    
+                    const data = json.data;
+                    if(data.length === 0) return;
+                    
+                    let totalDetections = 0;
+                    const cameras = new Set();
+                    const animalCounts = {{}};
+                    const dailyData = {{}};
+                    const hourlyData = new Array(24).fill(0);
+                    
+                    data.forEach(row => {{
+                        cameras.add(row.camera_id);
+                        const count = parseInt(row.target_count, 10) || 0;
+                        totalDetections += count;
+                        
+                        if(row.labels && row.labels !== 'None') {{
+                            row.labels.split('|').forEach(l => {{
+                                animalCounts[l] = (animalCounts[l] || 0) + 1;
+                            }});
+                        }}
+                        
+                        const timeParts = row.timestamp.split(' ');
+                        if(timeParts.length === 2) {{
+                            const date = timeParts[0];
+                            const hour = parseInt(timeParts[1].split(':')[0], 10);
+                            
+                            if(!isNaN(hour)) hourlyData[hour] += count;
+                            
+                            if(!dailyData[date]) dailyData[date] = {{ count: 0, tempSum: 0, tempCount: 0 }};
+                            dailyData[date].count += count;
+                            
+                            const temp = parseFloat(row.temperature);
+                            if(!isNaN(temp)) {{
+                                dailyData[date].tempSum += temp;
+                                dailyData[date].tempCount++;
+                            }}
+                        }}
+                    }});
+                    
+                    document.getElementById('kpi-total').textContent = totalDetections;
+                    document.getElementById('kpi-cameras').textContent = cameras.size;
+                    
+                    let topAnimal = '-';
+                    let topCount = 0;
+                    for(const [animal, count] of Object.entries(animalCounts)) {{
+                        if(count > topCount) {{ topCount = count; topAnimal = animal; }}
+                    }}
+                    document.getElementById('kpi-top-animal').textContent = topAnimal;
+                    
+                    const colors = getChartColors();
+                    
+                    const sortedDates = Object.keys(dailyData).sort();
+                    const dailyCounts = sortedDates.map(d => dailyData[d].count);
+                    const dailyTemps = sortedDates.map(d => dailyData[d].tempCount > 0 ? (dailyData[d].tempSum / dailyData[d].tempCount).toFixed(1) : null);
+                    
+                    const ctxTrend = document.getElementById('trendChart').getContext('2d');
+                    charts.push(new Chart(ctxTrend, {{
+                        type: 'bar',
+                        data: {{
+                            labels: sortedDates,
+                            datasets: [
+                                {{
+                                    label: 'Detections',
+                                    data: dailyCounts,
+                                    backgroundColor: colors.primary,
+                                    borderRadius: 4,
+                                    order: 2
+                                }},
+                                {{
+                                    label: 'Avg Temperature (°C)',
+                                    data: dailyTemps,
+                                    type: 'line',
+                                    borderColor: colors.secondary,
+                                    backgroundColor: colors.secondary,
+                                    borderWidth: 2,
+                                    tension: 0.3,
+                                    yAxisID: 'y1',
+                                    order: 1
+                                }}
+                            ]
+                        }},
+                        options: {{
+                            responsive: true,
+                            scales: {{
+                                x: {{ grid: {{ color: colors.grid }} }},
+                                y: {{ type: 'linear', display: true, position: 'left', title: {{ display: true, text: 'Count' }}, grid: {{ color: colors.grid }}, beginAtZero: true }},
+                                y1: {{ type: 'linear', display: true, position: 'right', title: {{ display: true, text: 'Temp (°C)' }}, grid: {{ drawOnChartArea: false }} }}
+                            }}
+                        }}
+                    }}));
+                    
+                    const ctxHour = document.getElementById('hourChart').getContext('2d');
+                    charts.push(new Chart(ctxHour, {{
+                        type: 'bar',
+                        data: {{
+                            labels: Array.from({{length: 24}}, (_, i) => `${{i}}:00`),
+                            datasets: [{{
+                                label: 'Activity by Hour',
+                                data: hourlyData,
+                                backgroundColor: colors.secondary,
+                                borderRadius: 4
+                            }}]
+                        }},
+                        options: {{
+                            responsive: true,
+                            scales: {{
+                                x: {{ grid: {{ color: colors.grid }} }},
+                                y: {{ beginAtZero: true, grid: {{ color: colors.grid }} }}
+                            }}
+                        }}
+                    }}));
+                    
+                    const animalLabels = Object.keys(animalCounts);
+                    const animalData = Object.values(animalCounts);
+                    
+                    const ctxAnimal = document.getElementById('animalChart').getContext('2d');
+                    charts.push(new Chart(ctxAnimal, {{
+                        type: 'doughnut',
+                        data: {{
+                            labels: animalLabels,
+                            datasets: [{{
+                                data: animalData,
+                                backgroundColor: colors.colors.slice(0, animalLabels.length),
+                                borderWidth: 0
+                            }}]
+                        }},
+                        options: {{
+                            responsive: true,
+                            cutout: '60%',
+                            plugins: {{
+                                legend: {{ position: 'right' }}
+                            }}
+                        }}
+                    }}));
+                    
+                }} catch (e) {{
+                    console.error("Failed to load statistics data", e);
+                }}
+            }}
+            
+            initDashboard();
+
+            // --- Export Modal Logic ---
+            function openExportModal() {{
+                const camSelect = document.getElementById('exp-camera');
+                if (camSelect.options.length === 1) {{
+                    fetch('/api/config/available_cameras')
+                        .then(r => r.json())
+                        .then(d => {{
+                            if(d.status==='ok') {{
+                                d.cameras.forEach(c => {{
+                                    const opt = document.createElement('option');
+                                    opt.value = c; opt.innerText = c;
+                                    camSelect.appendChild(opt);
+                                }});
+                            }}
+                        }});
+                }}
+                document.getElementById('exportModal').style.display = 'flex';
+                document.getElementById('export-preview-msg').style.display = 'none';
+                document.getElementById('export-actions').innerHTML = '';
+            }}
+            
+            function closeExportModal() {{
+                document.getElementById('exportModal').style.display = 'none';
+            }}
+            
+            function buildExportQuery() {{
+                const cam = document.getElementById('exp-camera').value;
+                const start = document.getElementById('exp-start').value;
+                const end = document.getElementById('exp-end').value;
+                const empty = document.getElementById('exp-empty').checked;
+                const minC = document.getElementById('exp-min-conf').value;
+                const maxC = document.getElementById('exp-max-conf').value;
+                
+                const labelBoxes = document.querySelectorAll('.exp-label:checked');
+                const labels = Array.from(labelBoxes).map(b => b.value).join(',');
+                
+                let q = `include_empty=${{empty}}&min_conf=${{minC}}&max_conf=${{maxC}}`;
+                if(cam !== 'all') q += `&camera=${{cam}}`;
+                if(start) q += `&start=${{start}}`;
+                if(end) q += `&end=${{end}}`;
+                if(labels) q += `&labels=${{labels}}`;
+                return q;
+            }}
+
+            async function checkExportSize() {{
+                const btn = document.querySelector('.btn-check');
+                btn.innerText = 'Checking...';
+                
+                const q = buildExportQuery();
+                try {{
+                    const res = await fetch(`/api/export/preview?${{q}}`);
+                    const json = await res.json();
+                    
+                    const msgDiv = document.getElementById('export-preview-msg');
+                    const actionsDiv = document.getElementById('export-actions');
+                    msgDiv.style.display = 'block';
+                    actionsDiv.innerHTML = '';
+                    
+                    if (json.status !== 'ok') {{
+                        msgDiv.innerHTML = `⚠️ Error: ${{json.message}}`;
+                        return;
+                    }}
+                    
+                    const total = json.total_images;
+                    const limit = 1000;
+                    
+                    if (total === 0) {{
+                        msgDiv.innerHTML = `No data found matching these conditions.`;
+                    }} else if (total <= limit) {{
+                        msgDiv.innerHTML = `✅ <b>${{total}}</b> images found. Ready to download.`;
+                        actionsDiv.innerHTML = `<a href="/api/export/download?${{q}}&page=1" class="btn-dl">Download ZIP</a>`;
+                    }} else {{
+                        msgDiv.innerHTML = `⚠️ <b>${{total}} images found.</b><br>This exceeds the single download limit (${{limit}}).<br>Please refine your conditions or download in parts below.`;
+                        const parts = Math.ceil(total / limit);
+                        let html = '';
+                        for(let i=1; i<=parts; i++) {{
+                            const pStart = (i-1)*limit + 1;
+                            const pEnd = Math.min(i*limit, total);
+                            html += `<a href="/api/export/download?${{q}}&page=${{i}}" class="btn-dl" style="background:#3182ce;">Download Part ${{i}} (${{pStart}} - ${{pEnd}})</a>`;
+                        }}
+                        actionsDiv.innerHTML = html;
+                    }}
+                }} catch(e) {{
+                    alert('Error checking size');
+                }} finally {{
+                    btn.innerText = 'Check Data Size';
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
+
 @app.get("/images/{image_type}/{image_path:path}")
 async def get_image_file(image_type: str, image_path: str, principal: dict = Depends(verify_credentials)):
     if image_type == "raw":
@@ -1489,6 +2260,7 @@ async def event_detail_by_cycle(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Event Details: {event_id}</title>
+        {THEME_TOGGLE_SCRIPT}
         <style>
             body {{ font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f3f8f4; color: #22332b; }}
             .shell {{ max-width: 1280px; margin: 0 auto; }}
@@ -1515,9 +2287,24 @@ async def event_detail_by_cycle(
             .overlay {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }}
             .overlay.active {{ display:flex; }}
             .overlay img {{ max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }}
+            
+            [data-theme="dark"] body {{ background: #121915; color: #e2e8f0; }}
+            [data-theme="dark"] .back-link, [data-theme="dark"] .download-link {{ background: #1e2923; color: #a5d2b7; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 1px solid #2d3a33; }}
+            [data-theme="dark"] .back-link:hover, [data-theme="dark"] .download-link:hover {{ background: #2d3a33; }}
+            [data-theme="dark"] .panel {{ background: #1e2923; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }}
+            [data-theme="dark"] .panel h2 {{ color: #86c4a0; border-bottom-color: #2d3a33; }}
+            [data-theme="dark"] .meta-card {{ background: #1e2923; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-color: #2d3a33; }}
+            [data-theme="dark"] .meta-label {{ color: #8a9c92; }}
+            [data-theme="dark"] .meta-value {{ color: #e2e8f0; }}
+            [data-theme="dark"] .thumb {{ background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }}
+            [data-theme="dark"] .thumb:hover {{ border-color: #48bb78; box-shadow: 0 8px 25px rgba(72,187,120,0.15); }}
+            [data-theme="dark"] .thumb img {{ background: #121915; border: none; }}
+            [data-theme="dark"] .thumb span {{ color: #cbd5e0; }}
+            [data-theme="dark"] .empty-video {{ background: #121915; color: #8a9c92; border-color: #2d3a33; }}
         </style>
     </head>
     <body>
+        {THEME_TOGGLE_UI}
         <div class="shell">
             <div class="topbar">
                 <a class="back-link" href="/gallery">← Back to Gallery</a>
@@ -1765,6 +2552,7 @@ async def login_page(request: Request):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Login</title>
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             body { font-family: 'Inter', 'Segoe UI', sans-serif; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #eef7f1 0%, #d8efe3 100%); color: #234034; }
             .card { width: min(420px, 92vw); background: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.7); border-radius: 20px; padding: 32px; box-shadow: 0 20px 40px rgba(35, 64, 52, 0.08); }
@@ -1774,12 +2562,21 @@ async def login_page(request: Request):
             input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; border: 1px solid #cfe0d6; background: #fbfdfb; margin-bottom: 18px; font: inherit; }
             button { width: 100%; padding: 12px 16px; border: none; border-radius: 12px; background: #2f855a; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
             button:hover { background: #276749; }
+            
+            [data-theme="dark"] body { background: linear-gradient(135deg, #121915 0%, #1c2b22 100%); color: #e2e8f0; }
+            [data-theme="dark"] .card { background: rgba(30,41,35,0.92); border-color: rgba(255,255,255,0.1); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+            [data-theme="dark"] p { color: #a0b2aa; }
+            [data-theme="dark"] label { color: #cbd5e0; }
+            [data-theme="dark"] input { background: #121915; border-color: #2d3a33; color: #fff; }
+            [data-theme="dark"] button { background: #38a169; }
+            [data-theme="dark"] button:hover { background: #2f855a; }
         </style>
     </head>
     <body>
+        """ + THEME_TOGGLE_UI + """
         <form class="card" method="post" action="/login">
             <h1>Wild Animals Login</h1>
-            <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
+            <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge() + """</div>
             <p>管理者または閲覧ユーザとしてログインしてください。</p>
             <label for="username">User Name</label>
             <input id="username" name="username" type="text" autocomplete="username" required>
@@ -1842,6 +2639,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>System Admin & Settings</title>
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Inter:wght@400;500;600&display=swap');
             
@@ -2014,9 +2812,36 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                 .user-card-actions { justify-content: stretch; }
                 .user-card-actions .btn { width: 100%; }
             }
+            
+            [data-theme="dark"] {
+                --glass-bg: rgba(30, 41, 59, 0.75);
+                --glass-border: rgba(255, 255, 255, 0.15);
+                --primary: #6366f1;
+                --primary-hover: #818cf8;
+                --text-main: #f8fafc;
+                --text-sub: #cbd5e1;
+            }
+            [data-theme="dark"] body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+            [data-theme="dark"] .blob { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(236,72,153,0.2)); }
+            [data-theme="dark"] h1 { color: #f8fafc; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+            [data-theme="dark"] .btn-secondary { background: #334155; color: #f8fafc; box-shadow: 0 4px 15px rgba(0,0,0,0.25); border: 1px solid #475569; }
+            [data-theme="dark"] .btn-secondary:hover { background: #475569; }
+            [data-theme="dark"] tr.row-item { background: rgba(30, 41, 59, 0.5); }
+            [data-theme="dark"] tr.row-item:hover { background: rgba(30, 41, 59, 0.8); }
+            [data-theme="dark"] input[type="text"], [data-theme="dark"] input[type="email"] { background: rgba(15, 23, 42, 0.8); color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] input:focus { background: #0f172a; }
+            [data-theme="dark"] .inline-edit-input { background: rgba(15, 23, 42, 0.9); color: #818cf8; border: 1px solid #475569; }
+            [data-theme="dark"] .camera-checkbox-item { background: rgba(30, 41, 59, 0.65); border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] .collapsible-block { background: rgba(30, 41, 59, 0.35); border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] .collapsible-block summary { color: #cbd5e1; }
+            [data-theme="dark"] .checkbox-panel { background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.1); }
+            [data-theme="dark"] .user-card { background: rgba(30, 41, 59, 0.55); border: 1px solid rgba(255,255,255,0.15); }
+            [data-theme="dark"] .user-card-name { color: #f8fafc; }
+            [data-theme="dark"] .unmapped-highlight { background: rgba(153, 27, 27, 0.2); border: 1px solid #991b1b; }
         </style>
     </head>
     <body>
+        """ + THEME_TOGGLE_UI + """
         <div class="blob"></div>
         <div class="container">
             <h1>Admin Dashboard</h1>
@@ -2666,6 +3491,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>SLAB WILD ANIMALS Web</title>
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
             body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
@@ -2778,15 +3604,64 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .calendar-icon-list { font-size: 1rem; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
             #calendar-events-container { background: #ffffff; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; display: none; }
             .calendar-events-title { font-size: 1.3rem; color: #1c4532; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
+            
+            [data-theme="dark"] body { background-color: #121915; color: #e2e8f0; }
+            [data-theme="dark"] h1 { color: #a5d2b7; }
+            [data-theme="dark"] h2, [data-theme="dark"] .latest-container h3, [data-theme="dark"] .calendar-header h2, [data-theme="dark"] .calendar-events-title { color: #86c4a0; border-color: #2d3a33; }
+            [data-theme="dark"] .header-accent { background: #48bb78; }
+            [data-theme="dark"] .tab { background: #1e2923; color: #cbd5e0; border: 1px solid #2d3a33; }
+            [data-theme="dark"] .tab:hover { background: #2d3a33; }
+            [data-theme="dark"] .tab.active { background: #38a169; color: #fff; border-color: #38a169; }
+            [data-theme="dark"] .latest-item, [data-theme="dark"] .item, [data-theme="dark"] .camera-section, [data-theme="dark"] .flat-cycle-item, [data-theme="dark"] .calendar-cell, [data-theme="dark"] #calendar-events-container, [data-theme="dark"] .calendar-header { background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+            [data-theme="dark"] .latest-item img, [data-theme="dark"] .item .img-wrapper, [data-theme="dark"] .flat-cycle-thumb { background: #121915; border-color: #2d3a33; }
+            [data-theme="dark"] .latest-item span, [data-theme="dark"] .item-filename, [data-theme="dark"] .flat-cycle-title, [data-theme="dark"] .calendar-date { color: #e2e8f0; }
+            [data-theme="dark"] .item-detection { color: #86c4a0; }
+            [data-theme="dark"] .item-detection.detected { color: #fc8181; }
+            [data-theme="dark"] .item-detection.not-detected { color: #a0aec0; }
+            [data-theme="dark"] .cycle-section { background: #1e2923; border-color: #2d3a33; }
+            [data-theme="dark"] .cycle-title { color: #a5d2b7; border-color: #2d3a33; }
+            [data-theme="dark"] .cycle-title .badge { background: #38a169; }
+            [data-theme="dark"] .cycle-title-thumb { background: #121915; border-color: #2d3a33; }
+            [data-theme="dark"] .view-mode-selector { background: #1e2923; }
+            [data-theme="dark"] .view-mode-selector label { color: #cbd5e0; }
+            [data-theme="dark"] .view-mode-selector select, [data-theme="dark"] .sort-select, [data-theme="dark"] .filter-card select, [data-theme="dark"] .filter-card input, [data-theme="dark"] .pagination-controls select { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
+            [data-theme="dark"] .filter-card { background: #1e2923; border: 1px solid #2d3a33; }
+            [data-theme="dark"] .filter-card label { color: #cbd5e0; }
+            [data-theme="dark"] .action-link.primary { background: #38a169; }
+            [data-theme="dark"] .action-link.primary:hover { background: #2f855a; }
+            [data-theme="dark"] .action-link.secondary { background: #1e2923; color: #e2e8f0; border: 1px solid #2d3a33; }
+            [data-theme="dark"] .action-link.secondary:hover { background: #2d3a33; }
+            [data-theme="dark"] .action-link.danger { background: #742a2a; color: #fc8181; }
+            [data-theme="dark"] .action-link.danger:hover { background: #9b2c2c; }
+            [data-theme="dark"] .flat-cycle-meta, [data-theme="dark"] .empty-msg { color: #a0aec0; }
+            [data-theme="dark"] .flat-cycle-badge.count { background: #2d3748; color: #e2e8f0; }
+            [data-theme="dark"] .flat-cycle-badge.labels { background: #742a2a; color: #fc8181; }
+            [data-theme="dark"] .flat-cycle-badge.no-labels { background: #2d3748; color: #a0aec0; }
+            [data-theme="dark"] .flat-cycle-header { border-color: #2d3a33; }
+            [data-theme="dark"] .sort-direction button { background: #1e2923; color: #cbd5e0; border-color: #2d3a33; }
+            [data-theme="dark"] .sort-direction button.active { background: #38a169; color: white; border-color: #38a169; }
+            [data-theme="dark"] .pagination-controls { background: #1e2923; border-color: #2d3a33; }
+            [data-theme="dark"] .page-buttons button { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
+            [data-theme="dark"] .page-buttons button:hover:not(:disabled) { background: #2d3a33; }
+            [data-theme="dark"] .page-buttons span { color: #e2e8f0; }
+            [data-theme="dark"] .calendar-nav-btn { background: #2d3a33; color: #cbd5e0; }
+            [data-theme="dark"] .calendar-nav-btn:hover { background: #4a5568; color: #e2e8f0; }
+            [data-theme="dark"] .calendar-day-header { color: #a0aec0; }
+            [data-theme="dark"] .calendar-cell.active { border-color: #48bb78; background: #22332a; }
+            [data-theme="dark"] .calendar-cell.today .calendar-date { color: #fc8181; }
+            [data-theme="dark"] .calendar-badge { background: #121915; border-color: #2d3a33; color: #cbd5e0; }
+            [data-theme="dark"] .calendar-badge.has-detection { background: #4a1d1d; border-color: #742a2a; color: #fc8181; }
         </style>
     </head>
     <body>
+        """ + THEME_TOGGLE_UI + """
         <h1>SLAB WILD ANIMALS Web</h1>
-        <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge("Gallery") + """</div>
+        <div style="text-align:center; margin: 0 0 12px 0;">""" + get_env_badge() + """</div>
         <div class="header-accent"></div>
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
             __ADMIN_LINK__
+            __STATISTICS_LINK__
             <a class="action-link danger" href="/logout">Logout</a>
         </div>
         
@@ -3883,9 +4758,12 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     html_content = html_content.replace("__USERNAME__", principal.get("username", "unknown"))
     html_content = html_content.replace("__ROLE__", principal.get("role", "user"))
     admin_link = ""
+    stat_link = ""
     if principal.get("role") == "admin":
         admin_link = '<a class="action-link secondary" href="/admin">Admin Settings</a>'
+        stat_link = '<a class="action-link secondary" href="/statistics">📊 Statistics</a>'
     html_content = html_content.replace("__ADMIN_LINK__", admin_link)
+    html_content = html_content.replace("__STATISTICS_LINK__", stat_link)
     return html_content
 
 if __name__ == "__main__":
