@@ -17,6 +17,7 @@ import re
 import json
 import secrets
 import shutil
+import csv
 
 # Load environment variables
 load_dotenv()
@@ -1054,6 +1055,9 @@ class CycleManager:
         logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
         logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Email={email_duration:.2f}ms")
 
+        current_telemetry = load_telemetry().get(camera_id, {})
+        temperature = current_telemetry.get("temperature", "")
+
         try:
             event_metadata = {
                 "event_id": cycle_id,
@@ -1069,11 +1073,26 @@ class CycleManager:
                 "image_summaries": {f['filename']: f.get("summary_text", "") for f in files},
                 "has_video": len(get_video_relpaths_for_event(camera_id, cycle_id)) > 0,
                 "cycle_time": cycle_time,
+                "temperature": temperature,
                 "updated_at": datetime.now().isoformat(),
             }
             save_event_metadata(camera_id, cycle_id, event_metadata)
         except Exception as e:
             logger.error(f"Failed to save event metadata for {cycle_id}: {e}")
+
+        # --- Statistics Logging ---
+        try:
+            stat_csv = "statistics.csv"
+            stat_exists = os.path.isfile(stat_csv)
+            with open(stat_csv, "a", encoding="utf-8") as f:
+                if not stat_exists:
+                    f.write("timestamp,camera_id,temperature,labels,target_count\n")
+                
+                labels_str = "|".join(labels) if labels else "None"
+                # timestamp として画像の撮影日時(cycle_time)を使用
+                f.write(f"{cycle_time},{camera_id},{temperature},{labels_str},{event_metadata['target_count']}\n")
+        except Exception as e:
+            logger.error(f"Failed to write statistics: {e}")
 
         # --- CSV Logging ---
         try:
@@ -1379,6 +1398,327 @@ async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_toke
 @app.get("/api/telemetry")
 async def get_telemetry(principal: dict = Depends(verify_credentials)):
     return {"status": "ok", "telemetry": load_telemetry()}
+
+@app.get("/api/statistics")
+async def get_statistics(principal: dict = Depends(verify_credentials)):
+    data = []
+    try:
+        if os.path.exists("statistics.csv"):
+            with open("statistics.csv", "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    data.append(row)
+    except Exception as e:
+        logger.error(f"Error reading statistics.csv: {e}")
+    return {"status": "ok", "data": data}
+
+@app.get("/statistics", response_class=HTMLResponse)
+async def statistics_page(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    principal = get_optional_principal(request, credentials)
+    if not principal:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ja">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Statistics Dashboard</title>
+        {THEME_TOGGLE_SCRIPT}
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+            :root {{
+                --bg-main: #f8fafc;
+                --text-main: #1e293b;
+                --text-sub: #64748b;
+                --card-bg: #ffffff;
+                --card-border: #e2e8f0;
+                --accent: #3b82f6;
+            }}
+            [data-theme="dark"] {{
+                --bg-main: #0f172a;
+                --text-main: #f8fafc;
+                --text-sub: #94a3b8;
+                --card-bg: #1e293b;
+                --card-border: #334155;
+                --accent: #60a5fa;
+            }}
+            body {{
+                font-family: 'Inter', sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: var(--bg-main);
+                color: var(--text-main);
+                transition: all 0.3s ease;
+            }}
+            .container {{ max-width: 1200px; margin: 0 auto; }}
+            .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }}
+            h1 {{ margin: 0; font-size: 2rem; font-weight: 700; }}
+            .btn-back {{
+                display: inline-flex; align-items: center; gap: 8px;
+                padding: 8px 16px; background: var(--card-bg); color: var(--text-main);
+                border: 1px solid var(--card-border); border-radius: 8px; text-decoration: none;
+                font-weight: 500; transition: all 0.2s;
+            }}
+            .btn-back:hover {{ background: var(--card-border); }}
+            
+            .overview-grid {{
+                display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;
+            }}
+            .kpi-card {{
+                background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px;
+                padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            }}
+            .kpi-title {{ font-size: 0.9rem; color: var(--text-sub); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }}
+            .kpi-value {{ font-size: 2.5rem; font-weight: 700; color: var(--accent); margin: 0; }}
+            
+            .charts-grid {{
+                display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;
+            }}
+            .chart-card {{
+                background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px;
+                padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            }}
+            .chart-card.full-width {{ grid-column: 1 / -1; }}
+            .chart-title {{ margin-top: 0; margin-bottom: 20px; font-size: 1.2rem; font-weight: 600; }}
+            
+            @media (max-width: 768px) {{
+                .charts-grid {{ grid-template-columns: 1fr; }}
+            }}
+        </style>
+    </head>
+    <body>
+        {THEME_TOGGLE_UI}
+        <div class="container">
+            <div class="header">
+                <h1>Statistics Dashboard</h1>
+                <a href="/gallery" class="btn-back"><span>←</span> Back to Gallery</a>
+            </div>
+            
+            <div class="overview-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">Total Detections</div>
+                    <div class="kpi-value" id="kpi-total">0</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Active Cameras</div>
+                    <div class="kpi-value" id="kpi-cameras">0</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Most Detected Animal</div>
+                    <div class="kpi-value" id="kpi-top-animal" style="font-size: 1.8rem;">-</div>
+                </div>
+            </div>
+            
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <h2 class="chart-title">Daily Trends & Temperature</h2>
+                    <canvas id="trendChart" height="80"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h2 class="chart-title">Activity by Hour</h2>
+                    <canvas id="hourChart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h2 class="chart-title">Distribution by Animal</h2>
+                    <canvas id="animalChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            const getChartColors = () => {{
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                return {{
+                    text: isDark ? '#f8fafc' : '#1e293b',
+                    grid: isDark ? '#334155' : '#e2e8f0',
+                    primary: '#3b82f6',
+                    secondary: '#10b981',
+                    colors: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
+                }};
+            }};
+
+            Chart.defaults.color = getChartColors().text;
+            Chart.defaults.font.family = "'Inter', sans-serif";
+
+            let charts = [];
+
+            const observer = new MutationObserver((mutations) => {{
+                mutations.forEach((mutation) => {{
+                    if (mutation.attributeName === 'data-theme') {{
+                        const colors = getChartColors();
+                        Chart.defaults.color = colors.text;
+                        charts.forEach(c => {{
+                            if(c.options.scales && c.options.scales.x) {{
+                                c.options.scales.x.grid.color = colors.grid;
+                                c.options.scales.x.ticks.color = colors.text;
+                            }}
+                            if(c.options.scales && c.options.scales.y) {{
+                                c.options.scales.y.grid.color = colors.grid;
+                                c.options.scales.y.ticks.color = colors.text;
+                            }}
+                            c.update();
+                        }});
+                    }}
+                }});
+            }});
+            observer.observe(document.documentElement, {{ attributes: true }});
+
+            async function initDashboard() {{
+                try {{
+                    const res = await fetch('/api/statistics');
+                    const json = await res.json();
+                    if(json.status !== 'ok') return;
+                    
+                    const data = json.data;
+                    if(data.length === 0) return;
+                    
+                    let totalDetections = 0;
+                    const cameras = new Set();
+                    const animalCounts = {{}};
+                    const dailyData = {{}};
+                    const hourlyData = new Array(24).fill(0);
+                    
+                    data.forEach(row => {{
+                        cameras.add(row.camera_id);
+                        const count = parseInt(row.target_count, 10) || 0;
+                        totalDetections += count;
+                        
+                        if(row.labels && row.labels !== 'None') {{
+                            row.labels.split('|').forEach(l => {{
+                                animalCounts[l] = (animalCounts[l] || 0) + 1;
+                            }});
+                        }}
+                        
+                        const timeParts = row.timestamp.split(' ');
+                        if(timeParts.length === 2) {{
+                            const date = timeParts[0];
+                            const hour = parseInt(timeParts[1].split(':')[0], 10);
+                            
+                            if(!isNaN(hour)) hourlyData[hour] += count;
+                            
+                            if(!dailyData[date]) dailyData[date] = {{ count: 0, tempSum: 0, tempCount: 0 }};
+                            dailyData[date].count += count;
+                            
+                            const temp = parseFloat(row.temperature);
+                            if(!isNaN(temp)) {{
+                                dailyData[date].tempSum += temp;
+                                dailyData[date].tempCount++;
+                            }}
+                        }}
+                    }});
+                    
+                    document.getElementById('kpi-total').textContent = totalDetections;
+                    document.getElementById('kpi-cameras').textContent = cameras.size;
+                    
+                    let topAnimal = '-';
+                    let topCount = 0;
+                    for(const [animal, count] of Object.entries(animalCounts)) {{
+                        if(count > topCount) {{ topCount = count; topAnimal = animal; }}
+                    }}
+                    document.getElementById('kpi-top-animal').textContent = topAnimal;
+                    
+                    const colors = getChartColors();
+                    
+                    const sortedDates = Object.keys(dailyData).sort();
+                    const dailyCounts = sortedDates.map(d => dailyData[d].count);
+                    const dailyTemps = sortedDates.map(d => dailyData[d].tempCount > 0 ? (dailyData[d].tempSum / dailyData[d].tempCount).toFixed(1) : null);
+                    
+                    const ctxTrend = document.getElementById('trendChart').getContext('2d');
+                    charts.push(new Chart(ctxTrend, {{
+                        type: 'bar',
+                        data: {{
+                            labels: sortedDates,
+                            datasets: [
+                                {{
+                                    label: 'Detections',
+                                    data: dailyCounts,
+                                    backgroundColor: colors.primary,
+                                    borderRadius: 4,
+                                    order: 2
+                                }},
+                                {{
+                                    label: 'Avg Temperature (°C)',
+                                    data: dailyTemps,
+                                    type: 'line',
+                                    borderColor: colors.secondary,
+                                    backgroundColor: colors.secondary,
+                                    borderWidth: 2,
+                                    tension: 0.3,
+                                    yAxisID: 'y1',
+                                    order: 1
+                                }}
+                            ]
+                        }},
+                        options: {{
+                            responsive: true,
+                            scales: {{
+                                x: {{ grid: {{ color: colors.grid }} }},
+                                y: {{ type: 'linear', display: true, position: 'left', title: {{ display: true, text: 'Count' }}, grid: {{ color: colors.grid }}, beginAtZero: true }},
+                                y1: {{ type: 'linear', display: true, position: 'right', title: {{ display: true, text: 'Temp (°C)' }}, grid: {{ drawOnChartArea: false }} }}
+                            }}
+                        }}
+                    }}));
+                    
+                    const ctxHour = document.getElementById('hourChart').getContext('2d');
+                    charts.push(new Chart(ctxHour, {{
+                        type: 'bar',
+                        data: {{
+                            labels: Array.from({{length: 24}}, (_, i) => `${{i}}:00`),
+                            datasets: [{{
+                                label: 'Activity by Hour',
+                                data: hourlyData,
+                                backgroundColor: colors.secondary,
+                                borderRadius: 4
+                            }}]
+                        }},
+                        options: {{
+                            responsive: true,
+                            scales: {{
+                                x: {{ grid: {{ color: colors.grid }} }},
+                                y: {{ beginAtZero: true, grid: {{ color: colors.grid }} }}
+                            }}
+                        }}
+                    }}));
+                    
+                    const animalLabels = Object.keys(animalCounts);
+                    const animalData = Object.values(animalCounts);
+                    
+                    const ctxAnimal = document.getElementById('animalChart').getContext('2d');
+                    charts.push(new Chart(ctxAnimal, {{
+                        type: 'doughnut',
+                        data: {{
+                            labels: animalLabels,
+                            datasets: [{{
+                                data: animalData,
+                                backgroundColor: colors.colors.slice(0, animalLabels.length),
+                                borderWidth: 0
+                            }}]
+                        }},
+                        options: {{
+                            responsive: true,
+                            cutout: '60%',
+                            plugins: {{
+                                legend: {{ position: 'right' }}
+                            }}
+                        }}
+                    }}));
+                    
+                }} catch (e) {{
+                    console.error("Failed to load statistics data", e);
+                }}
+            }}
+            
+            initDashboard();
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
 
 @app.get("/images/{image_type}/{image_path:path}")
 async def get_image_file(image_type: str, image_path: str, principal: dict = Depends(verify_credentials)):
@@ -2930,6 +3270,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
             __ADMIN_LINK__
+            <a class="action-link secondary" href="/statistics">📊 Statistics</a>
             <a class="action-link danger" href="/logout">Logout</a>
         </div>
         
