@@ -1515,6 +1515,22 @@ async def event_detail_by_cycle(
             .overlay {{ display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; cursor:zoom-out; }}
             .overlay.active {{ display:flex; }}
             .overlay img {{ max-width:95%; max-height:95%; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.3); }}
+            
+            @media (prefers-color-scheme: dark) {{
+                body {{ background: #121915; color: #e2e8f0; }}
+                .back-link, .download-link {{ background: #1e2923; color: #a5d2b7; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 1px solid #2d3a33; }}
+                .back-link:hover, .download-link:hover {{ background: #2d3a33; }}
+                .panel {{ background: #1e2923; box-shadow: 0 12px 30px rgba(0,0,0,0.2); }}
+                .panel h2 {{ color: #86c4a0; border-bottom-color: #2d3a33; }}
+                .meta-card {{ background: #1e2923; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-color: #2d3a33; }}
+                .meta-label {{ color: #8a9c92; }}
+                .meta-value {{ color: #e2e8f0; }}
+                .thumb {{ background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }}
+                .thumb:hover {{ border-color: #48bb78; box-shadow: 0 8px 25px rgba(72,187,120,0.15); }}
+                .thumb img {{ background: #121915; border: none; }}
+                .thumb span {{ color: #cbd5e0; }}
+                .empty-video {{ background: #121915; color: #8a9c92; border-color: #2d3a33; }}
+            }}
         </style>
     </head>
     <body>
@@ -1774,6 +1790,16 @@ async def login_page(request: Request):
             input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; border: 1px solid #cfe0d6; background: #fbfdfb; margin-bottom: 18px; font: inherit; }
             button { width: 100%; padding: 12px 16px; border: none; border-radius: 12px; background: #2f855a; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
             button:hover { background: #276749; }
+            
+            @media (prefers-color-scheme: dark) {
+                body { background: linear-gradient(135deg, #121915 0%, #1c2b22 100%); color: #e2e8f0; }
+                .card { background: rgba(30,41,35,0.92); border-color: rgba(255,255,255,0.1); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+                p { color: #a0b2aa; }
+                label { color: #cbd5e0; }
+                input { background: #121915; border-color: #2d3a33; color: #fff; }
+                button { background: #38a169; }
+                button:hover { background: #2f855a; }
+            }
         </style>
     </head>
     <body>
@@ -2013,6 +2039,34 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                 .user-card summary { align-items: flex-start; }
                 .user-card-actions { justify-content: stretch; }
                 .user-card-actions .btn { width: 100%; }
+            }
+            
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --glass-bg: rgba(30, 41, 59, 0.75);
+                    --glass-border: rgba(255, 255, 255, 0.15);
+                    --primary: #6366f1;
+                    --primary-hover: #818cf8;
+                    --text-main: #f8fafc;
+                    --text-sub: #cbd5e1;
+                }
+                body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+                .blob { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(236,72,153,0.2)); }
+                h1 { color: #f8fafc; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+                .btn-secondary { background: #334155; color: #f8fafc; box-shadow: 0 4px 15px rgba(0,0,0,0.25); border: 1px solid #475569; }
+                .btn-secondary:hover { background: #475569; }
+                tr.row-item { background: rgba(30, 41, 59, 0.5); }
+                tr.row-item:hover { background: rgba(30, 41, 59, 0.8); }
+                input[type="text"], input[type="email"] { background: rgba(15, 23, 42, 0.8); color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); }
+                input:focus { background: #0f172a; }
+                .inline-edit-input { background: rgba(15, 23, 42, 0.9); color: #818cf8; border: 1px solid #475569; }
+                .camera-checkbox-item { background: rgba(30, 41, 59, 0.65); border: 1px solid rgba(255,255,255,0.1); }
+                .collapsible-block { background: rgba(30, 41, 59, 0.35); border: 1px solid rgba(255,255,255,0.1); }
+                .collapsible-block summary { color: #cbd5e1; }
+                .checkbox-panel { background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.1); }
+                .user-card { background: rgba(30, 41, 59, 0.55); border: 1px solid rgba(255,255,255,0.15); }
+                .user-card-name { color: #f8fafc; }
+                .unmapped-highlight { background: rgba(153, 27, 27, 0.2); border: 1px solid #991b1b; }
             }
         </style>
     </head>
@@ -2778,6 +2832,55 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             .calendar-icon-list { font-size: 1rem; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
             #calendar-events-container { background: #ffffff; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid #e2e8f0; display: none; }
             .calendar-events-title { font-size: 1.3rem; color: #1c4532; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
+            
+            @media (prefers-color-scheme: dark) {
+                body { background-color: #121915; color: #e2e8f0; }
+                h1 { color: #a5d2b7; }
+                h2, .latest-container h3, .calendar-header h2, .calendar-events-title { color: #86c4a0; border-color: #2d3a33; }
+                .header-accent { background: #48bb78; }
+                .tab { background: #1e2923; color: #cbd5e0; border: 1px solid #2d3a33; }
+                .tab:hover { background: #2d3a33; }
+                .tab.active { background: #38a169; color: #fff; border-color: #38a169; }
+                .latest-item, .item, .camera-section, .flat-cycle-item, .calendar-cell, #calendar-events-container, .calendar-header { background: #1e2923; border-color: #2d3a33; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+                .latest-item img, .item .img-wrapper, .flat-cycle-thumb { background: #121915; border-color: #2d3a33; }
+                .latest-item span, .item-filename, .flat-cycle-title, .calendar-date { color: #e2e8f0; }
+                .item-detection { color: #86c4a0; }
+                .item-detection.detected { color: #fc8181; }
+                .item-detection.not-detected { color: #a0aec0; }
+                .cycle-section { background: #1e2923; border-color: #2d3a33; }
+                .cycle-title { color: #a5d2b7; border-color: #2d3a33; }
+                .cycle-title .badge { background: #38a169; }
+                .cycle-title-thumb { background: #121915; border-color: #2d3a33; }
+                .view-mode-selector { background: #1e2923; }
+                .view-mode-selector label { color: #cbd5e0; }
+                .view-mode-selector select, .sort-select, .filter-card select, .filter-card input, .pagination-controls select { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
+                .filter-card { background: #1e2923; border: 1px solid #2d3a33; }
+                .filter-card label { color: #cbd5e0; }
+                .action-link.primary { background: #38a169; }
+                .action-link.primary:hover { background: #2f855a; }
+                .action-link.secondary { background: #1e2923; color: #e2e8f0; border: 1px solid #2d3a33; }
+                .action-link.secondary:hover { background: #2d3a33; }
+                .action-link.danger { background: #742a2a; color: #fc8181; }
+                .action-link.danger:hover { background: #9b2c2c; }
+                .flat-cycle-meta, .empty-msg { color: #a0aec0; }
+                .flat-cycle-badge.count { background: #2d3748; color: #e2e8f0; }
+                .flat-cycle-badge.labels { background: #742a2a; color: #fc8181; }
+                .flat-cycle-badge.no-labels { background: #2d3748; color: #a0aec0; }
+                .flat-cycle-header { border-color: #2d3a33; }
+                .sort-direction button { background: #1e2923; color: #cbd5e0; border-color: #2d3a33; }
+                .sort-direction button.active { background: #38a169; color: white; border-color: #38a169; }
+                .pagination-controls { background: #1e2923; border-color: #2d3a33; }
+                .page-buttons button { background: #121915; color: #e2e8f0; border-color: #2d3a33; }
+                .page-buttons button:hover:not(:disabled) { background: #2d3a33; }
+                .page-buttons span { color: #e2e8f0; }
+                .calendar-nav-btn { background: #2d3a33; color: #cbd5e0; }
+                .calendar-nav-btn:hover { background: #4a5568; color: #e2e8f0; }
+                .calendar-day-header { color: #a0aec0; }
+                .calendar-cell.active { border-color: #48bb78; background: #22332a; }
+                .calendar-cell.today .calendar-date { color: #fc8181; }
+                .calendar-badge { background: #121915; border-color: #2d3a33; color: #cbd5e0; }
+                .calendar-badge.has-detection { background: #4a1d1d; border-color: #742a2a; color: #fc8181; }
+            }
         </style>
     </head>
     <body>
