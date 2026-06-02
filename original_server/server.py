@@ -1437,7 +1437,7 @@ def export_filter_data(
     
     for root, dirs, files in os.walk(EVENT_METADATA_DIR):
         for f in files:
-            if f.startswith("metadata_") and f.endswith(".json"):
+            if f.endswith(".json"):
                 meta_path = os.path.join(root, f)
                 try:
                     with open(meta_path, 'r', encoding='utf-8') as jf:
@@ -1644,6 +1644,8 @@ async def statistics_page(request: Request, credentials: HTTPBasicCredentials = 
     principal = get_optional_principal(request, credentials)
     if not principal:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    if principal.get("role") != "admin":
+        return RedirectResponse(url="/gallery", status_code=status.HTTP_303_SEE_OTHER)
     
     html_content = f"""
     <!DOCTYPE html>
@@ -3659,7 +3661,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
             __ADMIN_LINK__
-            <a class="action-link secondary" href="/statistics">📊 Statistics</a>
+            __STATISTICS_LINK__
             <a class="action-link danger" href="/logout">Logout</a>
         </div>
         
@@ -4756,9 +4758,12 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     html_content = html_content.replace("__USERNAME__", principal.get("username", "unknown"))
     html_content = html_content.replace("__ROLE__", principal.get("role", "user"))
     admin_link = ""
+    stat_link = ""
     if principal.get("role") == "admin":
         admin_link = '<a class="action-link secondary" href="/admin">Admin Settings</a>'
+        stat_link = '<a class="action-link secondary" href="/statistics">📊 Statistics</a>'
     html_content = html_content.replace("__ADMIN_LINK__", admin_link)
+    html_content = html_content.replace("__STATISTICS_LINK__", stat_link)
     return html_content
 
 if __name__ == "__main__":
