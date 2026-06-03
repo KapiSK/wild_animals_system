@@ -52,6 +52,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "secret")
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = resolve_config_path(os.getenv("USER_ACCESS_FILE", "user_access_config.json"))
 TELEMETRY_FILE = resolve_config_path(os.getenv("TELEMETRY_FILE", "telemetry.json"))
+SERVER_SEQUENCE_FILE = resolve_config_path(os.getenv("SERVER_SEQUENCE_FILE", "server_sequence.json"))
 
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 
@@ -203,6 +204,88 @@ def save_telemetry(data: dict) -> None:
             json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Failed to save telemetry config: {e}")
+
+import threading
+_seq_lock_sync = threading.Lock()
+
+def load_server_sequence() -> dict:
+    if not os.path.exists(SERVER_SEQUENCE_FILE):
+        return {}
+    try:
+        with open(SERVER_SEQUENCE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read server sequence: {e}")
+        return {}
+
+def save_server_sequence(data: dict) -> None:
+    try:
+        with open(SERVER_SEQUENCE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to save server sequence: {e}")
+
+def get_or_increment_server_sequence(camera_id: str, edge_event_id: str, timeout_sec: int = 300) -> str:
+    with _seq_lock_sync:
+        data = load_server_sequence()
+        cam_data = data.get(camera_id, {
+            "current_server_seq": 0,
+            "last_edge_event_id": "",
+            "last_update_time": 0.0
+        })
+        
+        now = time.time()
+        # 同一エッジイベントで、かつタイムアウト以内なら、同じシーケンス番号を返す
+        if cam_data["last_edge_event_id"] == edge_event_id and (now - cam_data["last_update_time"]) <= timeout_sec:
+            cam_data["last_update_time"] = now
+            data[camera_id] = cam_data
+            save_server_sequence(data)
+            return f"{cam_data['current_server_seq']:04d}"
+            
+        # そうでなければカウントアップ
+        cam_data["current_server_seq"] += 1
+        cam_data["last_edge_event_id"] = edge_event_id
+        cam_data["last_update_time"] = now
+        data[camera_id] = cam_data
+        save_server_sequence(data)
+        
+        return f"{cam_data['current_server_seq']:04d}"
+
+def init_server_sequence() -> None:
+    data = load_server_sequence()
+    updated = False
+    
+    # 既存の event_metadata から最大の sequence を探す
+    for root, _, files in os.walk(EVENT_METADATA_DIR):
+        for f in files:
+            if f.endswith(".json"):
+                try:
+                    with open(os.path.join(root, f), "r", encoding="utf-8") as jf:
+                        meta = json.load(jf)
+                    event_id = meta.get("event_id", "")
+                    camera_id = meta.get("camera_id", "")
+                    if not event_id or not camera_id:
+                        continue
+                    
+                    # event_id = {camera_id}_{seq}
+                    parts = event_id.rsplit("_", 1)
+                    if len(parts) == 2 and parts[1].isdigit():
+                        seq_num = int(parts[1])
+                        cam_data = data.get(camera_id, {
+                            "current_server_seq": 0,
+                            "last_edge_event_id": "",
+                            "last_update_time": 0.0
+                        })
+                        if seq_num > cam_data["current_server_seq"]:
+                            cam_data["current_server_seq"] = seq_num
+                            data[camera_id] = cam_data
+                            updated = True
+                except Exception:
+                    pass
+                    
+    if updated:
+        save_server_sequence(data)
+        logger.info("Initialized server sequences from existing metadata.")
 
 
 async def verify_api_token(x_api_key: str = Header(None)):
@@ -1133,6 +1216,7 @@ cycle_manager = CycleManager()
 
 @app.on_event("startup")
 async def startup_event():
+    init_server_sequence()
     asyncio.create_task(run_startup_maintenance())
     asyncio.create_task(cycle_manager.check_timeouts())
 
@@ -1148,6 +1232,8 @@ def extract_cycle_id(filename: str) -> str:
             cam_str = match_new.group(1)
             # Remove receiving timestamp prefix to ensure identical Cycle ID despite arrival time differences
             cam_str = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_str)
+            if "X" in cam_str:
+                cam_str = cam_str.split("X", 1)[0]
             # サイクルIDは、カメラIDとシーケンス番号の組み合わせとする
             return f"{cam_str}_{match_new.group(2)}"
 
@@ -1217,6 +1303,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
             if parts[1].isdigit():
                 pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
+        if "X" in pure_cam_id:
+            pure_cam_id = pure_cam_id.split("X", 1)[0]
 
     proc_cam_dir = os.path.join(PROCESSED_DIR, pure_cam_id)
     os.makedirs(proc_cam_dir, exist_ok=True)
@@ -1313,8 +1401,12 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
             if parts[1].isdigit():
                 pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
+        if "X" in pure_cam_id:
+            pure_cam_id = pure_cam_id.split("X", 1)[0]
+            
+        server_seq = get_or_increment_server_sequence(pure_cam_id, seq)
         # フォーマット: {カメラID}_{日時}_{シーケンス}_{インデックス}.jpg
-        filename = f"{pure_cam_id}_{time_str}_{seq}_{idx}.jpg"
+        filename = f"{pure_cam_id}_{time_str}_{server_seq}_{idx}.jpg"
     else:
         # フォーマット外のファイルの場合のフォールバック
         filename = f"{time_str}_{mapped_filename}"
@@ -1358,9 +1450,14 @@ async def upload_video(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing camera metadata")
 
     pure_cam_id = get_camera_id(x_camera_id.strip())
+    if "X" in pure_cam_id:
+        pure_cam_id = pure_cam_id.split("X", 1)[0]
+        
     safe_seq = re.sub(r"[^0-9A-Za-z_-]", "", x_sequence.strip()) or "001"
+    server_seq = get_or_increment_server_sequence(pure_cam_id, safe_seq)
+    
     suffix = os.path.splitext(file.filename or "")[1] or ".mov"
-    filename = build_video_filename(pure_cam_id, safe_seq, suffix)
+    filename = build_video_filename(pure_cam_id, server_seq, suffix)
 
     cam_dir = os.path.join(VIDEO_DIR, pure_cam_id)
     os.makedirs(cam_dir, exist_ok=True)
