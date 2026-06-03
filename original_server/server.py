@@ -3716,14 +3716,14 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     Serve a simple HTML page to view raw and processed images.
     """
     is_admin_str = "true" if principal.get("role") == "admin" else "false"
-    html_content = f"""
+    html_content = """
     <!DOCTYPE html>
     <html lang="ja">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>SLAB WILD ANIMALS Web</title>
-        """ + THEME_TOGGLE_SCRIPT + f"""
+        """ + THEME_TOGGLE_SCRIPT + """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
             body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
@@ -3984,7 +3984,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         </div>
 
         <script>
-            const isAdmin = {is_admin_str};
+            const isAdmin = __IS_ADMIN__;
             // Initialization and state logic
             let currentProcessed = null;
             let currentRaw = null;
@@ -5010,6 +5010,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     """
     html_content = html_content.replace("__USERNAME__", principal.get("username", "unknown"))
     html_content = html_content.replace("__ROLE__", principal.get("role", "user"))
+    html_content = html_content.replace("__IS_ADMIN__", is_admin_str)
     admin_link = ""
     stat_link = ""
     if principal.get("role") == "admin":
