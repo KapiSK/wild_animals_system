@@ -1,19 +1,15 @@
-This is LuaHBTeX, Version 1.24.0 (MiKTeX 25.12) (format=lualatex 2026.1.15)  28 JAN 2026 23:06
+This is LuaHBTeX, Version 1.22.0 (TeX Live 2025)  (format=lualatex 2026.2.17)  14 MAY 2026 13:24
  restricted system commands enabled.
  file:line:error style messages enabled.
 **c:/Users/kapib/vscodegit/wild_animals/test2/docs/ieice_paper_draft/main.tex
 (c:/Users/kapib/vscodegit/wild_animals/test2/docs/ieice_paper_draft/main.tex
 LaTeX2e <2025-11-01>
-L3 programming layer <2025-12-29>
+L3 programming layer <2026-01-19>
 Lua module: luaotfload 2024-12-03 v3.29 Lua based OpenType font support
 Lua module: lualibs 2023-07-13 v2.76 ConTeXt Lua standard libraries.
-Lua module: lualibs-extended 2023-07-13 v2.76 ConTeXt Lua libraries -- extended 
-collection.
-luaotfload | conf : Root cache directory is "C:/Users/kapib/AppData/Local/MiKTeX
-/luatex-cache/generic/names".
-luaotfload | init : Loading fontloader "fontloader-2023-12-28.lua" from kpse-res
-olved path "C:/Users/kapib/AppData/Local/Programs/MiKTeX/tex/luatex/luaotfload/f
-ontloader-2023-12-28.lua".
+Lua module: lualibs-extended 2023-07-13 v2.76 ConTeXt Lua libraries -- extended collection.
+luaotfload | conf : Root cache directory is "C:/texlive/2025/texmf-var/luatex-cache/generic/names".
+luaotfload | init : Loading fontloader "fontloader-2023-12-28.lua" from kpse-resolved path "c:/texlive/2025/texmf-dist/tex/luatex/luaotfload/fontloader-2023-12-28.lua".
 Lua-only attribute luaotfload@noligature = 1
 luaotfload | init : Context OpenType loader version 3.134
 Inserting `luaotfload.node_processor' in `pre_linebreak_filter'.
@@ -21,8 +17,7 @@ Inserting `luaotfload.node_processor' in `hpack_filter'.
 Inserting `luaotfload.glyph_stream' in `glyph_stream_provider'.
 Inserting `luaotfload.define_font' in `define_font'.
 Lua-only attribute luaotfload_color_attribute = 2
-luaotfload | conf : Root cache directory is "C:/Users/kapib/AppData/Local/MiKTeX
-/luatex-cache/generic/names".
+luaotfload | conf : Root cache directory is "C:/texlive/2025/texmf-var/luatex-cache/generic/names".
 Inserting `luaotfload.harf.strip_prefix' in `find_opentype_file'.
 Inserting `luaotfload.harf.strip_prefix' in `find_truetype_file'.
 Removing  `luaotfload.glyph_stream' from `glyph_stream_provider'.
@@ -53,13 +48,12 @@ l.6 \NeedsTeXFormat{pLaTeX2e}
                              
 
 Here is how much of LuaTeX's memory you used:
- 36 strings out of 476081
+ 36 strings out of 476076
  100000,460012 words of node,token memory allocated
  305 words of node memory still in use:
-   1 hlist, 1 dir, 3 kern, 1 glyph, 1 attribute, 39 glue_spec, 1 attribute_list,
- 2 if_stack nodes
+   1 hlist, 1 dir, 3 kern, 1 glyph, 1 attribute, 39 glue_spec, 1 attribute_list, 2 if_stack nodes
    avail lists: 2:8,3:3,4:1
- 22584 multiletter control sequences out of 65536+600000
+ 22589 multiletter control sequences out of 65536+600000
  14 fonts using 591679 bytes
  27i,0n,36p,194b,17s stack positions out of 10000i,1000n,20000p,200000b,200000s
 ./ieicej.cls:6:  ==> Fatal error occurred, no output PDF file produced!

@@ -1,0 +1,10 @@
+megadetector
+pandas
+numpy
+tqdm
+requests
+PyYAML
+scikit-learn
+matplotlib
+pillow
+pycocotools

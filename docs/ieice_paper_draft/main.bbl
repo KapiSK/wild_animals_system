@@ -18,10 +18,10 @@ Methods in Ecology and Evolution,
 vol.10, no.4, pp.585--590, April 2019.
 
 \bibitem{Whytock2023}
-R. Whytock, T. Suijten, T. Deursen, J. ^^c5^^9awie^^c5^^bcewski, H. Mermiaghe,
-  N. Madamba, N. Mouckoumou, J. Zwerts, A. Pambo, L. Bahaa-El-Din, S. Brittain,
-  A. Cardoso, P. Henschel, D. Lehmann, B. Momboua, L. Makaga, C. Orbell, L.
-  White, D. Iponga, and K. Abernethy,
+R. Whytock, T. Suijten, T. Deursen, J. Świeżewski, H. Mermiaghe, N. Madamba,
+  N. Mouckoumou, J. Zwerts, A. Pambo, L. Bahaa-El-Din, S. Brittain, A. Cardoso,
+  P. Henschel, D. Lehmann, B. Momboua, L. Makaga, C. Orbell, L. White, D.
+  Iponga, and K. Abernethy,
 ``Real-time alerts from ai-enabled camera traps using the iridium satellite
   network: A case-study in gabon, central africa,''
 Methods in Ecology and Evolution,
@@ -33,6 +33,10 @@ A. Patkar, P. Hole, and L. Salvi,
 Journal of Smart Sensors and Computing,
 vol.1, p.25209, 09 2025.
 
+\bibitem{Beery2019}
+S. Beery, D. Morris, and S. Yang,
+``Efficient pipeline for camera trap image review,'' 07 2019.
+
 \bibitem{Fennell2022}
 M. Fennell, C. Beirne, and C. Burton,
 ``Use of object detection in camera trap image identification: Assessing a
@@ -40,10 +44,6 @@ M. Fennell, C. Beirne, and C. Burton,
   research and application in recreation ecology,''
 Global Ecology and Conservation,
 vol.35, p.e02104, 03 2022.
-
-\bibitem{Beery2019}
-S. Beery, D. Morris, and S. Yang,
-``Efficient pipeline for camera trap image review,'' 07 2019.
 
 \bibitem{Computers2025}
 M. Rahman, S. Giordano, and M. Pagano,
