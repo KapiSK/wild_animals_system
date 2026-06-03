@@ -401,7 +401,7 @@ class GmailMovProcessor:
         for part_index, part in enumerate(msg.walk(), start=1):
             saved_path = self._maybe_save_mov_part(uid, msg, part, part_index)
             if saved_path:
-                self.video_queue.put((saved_path, telemetry))
+                self.video_queue.put((uid, saved_path, telemetry))
                 saved_videos += 1
 
         if saved_videos == 0:
@@ -467,15 +467,19 @@ class GmailMovProcessor:
                 self.video_queue.task_done()
                 break
             
-            if isinstance(item, tuple) and len(item) == 2:
+            if isinstance(item, tuple) and len(item) == 3:
+                uid, video_path, telemetry = item
+            elif isinstance(item, tuple) and len(item) == 2:
+                uid = "unknown"
                 video_path, telemetry = item
             else:
+                uid = "unknown"
                 video_path = item
                 telemetry = {}
 
             try:
                 logging.info("[Worker] Starting processing for %s", video_path)
-                self._extract_frames(video_path, telemetry)
+                self._extract_frames(uid, video_path, telemetry)
                 logging.info("[Worker] Finished processing for %s", video_path)
             except Exception:
                 logging.exception("[Worker] Unhandled error while processing %s", video_path)
@@ -484,7 +488,7 @@ class GmailMovProcessor:
         
         logging.info("Worker thread stopped.")
 
-    def _extract_frames(self, video_path: Path, telemetry: dict = None) -> None:
+    def _extract_frames(self, uid: str, video_path: Path, telemetry: dict = None) -> None:
         video_stem = sanitize_filename(video_path.stem)
         #frame_dir = self.config.frame_save_dir / video_stem
         frame_dir = self.config.frame_save_dir
@@ -547,11 +551,11 @@ class GmailMovProcessor:
 
             if should_forward:
                 logging.info("Criteria met for cycle %s. Forwarding...", video_stem)
-                self._upload_to_cloud_server(video_stem, video_path, extracted_frames, telemetry)
+                self._upload_to_cloud_server(uid, video_stem, video_path, extracted_frames, telemetry)
             else:
                 logging.info("No targets detected in cycle %s. Skipping upload.", video_stem)
 
-    def _upload_to_cloud_server(self, video_stem: str, video_path: Path, frames: Sequence[Tuple[Path, int]], telemetry: dict = None) -> None:
+    def _upload_to_cloud_server(self, uid: str, video_stem: str, video_path: Path, frames: Sequence[Tuple[Path, int]], telemetry: dict = None) -> None:
         import requests
         import urllib3
         from datetime import datetime
@@ -569,18 +573,21 @@ class GmailMovProcessor:
         #   KD1_000121  → underscore separator (legacy)
         #   KD1X000121  → X separator (for cameras that can't use special chars)
         import re as _re
-        _x_match = _re.match(r'^(.+?)X(\d+)$', video_stem)
-        _us_parts = video_stem.rsplit("_", 1)
+        # Remove trailing deduplication suffix if present (e.g. _1, _2)
+        stem_for_cam = _re.sub(r'_\d+$', '', video_stem)
+
+        _x_match = _re.match(r'^(.+?)X(\d+)$', stem_for_cam)
+        _us_parts = stem_for_cam.rsplit("_", 1)
 
         if _x_match:
             cam_id = _x_match.group(1)
-            seq = _x_match.group(2)
         elif len(_us_parts) == 2 and _us_parts[1].isdigit():
             cam_id = _us_parts[0]
-            seq = _us_parts[1]
         else:
-            cam_id = video_stem
-            seq = "001"
+            cam_id = stem_for_cam
+            
+        # Use email UID to guarantee unique sequence for cloud grouping
+        seq = uid
 
         event_id = f"{cam_id}_{seq}"
         
