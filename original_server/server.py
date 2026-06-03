@@ -1503,6 +1503,8 @@ async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_toke
     
     current_data = load_telemetry()
     pure_cam_id = get_camera_id(cam_id)
+    if "X" in pure_cam_id:
+        pure_cam_id = pure_cam_id.split("X", 1)[0]
     if pure_cam_id not in current_data:
         current_data[pure_cam_id] = {}
         
