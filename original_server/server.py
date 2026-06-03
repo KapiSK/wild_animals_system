@@ -4523,7 +4523,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <span class="cycle-title-text">Cycle: ${cycleId}</span>
                                             ${cycleTimeHtml}
                                             <span class="badge" style="margin-left: 15px;">${cycleImages.length} images</span>
-                                            ${isAdmin ? `<button style="margin-left:auto; padding: 2px 6px; font-size:1.2rem; margin-right:15px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">🗑️</button>` : ''}
+                                            ${isAdmin ? `<button style="margin-left:auto; padding: 2px 6px; font-size:1rem; font-weight:bold; color:red; margin-right:15px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">削除</button>` : ''}
                                             ${labelsHtml}
                                         </div>
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s; transform:${isCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
@@ -4652,7 +4652,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                         </div>
                                     </div>
                                     <div class="flat-cycle-badges">
-                                        ${isAdmin ? `<button style="padding: 2px 6px; font-size:1.2rem; margin-right:10px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">🗑️</button>` : ''}
+                                        ${isAdmin ? `<button style="padding: 2px 6px; font-size:1rem; font-weight:bold; color:red; margin-right:10px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">削除</button>` : ''}
                                         <span class="flat-cycle-badge count">${cycleImages.length} images</span>
                                         <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
                                     </div>
@@ -4894,7 +4894,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     </div>
                                 </div>
                                 <div class="flat-cycle-badges">
-                                    ${isAdmin ? `<button style="padding: 2px 6px; font-size:1.2rem; margin-right:10px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">🗑️</button>` : ''}
+                                    ${isAdmin ? `<button style="padding: 2px 6px; font-size:1rem; font-weight:bold; color:red; margin-right:10px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">削除</button>` : ''}
                                     <span class="flat-cycle-badge count">${cycleImages.length} images</span>
                                     <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
                                 </div>
