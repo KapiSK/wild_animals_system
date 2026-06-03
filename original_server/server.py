@@ -890,6 +890,61 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def migrate_statistics_csv():
+    stat_csv = os.path.join(EVENT_METADATA_DIR, "statistics.csv")
+    if not os.path.exists(stat_csv):
+        return
+        
+    try:
+        with open(stat_csv, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            
+        if not lines:
+            return
+            
+        header = lines[0].strip().split(",")
+        if "cycle_id" in header:
+            return # Already migrated
+            
+        logger.info("Migrating statistics.csv to include cycle_id...")
+        
+        # Build a mapping of cycle_time to cycle_id from metadata
+        time_to_cycle_id = {}
+        for root, _, files in os.walk(EVENT_METADATA_DIR):
+            for file in files:
+                if file.endswith(".json"):
+                    try:
+                        with open(os.path.join(root, file), "r", encoding="utf-8") as jf:
+                            meta = json.load(jf)
+                            c_time = meta.get("cycle_time")
+                            c_id = meta.get("event_id")
+                            if c_time and c_id:
+                                time_to_cycle_id[c_time] = c_id
+                    except Exception:
+                        pass
+
+        # Rewrite CSV with cycle_id
+        new_header = "timestamp,cycle_id,camera_id,temperature,labels,target_count\n"
+        with open(stat_csv, "w", encoding="utf-8") as f:
+            f.write(new_header)
+            for line in lines[1:]:
+                parts = line.strip().split(",")
+                if len(parts) >= 5:
+                    timestamp = parts[0]
+                    camera_id = parts[1]
+                    temperature = parts[2]
+                    labels = parts[3]
+                    target_count = parts[4]
+                    cycle_id = time_to_cycle_id.get(timestamp, "")
+                    f.write(f"{timestamp},{cycle_id},{camera_id},{temperature},{labels},{target_count}\n")
+                else:
+                    f.write(line)
+        logger.info("Successfully migrated statistics.csv")
+    except Exception as e:
+        logger.error(f"Failed to migrate statistics.csv: {e}")
+
+migrate_statistics_csv()
+
 app = FastAPI()
 
 def download_model_if_needed():
@@ -1173,11 +1228,11 @@ class CycleManager:
             stat_exists = os.path.isfile(stat_csv)
             with open(stat_csv, "a", encoding="utf-8") as f:
                 if not stat_exists:
-                    f.write("timestamp,camera_id,temperature,labels,target_count\n")
+                    f.write("timestamp,cycle_id,camera_id,temperature,labels,target_count\n")
                 
                 labels_str = "|".join(labels) if labels else "None"
                 # timestamp として画像の撮影日時(cycle_time)を使用
-                f.write(f"{cycle_time},{camera_id},{temperature},{labels_str},{event_metadata['target_count']}\n")
+                f.write(f"{cycle_time},{cycle_id},{camera_id},{temperature},{labels_str},{event_metadata['target_count']}\n")
         except Exception as e:
             logger.error(f"Failed to write statistics: {e}")
 
@@ -2240,6 +2295,77 @@ async def get_video_file(video_path: str, principal: dict = Depends(verify_crede
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     return FileResponse(full_path, media_type="video/quicktime")
 
+@app.delete("/api/cycle/{camera_id}/{cycle_id}")
+async def delete_cycle(camera_id: str, cycle_id: str, principal: dict = Depends(verify_credentials)):
+    if principal.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+        
+    try:
+        # 1. Physical files deletion
+        up_dir = os.path.join(UPLOAD_DIR, camera_id)
+        if os.path.exists(up_dir):
+            for f in os.listdir(up_dir):
+                if f"_{cycle_id}_" in f:
+                    os.remove(os.path.join(up_dir, f))
+                    
+        proc_dir = os.path.join(PROCESSED_DIR, camera_id)
+        if os.path.exists(proc_dir):
+            for f in os.listdir(proc_dir):
+                if f"_{cycle_id}_" in f:
+                    os.remove(os.path.join(proc_dir, f))
+                    
+        vid_dir = os.path.join(VIDEO_DIR, camera_id)
+        if os.path.exists(vid_dir):
+            for f in os.listdir(vid_dir):
+                if f.endswith(f"_{cycle_id}.mp4"):
+                    os.remove(os.path.join(vid_dir, f))
+                    
+        meta_path = get_event_metadata_path(camera_id, cycle_id)
+        if os.path.exists(meta_path):
+            os.remove(meta_path)
+            
+        # 2. Remove from statistics.csv
+        stat_csv = os.path.join(EVENT_METADATA_DIR, "statistics.csv")
+        if os.path.exists(stat_csv):
+            with open(stat_csv, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if lines:
+                new_lines = [lines[0]]
+                header = lines[0].strip().split(",")
+                cycle_id_idx = header.index("cycle_id") if "cycle_id" in header else -1
+                cam_idx = header.index("camera_id") if "camera_id" in header else 1
+                
+                for line in lines[1:]:
+                    parts = line.strip().split(",")
+                    if len(parts) > max(cam_idx, cycle_id_idx):
+                        if cycle_id_idx >= 0 and parts[cycle_id_idx] == cycle_id and parts[cam_idx] == camera_id:
+                            continue
+                    new_lines.append(line)
+                    
+                with open(stat_csv, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+                    
+        # 3. Revert server_sequence.json if it's the latest cycle
+        with _seq_lock_sync:
+            seq_data = load_server_sequence()
+            if camera_id in seq_data:
+                cam_data = seq_data[camera_id]
+                try:
+                    if int(cycle_id) == cam_data.get("current_server_seq", -1):
+                        cam_data["current_server_seq"] -= 1
+                        cam_data["last_edge_event_id"] = ""
+                        cam_data["last_update_time"] = 0.0
+                        seq_data[camera_id] = cam_data
+                        save_server_sequence(seq_data)
+                        logger.info(f"Reverted server sequence for {camera_id} due to cycle deletion.")
+                except ValueError:
+                    pass
+                    
+        return {"status": "ok", "message": "Cycle deleted successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error deleting cycle {camera_id}/{cycle_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/images")
 async def get_images(
@@ -3589,14 +3715,15 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
     """
     Serve a simple HTML page to view raw and processed images.
     """
-    html_content = """
+    is_admin_str = "true" if principal.get("role") == "admin" else "false"
+    html_content = f"""
     <!DOCTYPE html>
     <html lang="ja">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>SLAB WILD ANIMALS Web</title>
-        """ + THEME_TOGGLE_SCRIPT + """
+        """ + THEME_TOGGLE_SCRIPT + f"""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
             body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
@@ -3857,6 +3984,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         </div>
 
         <script>
+            const isAdmin = {is_admin_str};
             // Initialization and state logic
             let currentProcessed = null;
             let currentRaw = null;
@@ -4395,6 +4523,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                             <span class="cycle-title-text">Cycle: ${cycleId}</span>
                                             ${cycleTimeHtml}
                                             <span class="badge" style="margin-left: 15px;">${cycleImages.length} images</span>
+                                            ${isAdmin ? `<button style="margin-left:auto; padding: 2px 6px; font-size:1.2rem; margin-right:15px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">🗑️</button>` : ''}
                                             ${labelsHtml}
                                         </div>
                                         <span id="${cycleSectionId}-arrow" style="font-size:1.05rem; transition: transform 0.3s; transform:${isCycleExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};">▶</span>
@@ -4523,6 +4652,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                         </div>
                                     </div>
                                     <div class="flat-cycle-badges">
+                                        ${isAdmin ? `<button style="padding: 2px 6px; font-size:1.2rem; margin-right:10px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">🗑️</button>` : ''}
                                         <span class="flat-cycle-badge count">${cycleImages.length} images</span>
                                         <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
                                     </div>
@@ -4764,6 +4894,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                                     </div>
                                 </div>
                                 <div class="flat-cycle-badges">
+                                    ${isAdmin ? `<button style="padding: 2px 6px; font-size:1.2rem; margin-right:10px; border:none; background:transparent; cursor:pointer;" onclick="event.stopPropagation(); deleteCycle('${folder}', '${cycleId}')" title="Delete Cycle">🗑️</button>` : ''}
                                     <span class="flat-cycle-badge count">${cycleImages.length} images</span>
                                     <span class="flat-cycle-badge ${badgeClass}">${labelsStr}</span>
                                 </div>
@@ -4851,9 +4982,26 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
                 });
             }
 
+            async function deleteCycle(cameraId, cycleId) {
+                if (!confirm("本当にこのサイクルを削除しますか？\n画像・動画・すべての記録が完全に削除されます。")) return;
+                if (!confirm("【最終確認】この操作は元に戻せません。\n本当に削除を実行しますか？")) return;
+                
+                try {
+                    const response = await fetch(`/api/cycle/${cameraId}/${cycleId}`, { method: 'DELETE' });
+                    const result = await response.json();
+                    if (response.ok) {
+                        alert("サイクルを削除しました。");
+                        fetchImages();
+                    } else {
+                        alert("削除に失敗しました: " + (result.detail || result.message));
+                    }
+                } catch (e) {
+                    alert("エラーが発生しました: " + e.message);
+                }
+            }
+
             // Initial load
             fetchImages();
-            
             // Poll every 5 seconds to auto-update
             setInterval(fetchImages, 5000);
         </script>
