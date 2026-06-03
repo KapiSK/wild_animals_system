@@ -4983,8 +4983,8 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             }
 
             async function deleteCycle(cameraId, cycleId) {
-                if (!confirm("本当にこのサイクルを削除しますか？\n画像・動画・すべての記録が完全に削除されます。")) return;
-                if (!confirm("【最終確認】この操作は元に戻せません。\n本当に削除を実行しますか？")) return;
+                if (!confirm("本当にこのサイクルを削除しますか？画像・動画・すべての記録が完全に削除されます。")) return;
+                if (!confirm("【最終確認】この操作は元に戻せません。本当に削除を実行しますか？")) return;
                 
                 try {
                     const response = await fetch(`/api/cycle/${cameraId}/${cycleId}`, { method: 'DELETE' });
