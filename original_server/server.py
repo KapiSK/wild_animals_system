@@ -1509,9 +1509,15 @@ async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_toke
         current_data[pure_cam_id] = {}
         
     for k, v in payload.items():
-        if k != "camera_id":
+        if k not in ("camera_id", "acquired_at"):
             current_data[pure_cam_id][k] = v
-    current_data[pure_cam_id]["updated_at"] = datetime.now().isoformat()
+            
+    # Use acquired_at if provided by integration server, otherwise current server time
+    acquired_at = payload.get("acquired_at")
+    if acquired_at:
+        current_data[pure_cam_id]["updated_at"] = acquired_at
+    else:
+        current_data[pure_cam_id]["updated_at"] = datetime.now().isoformat()
     
     save_telemetry(current_data)
     return {"status": "ok"}

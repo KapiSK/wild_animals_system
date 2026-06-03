@@ -380,6 +380,16 @@ class GmailMovProcessor:
                         pass
         
         telemetry = {}
+        
+        # Add actual acquisition time from email Date header
+        date_header = msg.get("Date")
+        if date_header:
+            try:
+                dt = email.utils.parsedate_to_datetime(date_header)
+                telemetry['acquired_at'] = dt.isoformat()
+            except Exception:
+                pass
+                
         if email_body:
             import re as _re
             clean_body = _re.sub(r'<[^>]+>', ' ', email_body).replace('&nbsp;', ' ')
