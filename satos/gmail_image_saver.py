@@ -159,6 +159,7 @@ class StateStore:
         self.path = path
         self.uidvalidity: Optional[str] = None
         self.processed_uids: Set[str] = set()
+        self.failed_uids: Set[str] = set()
 
     def load(self) -> None:
         if not self.path.exists():
@@ -175,6 +176,9 @@ class StateStore:
         raw_uids = data.get("processed_uids", [])
         if isinstance(raw_uids, list):
             self.processed_uids = {str(x) for x in raw_uids}
+        raw_failed = data.get("failed_uids", [])
+        if isinstance(raw_failed, list):
+            self.failed_uids = {str(x) for x in raw_failed}
 
     def save(self) -> None:
         import json
@@ -184,6 +188,7 @@ class StateStore:
         payload = {
             "uidvalidity": self.uidvalidity,
             "processed_uids": sorted(self.processed_uids, key=_sort_uid),
+            "failed_uids": sorted(self.failed_uids, key=_sort_uid),
             "updated_at": datetime.now().isoformat(),
         }
         with tmp.open("w", encoding="utf-8") as f:
@@ -199,6 +204,7 @@ class StateStore:
             )
             self.uidvalidity = uidvalidity
             self.processed_uids.clear()
+            self.failed_uids.clear()
             self.save()
 
 
@@ -329,14 +335,23 @@ class GmailMovProcessor:
             if not self._running:
                 raise ShutdownRequested
             if uid in self.state.processed_uids:
-                continue
+                if self.config.search_criteria == "UNSEEN" and self.config.mark_as_seen_on_success:
+                    if uid not in self.state.failed_uids:
+                        logging.info("UID=%s was successfully processed before but is now UNSEEN. Re-processing.", uid)
+                    else:
+                        continue
+                else:
+                    continue
             try:
                 self._process_message(uid)
+                self.state.processed_uids.add(uid)
+                self.state.failed_uids.discard(uid)
             except Exception:
                 logging.exception("Failed to process UID=%s. Skipping to avoid infinite retry.", uid)
-            finally:
-                # Always mark as seen in state so we don't retry endlessly
                 self.state.processed_uids.add(uid)
+                self.state.failed_uids.add(uid)
+            finally:
+                # Always save state so we don't retry endlessly on next start
                 self.state.save()
 
     def _process_message(self, uid: str) -> None:
