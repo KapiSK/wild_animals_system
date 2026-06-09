@@ -890,60 +890,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def migrate_statistics_csv():
-    stat_csv = os.path.join(EVENT_METADATA_DIR, "statistics.csv")
-    if not os.path.exists(stat_csv):
-        return
-        
-    try:
-        with open(stat_csv, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            
-        if not lines:
-            return
-            
-        header = lines[0].strip().split(",")
-        if "cycle_id" in header:
-            return # Already migrated
-            
-        logger.info("Migrating statistics.csv to include cycle_id...")
-        
-        # Build a mapping of cycle_time to cycle_id from metadata
-        time_to_cycle_id = {}
-        for root, _, files in os.walk(EVENT_METADATA_DIR):
-            for file in files:
-                if file.endswith(".json"):
-                    try:
-                        with open(os.path.join(root, file), "r", encoding="utf-8") as jf:
-                            meta = json.load(jf)
-                            c_time = meta.get("cycle_time")
-                            c_id = meta.get("event_id")
-                            if c_time and c_id:
-                                time_to_cycle_id[c_time] = c_id
-                    except Exception:
-                        pass
-
-        # Rewrite CSV with cycle_id
-        new_header = "timestamp,cycle_id,camera_id,temperature,labels,target_count\n"
-        with open(stat_csv, "w", encoding="utf-8") as f:
-            f.write(new_header)
-            for line in lines[1:]:
-                parts = line.strip().split(",")
-                if len(parts) >= 5:
-                    timestamp = parts[0]
-                    camera_id = parts[1]
-                    temperature = parts[2]
-                    labels = parts[3]
-                    target_count = parts[4]
-                    cycle_id = time_to_cycle_id.get(timestamp, "")
-                    f.write(f"{timestamp},{cycle_id},{camera_id},{temperature},{labels},{target_count}\n")
-                else:
-                    f.write(line)
-        logger.info("Successfully migrated statistics.csv")
-    except Exception as e:
-        logger.error(f"Failed to migrate statistics.csv: {e}")
-
-migrate_statistics_csv()
 
 app = FastAPI()
 
@@ -1222,19 +1168,6 @@ class CycleManager:
         except Exception as e:
             logger.error(f"Failed to save event metadata for {cycle_id}: {e}")
 
-        # --- Statistics Logging ---
-        try:
-            stat_csv = "statistics.csv"
-            stat_exists = os.path.isfile(stat_csv)
-            with open(stat_csv, "a", encoding="utf-8") as f:
-                if not stat_exists:
-                    f.write("timestamp,cycle_id,camera_id,temperature,labels,target_count\n")
-                
-                labels_str = "|".join(labels) if labels else "None"
-                # timestamp として画像の撮影日時(cycle_time)を使用
-                f.write(f"{cycle_time},{cycle_id},{camera_id},{temperature},{labels_str},{event_metadata['target_count']}\n")
-        except Exception as e:
-            logger.error(f"Failed to write statistics: {e}")
 
         # --- CSV Logging ---
         try:
@@ -1752,6 +1685,7 @@ async def export_download(
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for meta, img_filename, dets in target_images:
                 cam_id = meta.get("camera_id")
+                event_id = meta.get("event_id")
                 img_path = os.path.join(UPLOAD_DIR, cam_id, img_filename)
                 if not os.path.exists(img_path):
                     img_path = os.path.join(PROCESSED_DIR, cam_id, img_filename)
@@ -1765,15 +1699,27 @@ async def export_download(
                         "bbox": d.get("bbox")
                     })
                     
-                md_json["images"].append({
+                item_info = {
                     "file": f"images/{img_filename}",
                     "location": cam_id,
                     "datetime": meta.get("cycle_time"),
                     "detections": md_detections
-                })
+                }
                 
                 if os.path.exists(img_path):
                     zipf.write(img_path, arcname=f"images/{img_filename}")
+                
+                if event_id:
+                    video_paths = get_video_relpaths_for_event(cam_id, event_id)
+                    for v_rel in video_paths:
+                        v_abs = resolve_image_path(VIDEO_DIR, v_rel)
+                        if os.path.exists(v_abs):
+                            v_filename = os.path.basename(v_rel)
+                            zipf.write(v_abs, arcname=f"videos/{v_filename}")
+                            if "video_file" not in item_info:
+                                item_info["video_file"] = f"videos/{v_filename}"
+                
+                md_json["images"].append(item_info)
             
             json_str = json.dumps(md_json, indent=2)
             zipf.writestr("md_results.json", json_str)
@@ -1786,490 +1732,6 @@ async def export_download(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/statistics")
-async def get_statistics(principal: dict = Depends(verify_credentials)):
-    data = []
-    try:
-        if os.path.exists("statistics.csv"):
-            with open("statistics.csv", "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    data.append(row)
-    except Exception as e:
-        logger.error(f"Error reading statistics.csv: {e}")
-    return {"status": "ok", "data": data}
-
-@app.get("/statistics", response_class=HTMLResponse)
-async def statistics_page(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
-    principal = get_optional_principal(request, credentials)
-    if not principal:
-        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-    if principal.get("role") != "admin":
-        return RedirectResponse(url="/gallery", status_code=status.HTTP_303_SEE_OTHER)
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="ja">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Statistics Dashboard</title>
-        {THEME_TOGGLE_SCRIPT}
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            :root {{
-                --bg-main: #f8fafc;
-                --text-main: #1e293b;
-                --text-sub: #64748b;
-                --card-bg: #ffffff;
-                --card-border: #e2e8f0;
-                --accent: #3b82f6;
-            }}
-            [data-theme="dark"] {{
-                --bg-main: #0f172a;
-                --text-main: #f8fafc;
-                --text-sub: #94a3b8;
-                --card-bg: #1e293b;
-                --card-border: #334155;
-                --accent: #60a5fa;
-            }}
-            body {{
-                font-family: 'Inter', sans-serif;
-                margin: 0;
-                padding: 20px;
-                background-color: var(--bg-main);
-                color: var(--text-main);
-                transition: all 0.3s ease;
-            }}
-            .container {{ max-width: 1200px; margin: 0 auto; }}
-            .header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }}
-            h1 {{ margin: 0; font-size: 2rem; font-weight: 700; }}
-            .btn-back {{
-                display: inline-flex; align-items: center; gap: 8px;
-                padding: 8px 16px; background: var(--card-bg); color: var(--text-main);
-                border: 1px solid var(--card-border); border-radius: 8px; text-decoration: none;
-                font-weight: 500; transition: all 0.2s;
-            }}
-            .btn-back:hover {{ background: var(--card-border); }}
-            
-            .overview-grid {{
-                display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;
-            }}
-            .kpi-card {{
-                background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px;
-                padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            }}
-            .kpi-title {{ font-size: 0.9rem; color: var(--text-sub); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }}
-            .kpi-value {{ font-size: 2.5rem; font-weight: 700; color: var(--accent); margin: 0; }}
-            
-            .charts-grid {{
-                display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;
-            }}
-            .chart-card {{
-                background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px;
-                padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            }}
-            .chart-card.full-width {{ grid-column: 1 / -1; }}
-            .chart-title {{ margin-top: 0; margin-bottom: 20px; font-size: 1.2rem; font-weight: 600; }}
-            
-            @media (max-width: 768px) {{
-                .charts-grid {{ grid-template-columns: 1fr; }}
-            }}
-            .btn-export {{ background: #38a169; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }}
-            .btn-export:hover {{ background: #2f855a; }}
-            .modal-overlay {{ display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }}
-            .modal-content {{ background: var(--card-bg); padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; color: var(--text-main); }}
-            .modal-content h2 {{ margin-top: 0; color: var(--text-main); font-size: 1.5rem; }}
-            .form-group {{ margin-bottom: 15px; }}
-            .form-group label {{ display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }}
-            .form-group input, .form-group select {{ width: 100%; padding: 8px; border: 1px solid var(--card-border); border-radius: 6px; box-sizing: border-box; background: var(--bg-main); color: var(--text-main); }}
-            .form-row {{ display: flex; gap: 10px; }}
-            .checkbox-group {{ display: flex; flex-wrap: wrap; gap: 10px; }}
-            .checkbox-item {{ display: flex; align-items: center; gap: 5px; font-size: 0.9rem; cursor: pointer; }}
-            #export-preview-msg {{ margin: 15px 0; padding: 10px; border-radius: 6px; background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; display: none; font-size: 0.95rem; }}
-            #export-actions {{ display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }}
-            .btn-check {{ background: #3182ce; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
-            .btn-check:hover {{ background: #2b6cb0; }}
-            .btn-dl {{ background: #38a169; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; text-decoration: none; }}
-            .btn-cancel {{ background: #a0aec0; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 500; }}
-            [data-theme="dark"] .modal-overlay {{ background: rgba(0,0,0,0.7); }}
-            [data-theme="dark"] #export-preview-msg {{ background: #2a4365; color: #90cdf4; border-color: #2c5282; }}
-        </style>
-    </head>
-    <body>
-        {THEME_TOGGLE_UI}
-        <div class="container">
-            <div class="header">
-                <h1>Statistics Dashboard</h1>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="openExportModal()" class="btn-export">📦 Export Dataset</button>
-                    <a href="/gallery" class="btn-back"><span>←</span> Back to Gallery</a>
-                </div>
-            </div>
-            
-            <div class="overview-grid">
-                <div class="kpi-card">
-                    <div class="kpi-title">Total Detections</div>
-                    <div class="kpi-value" id="kpi-total">0</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Active Cameras</div>
-                    <div class="kpi-value" id="kpi-cameras">0</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Most Detected Animal</div>
-                    <div class="kpi-value" id="kpi-top-animal" style="font-size: 1.8rem;">-</div>
-                </div>
-            </div>
-            
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <h2 class="chart-title">Daily Trends & Temperature</h2>
-                    <canvas id="trendChart" height="80"></canvas>
-                </div>
-                
-                <div class="chart-card">
-                    <h2 class="chart-title">Activity by Hour</h2>
-                    <canvas id="hourChart"></canvas>
-                </div>
-                
-                <div class="chart-card">
-                    <h2 class="chart-title">Distribution by Animal</h2>
-                    <canvas id="animalChart"></canvas>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Export Modal -->
-        <div id="exportModal" class="modal-overlay">
-            <div class="modal-content">
-                <h2>Export Dataset (MD Format)</h2>
-                <div class="form-group">
-                    <label>Camera</label>
-                    <select id="exp-camera">
-                        <option value="all">All Cameras</option>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <div class="form-group" style="flex:1;">
-                        <label>Start Date</label>
-                        <input type="date" id="exp-start">
-                    </div>
-                    <div class="form-group" style="flex:1;">
-                        <label>End Date</label>
-                        <input type="date" id="exp-end">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>Labels</label>
-                    <div class="checkbox-group">
-                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="animal" checked> Animal</label>
-                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="person" checked> Person</label>
-                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="vehicle" checked> Vehicle</label>
-                        <label class="checkbox-item"><input type="checkbox" id="exp-empty" checked> Empty / No Detection</label>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group" style="flex:1;">
-                        <label>Min Confidence</label>
-                        <input type="number" id="exp-min-conf" min="0" max="1" step="0.1" value="0.0">
-                    </div>
-                    <div class="form-group" style="flex:1;">
-                        <label>Max Confidence</label>
-                        <input type="number" id="exp-max-conf" min="0" max="1" step="0.1" value="1.0">
-                    </div>
-                </div>
-                
-                <div id="export-preview-msg"></div>
-                
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
-                    <button class="btn-check" onclick="checkExportSize()">Check Data Size</button>
-                    <button class="btn-cancel" onclick="closeExportModal()">Cancel</button>
-                </div>
-                
-                <div id="export-actions"></div>
-            </div>
-        </div>
-
-        <script>
-            const getChartColors = () => {{
-                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-                return {{
-                    text: isDark ? '#f8fafc' : '#1e293b',
-                    grid: isDark ? '#334155' : '#e2e8f0',
-                    primary: '#3b82f6',
-                    secondary: '#10b981',
-                    colors: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
-                }};
-            }};
-
-            Chart.defaults.color = getChartColors().text;
-            Chart.defaults.font.family = "'Inter', sans-serif";
-
-            let charts = [];
-
-            const observer = new MutationObserver((mutations) => {{
-                mutations.forEach((mutation) => {{
-                    if (mutation.attributeName === 'data-theme') {{
-                        const colors = getChartColors();
-                        Chart.defaults.color = colors.text;
-                        charts.forEach(c => {{
-                            if(c.options.scales && c.options.scales.x) {{
-                                c.options.scales.x.grid.color = colors.grid;
-                                c.options.scales.x.ticks.color = colors.text;
-                            }}
-                            if(c.options.scales && c.options.scales.y) {{
-                                c.options.scales.y.grid.color = colors.grid;
-                                c.options.scales.y.ticks.color = colors.text;
-                            }}
-                            c.update();
-                        }});
-                    }}
-                }});
-            }});
-            observer.observe(document.documentElement, {{ attributes: true }});
-
-            async function initDashboard() {{
-                try {{
-                    const res = await fetch('/api/statistics');
-                    const json = await res.json();
-                    if(json.status !== 'ok') return;
-                    
-                    const data = json.data;
-                    if(data.length === 0) return;
-                    
-                    let totalDetections = 0;
-                    const cameras = new Set();
-                    const animalCounts = {{}};
-                    const dailyData = {{}};
-                    const hourlyData = new Array(24).fill(0);
-                    
-                    data.forEach(row => {{
-                        cameras.add(row.camera_id);
-                        const count = parseInt(row.target_count, 10) || 0;
-                        totalDetections += count;
-                        
-                        if(row.labels && row.labels !== 'None') {{
-                            row.labels.split('|').forEach(l => {{
-                                animalCounts[l] = (animalCounts[l] || 0) + 1;
-                            }});
-                        }}
-                        
-                        const timeParts = row.timestamp.split(' ');
-                        if(timeParts.length === 2) {{
-                            const date = timeParts[0];
-                            const hour = parseInt(timeParts[1].split(':')[0], 10);
-                            
-                            if(!isNaN(hour)) hourlyData[hour] += count;
-                            
-                            if(!dailyData[date]) dailyData[date] = {{ count: 0, tempSum: 0, tempCount: 0 }};
-                            dailyData[date].count += count;
-                            
-                            const temp = parseFloat(row.temperature);
-                            if(!isNaN(temp)) {{
-                                dailyData[date].tempSum += temp;
-                                dailyData[date].tempCount++;
-                            }}
-                        }}
-                    }});
-                    
-                    document.getElementById('kpi-total').textContent = totalDetections;
-                    document.getElementById('kpi-cameras').textContent = cameras.size;
-                    
-                    let topAnimal = '-';
-                    let topCount = 0;
-                    for(const [animal, count] of Object.entries(animalCounts)) {{
-                        if(count > topCount) {{ topCount = count; topAnimal = animal; }}
-                    }}
-                    document.getElementById('kpi-top-animal').textContent = topAnimal;
-                    
-                    const colors = getChartColors();
-                    
-                    const sortedDates = Object.keys(dailyData).sort();
-                    const dailyCounts = sortedDates.map(d => dailyData[d].count);
-                    const dailyTemps = sortedDates.map(d => dailyData[d].tempCount > 0 ? (dailyData[d].tempSum / dailyData[d].tempCount).toFixed(1) : null);
-                    
-                    const ctxTrend = document.getElementById('trendChart').getContext('2d');
-                    charts.push(new Chart(ctxTrend, {{
-                        type: 'bar',
-                        data: {{
-                            labels: sortedDates,
-                            datasets: [
-                                {{
-                                    label: 'Detections',
-                                    data: dailyCounts,
-                                    backgroundColor: colors.primary,
-                                    borderRadius: 4,
-                                    order: 2
-                                }},
-                                {{
-                                    label: 'Avg Temperature (°C)',
-                                    data: dailyTemps,
-                                    type: 'line',
-                                    borderColor: colors.secondary,
-                                    backgroundColor: colors.secondary,
-                                    borderWidth: 2,
-                                    tension: 0.3,
-                                    yAxisID: 'y1',
-                                    order: 1
-                                }}
-                            ]
-                        }},
-                        options: {{
-                            responsive: true,
-                            scales: {{
-                                x: {{ grid: {{ color: colors.grid }} }},
-                                y: {{ type: 'linear', display: true, position: 'left', title: {{ display: true, text: 'Count' }}, grid: {{ color: colors.grid }}, beginAtZero: true }},
-                                y1: {{ type: 'linear', display: true, position: 'right', title: {{ display: true, text: 'Temp (°C)' }}, grid: {{ drawOnChartArea: false }} }}
-                            }}
-                        }}
-                    }}));
-                    
-                    const ctxHour = document.getElementById('hourChart').getContext('2d');
-                    charts.push(new Chart(ctxHour, {{
-                        type: 'bar',
-                        data: {{
-                            labels: Array.from({{length: 24}}, (_, i) => `${{i}}:00`),
-                            datasets: [{{
-                                label: 'Activity by Hour',
-                                data: hourlyData,
-                                backgroundColor: colors.secondary,
-                                borderRadius: 4
-                            }}]
-                        }},
-                        options: {{
-                            responsive: true,
-                            scales: {{
-                                x: {{ grid: {{ color: colors.grid }} }},
-                                y: {{ beginAtZero: true, grid: {{ color: colors.grid }} }}
-                            }}
-                        }}
-                    }}));
-                    
-                    const animalLabels = Object.keys(animalCounts);
-                    const animalData = Object.values(animalCounts);
-                    
-                    const ctxAnimal = document.getElementById('animalChart').getContext('2d');
-                    charts.push(new Chart(ctxAnimal, {{
-                        type: 'doughnut',
-                        data: {{
-                            labels: animalLabels,
-                            datasets: [{{
-                                data: animalData,
-                                backgroundColor: colors.colors.slice(0, animalLabels.length),
-                                borderWidth: 0
-                            }}]
-                        }},
-                        options: {{
-                            responsive: true,
-                            cutout: '60%',
-                            plugins: {{
-                                legend: {{ position: 'right' }}
-                            }}
-                        }}
-                    }}));
-                    
-                }} catch (e) {{
-                    console.error("Failed to load statistics data", e);
-                }}
-            }}
-            
-            initDashboard();
-
-            // --- Export Modal Logic ---
-            function openExportModal() {{
-                const camSelect = document.getElementById('exp-camera');
-                if (camSelect.options.length === 1) {{
-                    fetch('/api/config/available_cameras')
-                        .then(r => r.json())
-                        .then(d => {{
-                            if(d.status==='ok') {{
-                                d.cameras.forEach(c => {{
-                                    const opt = document.createElement('option');
-                                    opt.value = c; opt.innerText = c;
-                                    camSelect.appendChild(opt);
-                                }});
-                            }}
-                        }});
-                }}
-                document.getElementById('exportModal').style.display = 'flex';
-                document.getElementById('export-preview-msg').style.display = 'none';
-                document.getElementById('export-actions').innerHTML = '';
-            }}
-            
-            function closeExportModal() {{
-                document.getElementById('exportModal').style.display = 'none';
-            }}
-            
-            function buildExportQuery() {{
-                const cam = document.getElementById('exp-camera').value;
-                const start = document.getElementById('exp-start').value;
-                const end = document.getElementById('exp-end').value;
-                const empty = document.getElementById('exp-empty').checked;
-                const minC = document.getElementById('exp-min-conf').value;
-                const maxC = document.getElementById('exp-max-conf').value;
-                
-                const labelBoxes = document.querySelectorAll('.exp-label:checked');
-                const labels = Array.from(labelBoxes).map(b => b.value).join(',');
-                
-                let q = `include_empty=${{empty}}&min_conf=${{minC}}&max_conf=${{maxC}}`;
-                if(cam !== 'all') q += `&camera=${{cam}}`;
-                if(start) q += `&start=${{start}}`;
-                if(end) q += `&end=${{end}}`;
-                if(labels) q += `&labels=${{labels}}`;
-                return q;
-            }}
-
-            async function checkExportSize() {{
-                const btn = document.querySelector('.btn-check');
-                btn.innerText = 'Checking...';
-                
-                const q = buildExportQuery();
-                try {{
-                    const res = await fetch(`/api/export/preview?${{q}}`);
-                    const json = await res.json();
-                    
-                    const msgDiv = document.getElementById('export-preview-msg');
-                    const actionsDiv = document.getElementById('export-actions');
-                    msgDiv.style.display = 'block';
-                    actionsDiv.innerHTML = '';
-                    
-                    if (json.status !== 'ok') {{
-                        msgDiv.innerHTML = `⚠️ Error: ${{json.message}}`;
-                        return;
-                    }}
-                    
-                    const total = json.total_images;
-                    const limit = 1000;
-                    
-                    if (total === 0) {{
-                        msgDiv.innerHTML = `No data found matching these conditions.`;
-                    }} else if (total <= limit) {{
-                        msgDiv.innerHTML = `✅ <b>${{total}}</b> images found. Ready to download.`;
-                        actionsDiv.innerHTML = `<a href="/api/export/download?${{q}}&page=1" class="btn-dl">Download ZIP</a>`;
-                    }} else {{
-                        msgDiv.innerHTML = `⚠️ <b>${{total}} images found.</b><br>This exceeds the single download limit (${{limit}}).<br>Please refine your conditions or download in parts below.`;
-                        const parts = Math.ceil(total / limit);
-                        let html = '';
-                        for(let i=1; i<=parts; i++) {{
-                            const pStart = (i-1)*limit + 1;
-                            const pEnd = Math.min(i*limit, total);
-                            html += `<a href="/api/export/download?${{q}}&page=${{i}}" class="btn-dl" style="background:#3182ce;">Download Part ${{i}} (${{pStart}} - ${{pEnd}})</a>`;
-                        }}
-                        actionsDiv.innerHTML = html;
-                    }}
-                }} catch(e) {{
-                    alert('Error checking size');
-                }} finally {{
-                    btn.innerText = 'Check Data Size';
-                }}
-            }}
-        </script>
-    </body>
-    </html>
-    """
-    return html_content
 
 @app.get("/images/{image_type}/{image_path:path}")
 async def get_image_file(image_type: str, image_path: str, principal: dict = Depends(verify_credentials)):
@@ -2301,50 +1763,46 @@ async def delete_cycle(camera_id: str, cycle_id: str, principal: dict = Depends(
         raise HTTPException(status_code=403, detail="Admin privileges required")
         
     try:
-        # 1. Physical files deletion
-        up_dir = os.path.join(UPLOAD_DIR, camera_id)
-        if os.path.exists(up_dir):
-            for f in os.listdir(up_dir):
-                if f"_{cycle_id}_" in f:
-                    os.remove(os.path.join(up_dir, f))
-                    
-        proc_dir = os.path.join(PROCESSED_DIR, camera_id)
-        if os.path.exists(proc_dir):
-            for f in os.listdir(proc_dir):
-                if f"_{cycle_id}_" in f:
-                    os.remove(os.path.join(proc_dir, f))
-                    
-        vid_dir = os.path.join(VIDEO_DIR, camera_id)
-        if os.path.exists(vid_dir):
-            for f in os.listdir(vid_dir):
-                if f.endswith(f"_{cycle_id}.mp4"):
-                    os.remove(os.path.join(vid_dir, f))
-                    
+        # 1. Load metadata to find precise files to delete
         meta_path = get_event_metadata_path(camera_id, cycle_id)
+        images_to_delete = []
         if os.path.exists(meta_path):
-            os.remove(meta_path)
-            
-        # 2. Remove from statistics.csv
-        stat_csv = os.path.join(EVENT_METADATA_DIR, "statistics.csv")
-        if os.path.exists(stat_csv):
-            with open(stat_csv, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            if lines:
-                new_lines = [lines[0]]
-                header = lines[0].strip().split(",")
-                cycle_id_idx = header.index("cycle_id") if "cycle_id" in header else -1
-                cam_idx = header.index("camera_id") if "camera_id" in header else 1
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    images_to_delete = [os.path.basename(img) for img in meta.get("images", [])]
+            except Exception as e:
+                logger.error(f"Failed to read metadata for deletion {camera_id}/{cycle_id}: {e}")
                 
-                for line in lines[1:]:
-                    parts = line.strip().split(",")
-                    if len(parts) > max(cam_idx, cycle_id_idx):
-                        if cycle_id_idx >= 0 and parts[cycle_id_idx] == cycle_id and parts[cam_idx] == camera_id:
-                            continue
-                    new_lines.append(line)
+        # 2. Delete Physical files (Images)
+        for img_filename in images_to_delete:
+            up_path = os.path.join(UPLOAD_DIR, camera_id, img_filename)
+            proc_path = os.path.join(PROCESSED_DIR, camera_id, img_filename)
+            try:
+                if os.path.exists(up_path):
+                    os.remove(up_path)
+                if os.path.exists(proc_path):
+                    os.remove(proc_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete image files for {img_filename}: {e}")
+                
+        # 3. Delete Physical files (Videos)
+        video_paths = get_video_relpaths_for_event(camera_id, cycle_id)
+        for v_rel in video_paths:
+            v_abs = resolve_image_path(VIDEO_DIR, v_rel)
+            try:
+                if os.path.exists(v_abs):
+                    os.remove(v_abs)
+            except Exception as e:
+                logger.warning(f"Failed to delete video file {v_abs}: {e}")
                     
-                with open(stat_csv, "w", encoding="utf-8") as f:
-                    f.writelines(new_lines)
-                    
+        # 4. Delete Metadata file
+        if os.path.exists(meta_path):
+            try:
+                os.remove(meta_path)
+            except Exception as e:
+                logger.error(f"Failed to delete metadata file {meta_path}: {e}")
+            
         # 3. Revert server_sequence.json if it's the latest cycle
         with _seq_lock_sync:
             seq_data = load_server_sequence()
@@ -3883,7 +3341,28 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             [data-theme="dark"] .calendar-cell.today .calendar-date { color: #fc8181; }
             [data-theme="dark"] .calendar-badge { background: #121915; border-color: #2d3a33; color: #cbd5e0; }
             [data-theme="dark"] .calendar-badge.has-detection { background: #4a1d1d; border-color: #742a2a; color: #fc8181; }
-        </style>
+        
+            .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+            .modal-content { background: #ffffff; padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; color: #2d3748; }
+            .modal-content h2 { margin-top: 0; color: #2d3748; font-size: 1.5rem; }
+            .form-group { margin-bottom: 15px; }
+            .form-group label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
+            .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; box-sizing: border-box; background: #ffffff; color: #2d3748; }
+            .form-row { display: flex; gap: 10px; }
+            .checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
+            .checkbox-item { display: flex; align-items: center; gap: 5px; font-size: 0.9rem; cursor: pointer; }
+            #export-preview-msg { margin: 15px 0; padding: 10px; border-radius: 6px; background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; display: none; font-size: 0.95rem; }
+            #export-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+            .btn-check { background: #3182ce; color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 500; }
+            .btn-check:hover { background: #2b6cb0; }
+            .btn-dl { background: #38a169; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; text-decoration: none; }
+            .btn-cancel { background: #a0aec0; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 500; }
+            [data-theme='dark'] .modal-overlay { background: rgba(0,0,0,0.7); }
+            [data-theme='dark'] .modal-content { background: #1e293b; color: #f8fafc; }
+            [data-theme='dark'] .modal-content h2 { color: #f8fafc; }
+            [data-theme='dark'] .form-group input, [data-theme='dark'] .form-group select { background: #0f172a; color: #f8fafc; border-color: #334155; }
+            [data-theme='dark'] #export-preview-msg { background: #2a4365; color: #90cdf4; border-color: #2c5282; }
+</style>
     </head>
     <body>
         """ + THEME_TOGGLE_UI + """
@@ -3893,7 +3372,7 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
         <p style="text-align:center; color:#4a5568; margin:0 0 24px 0;">Logged in as: <strong>__USERNAME__</strong> (__ROLE__)</p>
         <div class="top-actions">
             __ADMIN_LINK__
-            __STATISTICS_LINK__
+            <button onclick="openExportModal()" class="action-link secondary" style="background:#3182ce; color:white; border:none; cursor:pointer;">📦 Export Dataset</button>
             <a class="action-link danger" href="/logout">Logout</a>
         </div>
         
@@ -5005,19 +4484,154 @@ async def gallery(request: Request, credentials: HTTPBasicCredentials = Depends(
             // Poll every 5 seconds to auto-update
             setInterval(fetchImages, 5000);
         </script>
-    </body>
+    
+        <!-- Export Modal -->
+        <div id="exportModal" class="modal-overlay">
+            <div class="modal-content">
+                <h2>Export Dataset (ZIP Format)</h2>
+                <div class="form-group">
+                    <label>Camera</label>
+                    <select id="exp-camera">
+                        <option value="all">All Cameras</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;">
+                        <label>Start Date</label>
+                        <input type="date" id="exp-start">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>End Date</label>
+                        <input type="date" id="exp-end">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Labels</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="animal" checked> Animal</label>
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="person" checked> Person</label>
+                        <label class="checkbox-item"><input type="checkbox" class="exp-label" value="vehicle" checked> Vehicle</label>
+                        <label class="checkbox-item"><input type="checkbox" id="exp-empty" checked> Empty / No Detection</label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;">
+                        <label>Min Confidence</label>
+                        <input type="number" id="exp-min-conf" min="0" max="1" step="0.1" value="0.0">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Max Confidence</label>
+                        <input type="number" id="exp-max-conf" min="0" max="1" step="0.1" value="1.0">
+                    </div>
+                </div>
+                
+                <div id="export-preview-msg"></div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                    <button class="btn-check" onclick="checkExportSize()">Check Data Size</button>
+                    <button class="btn-cancel" onclick="closeExportModal()">Cancel</button>
+                </div>
+                
+                <div id="export-actions"></div>
+            </div>
+        </div>
+<script>
+
+            // --- Export Modal Logic ---
+            function openExportModal() {
+                const camSelect = document.getElementById('exp-camera');
+                if (camSelect.options.length === 1) {
+                    fetch('/api/config/available_cameras')
+                        .then(r => r.json())
+                        .then(d => {
+                            if(d.status==='ok') {
+                                d.cameras.forEach(c => {
+                                    const opt = document.createElement('option');
+                                    opt.value = c; opt.innerText = c;
+                                    camSelect.appendChild(opt);
+                                });
+                            }
+                        });
+                }
+                document.getElementById('exportModal').style.display = 'flex';
+                document.getElementById('export-preview-msg').style.display = 'none';
+                document.getElementById('export-actions').innerHTML = '';
+            }
+            
+            function closeExportModal() {
+                document.getElementById('exportModal').style.display = 'none';
+            }
+            
+            async function checkExportSize() {
+                const btn = document.querySelector('.btn-check');
+                btn.innerText = 'Checking...';
+                
+                const cam = document.getElementById('exp-camera').value;
+                const start = document.getElementById('exp-start').value;
+                const end = document.getElementById('exp-end').value;
+                const empty = document.getElementById('exp-empty').checked;
+                const minC = document.getElementById('exp-min-conf').value;
+                const maxC = document.getElementById('exp-max-conf').value;
+                
+                const labels = [];
+                document.querySelectorAll('.exp-label:checked').forEach(e => labels.push(e.value));
+                
+                const params = new URLSearchParams();
+                if(cam !== 'all') params.append('camera', cam);
+                if(start) params.append('start', start);
+                if(end) params.append('end', end);
+                params.append('labels', labels.length > 0 ? labels.join(',') : 'none');
+                params.append('include_empty', empty);
+                params.append('min_conf', minC);
+                params.append('max_conf', maxC);
+                
+                try {
+                    const res = await fetch('/api/export/preview?' + params.toString());
+                    const data = await res.json();
+                    
+                    const msgDiv = document.getElementById('export-preview-msg');
+                    const actionsDiv = document.getElementById('export-actions');
+                    
+                    if(data.status !== 'ok') {
+                        msgDiv.innerText = 'Error: ' + data.message;
+                        msgDiv.style.display = 'block';
+                        actionsDiv.innerHTML = '';
+                    } else {
+                        const total = data.total_images;
+                        msgDiv.innerHTML = `<strong>Found ${total} target events.</strong>`;
+                        msgDiv.style.display = 'block';
+                        
+                        if(total === 0) {
+                            actionsDiv.innerHTML = '';
+                        } else {
+                            let html = '';
+                            const pages = Math.ceil(total / 1000);
+                            for(let i=1; i<=pages; i++) {
+                                const dlParams = new URLSearchParams(params);
+                                dlParams.append('page', i);
+                                html += `<a href="/api/export/download?${dlParams.toString()}" target="_blank" class="btn-dl">Download Part ${i} (up to 1000)</a>`;
+                            }
+                            actionsDiv.innerHTML = html;
+                        }
+                    }
+                } catch(e) {
+                    alert('Error checking size');
+                } finally {
+                    btn.innerText = 'Check Data Size';
+                }
+            }
+
+</script>
+</body>
     </html>
     """
     html_content = html_content.replace("__USERNAME__", principal.get("username", "unknown"))
     html_content = html_content.replace("__ROLE__", principal.get("role", "user"))
     html_content = html_content.replace("__IS_ADMIN__", is_admin_str)
     admin_link = ""
-    stat_link = ""
     if principal.get("role") == "admin":
         admin_link = '<a class="action-link secondary" href="/admin">Admin Settings</a>'
-        stat_link = '<a class="action-link secondary" href="/statistics">📊 Statistics</a>'
     html_content = html_content.replace("__ADMIN_LINK__", admin_link)
-    html_content = html_content.replace("__STATISTICS_LINK__", stat_link)
     return html_content
 
 if __name__ == "__main__":
