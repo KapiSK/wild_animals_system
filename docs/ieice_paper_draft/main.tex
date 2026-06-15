@@ -135,13 +135,15 @@ Fennellら\cite{Fennell2022}は，このMegaDetectorの検証において，動�
 \subsubsection{エッジカメラ}
 エッジカメラは，動物の検知と画像の取得，およびエッジサーバへのローカル通信のみを担当する．
 商用電源の得られない屋外環境での運用を前提とするため，消費電力の低いマイコンを用い，電池のみで長期間稼働できることを要件とする．
+
 本稿の実装においては，デバイスとしてSeeed Studio製のXIAO ESP32S3 Senseを採用している（図\ref{fig:camera}）．
-本デバイスは安価でありながらWi-Fi通信機能とカメラ機能を備えており，さらにDeep Sleep機能により待機時の消費電力を極小化できるため，前述の長期間稼働という要件を実現できる．
+本デバイスは安価でありながらWi-Fi通信機能とカメラ機能を備えており，さらにDeep Sleep機能により待機時の消費電力を極小化できるため，前述の長期間稼働という要件の実現を図っている．
 電源には単3電池8本(6V)を使用し，電源インフラのない場所への設置を容易にしている．
 
 \subsubsection{エッジサーバ}
 エッジサーバは，複数のエッジカメラから送信された画像の集約，軽量AIを用いた画像選別，および選別後の画像のクラウドサーバへの転送を担当する．
 商用電源の得られない屋外環境での運用を前提とするため，エッジ向け小型コンピュータとインターネット接続用の通信モジュールを用い，これらをソーラーパネルとバッテリーによって独立して連続稼働できることを要件とする．
+
 本稿の実装においては，小型コンピュータとしてRaspberry Pi 4Bを，通信モジュールとしてNEC製Aterm HT100LNを使用している．
 Raspberry Pi 4BはLinuxが動作し，後述する軽量AIを用いた推論を実行する十分な処理能力を有しているため，エッジ側での画像選別機能を実現できる．
 なお，これらの構成を商用電源のない環境で常時連続稼働させるためには，試算上，250Wのソーラーパネルと100Ahの大容量バッテリーからなる電源設備が必要となる．
@@ -149,6 +151,7 @@ Raspberry Pi 4BはLinuxが動作し，後述する軽量AIを用いた推論を�
 \subsubsection{クラウドサーバ}
 クラウドサーバは，エッジサーバから転送された画像の高精度モデルによる再判定，および対象動物検出時のユーザへのメール通知を担当する．
 豊富な計算リソースを活用してより正確な最終解析を行い，動物の出現を画像とともに即時通知できることを要件とする．
+
 本稿の実装においては，高精度モデルとしてMegaDetectorを使用している．
 MegaDetectorは世界中の多様な環境で撮影された画像を用いて事前学習された物体検出モデルであり，動物の検知において極めて高い精度を有しているため，クラウドサーバにおける確実な再判定を実現できる．
 
@@ -191,7 +194,7 @@ MegaDetectorは世界中の多様な環境で撮影された画像を用いて�
     \label{fig:camera}
 \end{figure}
 
-\section{実験結果}
+\section{試作実装による実験結果}
 本章では，提案システムの実用性を検証するために行った以下の4つの実験について述べる．
 \begin{enumerate}
     \item 各ノードの稼働時における消費電力の測定
@@ -278,48 +281,29 @@ MegaDetectorは世界中の多様な環境で撮影された画像を用いて�
 
 \subsection{エッジサーバによるフィルタリング効果}
 エッジサーバ上のYOLOv8による物体検出精度と，それによる通信量削減効果を評価する．
-木曽町にて2025年6月から11月に取得された画像について，高精度モデルであるMegaDetectorによる判定を参照ラベルとして用い，エッジサーバ上のYOLOv8nの判定結果を評価した（表\ref{tab:ai_accuracy_night}, \ref{tab:ai_accuracy_day}）．
+木曽町にて2025年6月から11月に取得された画像について，高精度モデルであるMegaDetectorによる判定を参照ラベルとして用い，エッジサーバ上のYOLOv8nの判定結果を評価した（表\ref{tab:ai_accuracy}）．
 なお，本評価では人手アノテーションではなくMegaDetectorの出力を参照ラベルとして用いているため，得られた精度は正解ラベルに対する絶対的な性能ではなく，MegaDetectorとの一致度を示すものである．
 ここで，適合率(Precision)はAIが「動物あり」と判定した画像のうち実際に動物が含まれていた割合を，再現率(Recall)は実際に動物が含まれている画像のうちAIが正しく検出できた割合を表す．また，表中のRef(MD)は，MegaDetectorによる参照ラベルを表す．
 
-\begin{table*}[tb]
+\begin{table}[tb]
+    \caption{AI検出精度 (昼間および夜間, 閾値: 0.05)}
+    \label{tab:ai_accuracy}
     \centering
-    \begin{minipage}[t]{0.48\linewidth}
-        \centering
-        \caption{AI検出精度 (夜間, 閾値: 0.05)}
-        \label{tab:ai_accuracy_night}
-        \begin{tabular}{cl|rr}
-            \hline
-                                                      &                            & \multicolumn{2}{c}{YOLOv8n}                                 \\
-                                                      &                            & \multicolumn{1}{c}{Positive} & \multicolumn{1}{c}{Negative} \\
-            \hline \hline
-            \raisebox{-1.5em}{\rotatebox{90}{Ref(MD)}} & True                       & \textbf{104}                 & 48                           \\
-                                                      & False                      & 28                           & \textbf{88}                  \\
-            \hline
-            \multicolumn{2}{c|}{Precision}            & \multicolumn{2}{c}{78.8\%}                                                               \\
-            \multicolumn{2}{c|}{Recall}               & \multicolumn{2}{c}{68.4\%}                                                               \\
-            \hline
-        \end{tabular}
-    \end{minipage}
-    \hfill
-    \begin{minipage}[t]{0.48\linewidth}
-        \centering
-        \caption{AI検出精度 (昼間, 閾値: 0.05)}
-        \label{tab:ai_accuracy_day}
-        \begin{tabular}{cl|rr}
-            \hline
-                                                      &                            & \multicolumn{2}{c}{YOLOv8n}                                 \\
-                                                      &                            & \multicolumn{1}{c}{Positive} & \multicolumn{1}{c}{Negative} \\
-            \hline \hline
-            \raisebox{-1.5em}{\rotatebox{90}{Ref(MD)}} & True                       & \textbf{195}                 & 13                           \\
-                                                      & False                      & 73                           & \textbf{1,147}               \\
-            \hline
-            \multicolumn{2}{c|}{Precision}            & \multicolumn{2}{c}{72.8\%}                                                               \\
-            \multicolumn{2}{c|}{Recall}               & \multicolumn{2}{c}{93.8\%}                                                               \\
-            \hline
-        \end{tabular}
-    \end{minipage}
-\end{table*}
+    \scalebox{0.85}{
+    \begin{tabular}{cl|rr|rr}
+        \hline
+                                                  &                            & \multicolumn{2}{c|}{昼間(YOLOv8n)} & \multicolumn{2}{c}{夜間(YOLOv8n)} \\
+                                                  &                            & \multicolumn{1}{c}{Pos.} & \multicolumn{1}{c|}{Neg.} & \multicolumn{1}{c}{Pos.} & \multicolumn{1}{c}{Neg.} \\
+        \hline \hline
+        \raisebox{-1.5em}{\rotatebox{90}{Ref(MD)}} & True                       & \textbf{195}                 & 13                           & \textbf{104}                 & 48                           \\
+                                                  & False                      & 73                           & \textbf{1,147}               & 28                           & \textbf{88}                  \\
+        \hline
+        \multicolumn{2}{c|}{Precision}            & \multicolumn{2}{c|}{72.8\%}                               & \multicolumn{2}{c}{78.8\%}                               \\
+        \multicolumn{2}{c|}{Recall}               & \multicolumn{2}{c|}{93.8\%}                               & \multicolumn{2}{c}{68.4\%}                               \\
+        \hline
+    \end{tabular}
+    }
+\end{table}
 
 AIによる物体検出精度の結果として，昼間では再現率93.8\%，適合率72.8\%となった．一方，夜間では再現率68.4\%，適合率78.8\%となり，昼間と比較して再現率が低下する傾向が確認された．
 
