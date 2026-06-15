@@ -40,13 +40,13 @@
 \begin{abstract}
     %和文あらまし 500字以内
     近年，野生鳥獣による農作物被害が深刻化しており，動物の出現を検知し，撮影画像を即時に通知するトレイルカメラシステムの需要が高まっている．
-    しかし，従来の通信型トレイルカメラは初期導入費や通信費が高額であることに加え，風による草木の揺れ等に起因して，動物が写っていない画像が大量に撮影される空撮影が発生する．
+    しかし，従来の通信型トレイルカメラは導入コストや通信費が高額であることに加え，風による草木の揺れ等に起因して，動物が写っていない画像が大量に撮影される空撮影が発生する．
     そのため，撮影画像から対象動物を目視で選別する人的負担が課題となっている．
     本論文では，これらの課題に対し，複数の安価なエッジカメラ，エッジサーバ，クラウドサーバから構成される低コスト通信型警戒システムを提案する．
     提案システムでは，エッジサーバが複数カメラの画像を集約することで必要な回線契約数を削減する．
     さらに，YOLOv8nによる物体検出を用いて動物が写っている可能性の高い画像のみをクラウドへ送信することで，通信量の削減を図る．
     実証実験の結果，昼間では約81.2\%，夜間では約50.7\%の通信削減率を確認した．
-    また，5台構成を想定した試算により，従来のLTEカメラを用いる場合と比較して，初期導入費および通信契約数を削減できる可能性を示した．
+    また，5台構成を想定した試算により，従来のLTEカメラを用いる場合と比較して，導入コストおよび通信契約数を削減できる可能性を示した．
 \end{abstract}
 \begin{keyword}
     鳥獣被害対策, トレイルカメラ, YOLOv8, ESP32, Raspberry Pi
@@ -59,7 +59,7 @@
     The edge server aggregates images from multiple cameras, reducing the number of required cellular contracts.
     Furthermore, it filters images using YOLOv8n-based object detection and transmits only those highly likely to contain animals to the cloud, thereby reducing data traffic.
     Field experiments showed that the proposed system reduced unnecessary image transmission by approximately 81.2\% during the daytime and 50.7\% at night.
-    Additionally, cost estimation based on a five-camera configuration showed that the system can reduce initial costs and cellular contracts compared to conventional LTE cameras.
+    Additionally, cost estimation based on a five-camera configuration showed that the system can reduce initial costs and operational costs compared to conventional LTE cameras.
 \end{eabstract}
 \begin{ekeyword}
     Wildlife Damage Control, Trail Camera, YOLOv8, ESP32, Raspberry Pi
@@ -356,7 +356,7 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 一方，提案システムにおける部材費の内訳は，エッジカメラが1台あたり約8,000円，エッジサーバ本体が約14,000円，サーバ用電源システムが約33,000円，LTEルーターが約13,000円である．
 広範囲を監視するために5地点にカメラを設置する構成を想定した場合，カメラ5台分（40,000円）とエッジサーバ一式（60,000円）を合わせ，部材費の合計は約100,000円となる．
 市販品の販売価格と自作システムの部材費を直接比較することは適切ではないが，提案システムは構成部品を安価な汎用品で構築しているため，部品単価の面では低コスト化が図られている．
-また，従来機では各カメラに回線契約が必要となるのに対し，提案システムでは複数カメラの通信契約を1回線に集約できるため，ランニングコストの削減については明確な効果が期待できる．
+また，従来機では各カメラに回線契約が必要となるのに対し，提案システムでは複数カメラの通信契約を1回線に集約できるため，運用コストの削減については明確な効果が期待できる．
 
 \subsection{エネルギー持続性と運用負荷}
 エッジカメラの待機電力は0.57W（114mA）であり，乾電池8本による数ヶ月の長期間駆動は見込めない．
@@ -370,8 +370,7 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 \section{むすび}
 本論文では，鳥獣害対策における画像確認負荷および導入・運用コストの削減を目的として，エッジカメラ，エッジサーバ，クラウドサーバからなる3層構造の低コスト通信型警戒システムを提案した．
 実験の結果，エッジサーバ上のYOLOv8nによるフィルタリングにより，昼間では約81.2\%，夜間では約50.7\%の通信削減率を確認した．
-また，5台構成を想定したシステムについて部材費を整理し，複数のカメラをエッジサーバに集約することで通信契約数を削減し，ランニングコストの低減が期待できることを示した．
-ｓ
+また，5台構成を想定したシステムについて部材費を整理し，複数のカメラをエッジサーバに集約することで通信契約数を削減し，運用コストの低減が期待できることを示した．
 一方で，夜間画像に対する再現率は68.4\%に留まり，動物の見逃し抑制という観点では改善の余地がある．
 また，エッジカメラおよびエッジサーバの消費電力が大きく，現状の構成では長期無人運用に課題が残ることも明らかとなった．
 今後は，夜間画像に対応した検出モデルの改善，カメラモジュールの給電制御，エッジサーバの間欠動作や電源構成の見直しを進め，実環境での長期運用性を高める予定である．
