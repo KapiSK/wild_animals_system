@@ -1,4 +1,4 @@
-\begin{thebibliography}{1}
+\begin{thebibliography}{10}
 
 \bibitem{maff}
 {農林水産省}，
@@ -51,6 +51,12 @@ M. Rahman, S. Giordano, and M. Pagano,
   local binary similarity matching on edge network,''
 Computers,
 vol.14, p.307, 07 2025.
+
+\bibitem{Sato2022}
+R. Sato, H. Saito, Y. Tomioka, and Y. Kohira,
+``Energy reduction methods for wild animal detection devices,''
+IEEE Access,
+vol.10, pp.24149--24161, 2022.
 
 \bibitem{IEICE2020}
 H. Saito, T. Otake, H. Kato, M. Tokutake, S. Semba, Y. Tomioka, and Y. Kohira,
