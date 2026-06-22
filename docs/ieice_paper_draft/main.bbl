@@ -52,11 +52,43 @@ M. Rahman, S. Giordano, and M. Pagano,
 Computers,
 vol.14, p.307, 07 2025.
 
+\bibitem{10716895}
+K. M, B. V, and A. K,
+``Animal intrusion detection using yolo v8,''
+2024 10th International Conference on Advanced Computing and Communication
+  Systems (ICACCS),
+vol.1,
+pp.206--211, 2024.
+
+\bibitem{11459678}
+K. Selvaraj,  M.Anandaraj, A. J, and  S.Saravanan,
+``An efficient automated framework for wildlife detection and prevention in
+  agricultural zones nearer to forest reserves,''
+2025 6th International Conference on Smart Electronics and Communication
+  (ICOSEC),
+pp.1659--1664, 2025.
+
 \bibitem{Sato2022}
 R. Sato, H. Saito, Y. Tomioka, and Y. Kohira,
 ``Energy reduction methods for wild animal detection devices,''
 IEEE Access,
 vol.10, pp.24149--24161, 2022.
+
+\bibitem{8912138}
+N. Monburinon, S.M.S. Zabir, N. Vechprasit, S. Utsumi, and N. Shiratori,
+``A novel hierarchical edge computing solution based on deep learning for
+  distributed image recognition in iot systems,''
+2019 4th International Conference on Information Technology (InCIT),
+pp.294--299, 2019.
+
+\bibitem{9345858}
+I.A. Zualkernan, S. Dhou, J. Judas, A.R. Sajun, B.R. Gomez, L.A. Hussain, and
+  D. Sakhnini,
+``Towards an iot-based deep learning architecture for camera trap image
+  classification,''
+2020 IEEE Global Conference on Artificial Intelligence and Internet of Things
+  (GCAIoT),
+pp.1--6, 2020.
 
 \bibitem{IEICE2020}
 H. Saito, T. Otake, H. Kato, M. Tokutake, S. Semba, Y. Tomioka, and Y. Kohira,
@@ -71,5 +103,21 @@ S. Semba, H. Saito, Y. Tomioka, and Y. Kohira,
 Proc.\ 2024 IEEE International Conference on Systems, Man, and Cybernetics
   (SMC),
 pp.3181--3186, Oct.\ 2024.
+
+\bibitem{8716170}
+R. Kamesaka and Y. Hoshino,
+``Development of a prevention system for beast damage of agricultural products
+  using deep learning,''
+2018 Joint 10th International Conference on Soft Computing and Intelligent
+  Systems (SCIS) and 19th International Symposium on Advanced Intelligent
+  Systems (ISIS),
+pp.747--752, 2018.
+
+\bibitem{11324419}
+V.K. Manavalasundaram, M. B, Y.K. L, P. T, and V. S,
+``Smart wildlife detection and repulsion system using deep-learning,''
+2025 4th International Conference on Automation, Computing and Renewable
+  Systems (ICACRS),
+pp.1--8, 2025.
 
 \end{thebibliography}

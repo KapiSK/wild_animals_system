@@ -40,26 +40,24 @@
 \begin{abstract}
     %和文あらまし 500字以内
     近年，野生鳥獣による農作物被害が深刻化しており，動物の出現を検知し，撮影画像を即時に通知するトレイルカメラシステムの需要が高まっている．
-    しかし，従来の通信型トレイルカメラは導入コストや通信費が高額であることに加え，風による草木の揺れ等に起因して，動物が写っていない画像が大量に撮影される空撮影が発生する．
-    そのため，撮影画像から対象動物を目視で選別する人的負担が課題となっている．
+    しかし，従来の通信型トレイルカメラを用いて広域監視網を構築する場合，カメラ台数に応じた導入コストや通信回線契約の負担が高額になるという課題がある．
+    さらに，風による草木の揺れ等に起因して動物が写っていない空撮影が大量に発生するため，画像を目視で選別する人的負担も大きい．
     本論文では，これらの課題に対し，複数の安価なエッジカメラ，エッジサーバ，クラウドサーバから構成される低コスト通信型警戒システムを提案する．
-    提案システムでは，エッジサーバが複数カメラの画像を集約することで必要な通信回線契約数を削減する．
-    さらに，YOLOv8nによる物体検出を用いて動物が写っている可能性の高い画像のみをクラウドへ送信することで，通信量の削減を図る．
-    実証実験の結果，昼間では約81.2\%，夜間では約50.7\%の通信削減率を確認した．
-    また，5台構成を想定した試算により，従来のLTEカメラを用いる場合と比較して，導入コストおよび通信契約数を削減できる可能性を示した．
+    提案システムでは，エッジカメラとエッジサーバ間にローカルネットワーク（WLAN）を構築して画像を集約し，カメラ個別の通信回線契約を不要とすることで運用コストを削減する．
+    さらに，エッジ側の軽量AIを用いた一次選別で空撮影画像を破棄して通信量を抑制し，クラウド側の大規模AIによる再判定で高精度な通知を実現する二段階の処理アーキテクチャを採用する．
+    実証実験の結果，一次選別により昼間では約81.2\%，夜間では約50.7\%の高い通信削減率を確認した．
 \end{abstract}
 \begin{keyword}
     鳥獣被害対策, トレイルカメラ, YOLOv8, ESP32, Raspberry Pi
 \end{keyword}
 \begin{eabstract}
     In recent years, agricultural damage caused by wildlife has become a serious issue, leading to an increased demand for trail camera systems that detect animal presence and immediately notify users.
-    However, conventional communication-based trail cameras face challenges such as high initial and running costs, as well as frequent empty shots caused by environmental factors like wind-blown vegetation.
-    These empty shots create a significant barrier due to the manual labor required to sort images visually.
-    To address these issues, this paper proposes a low-cost, communication-based monitoring system consisting of multiple low-cost edge cameras, an edge server, and a cloud server.
-    The edge server aggregates images from multiple cameras, reducing the number of required cellular contracts.
-    Furthermore, it filters images using YOLOv8n-based object detection and transmits only those highly likely to contain animals to the cloud, thereby reducing data traffic.
+    However, constructing a wide-area monitoring network using conventional communication-based trail cameras poses challenges, as the initial costs and cellular contract burdens increase significantly with the number of cameras.
+    Furthermore, frequent empty shots caused by environmental factors like wind-blown vegetation create a significant burden due to the manual labor required to visually sort the images.
+    To address these issues, this paper proposes a low-cost, communication-based monitoring system with a three-tier architecture comprising edge cameras, an edge server, and a cloud server.
+    The system constructs a local area network (WLAN) between the edge cameras and the edge server to aggregate images, thereby eliminating the need for individual cellular contracts for each camera and significantly reducing operational costs.
+    Furthermore, it employs a two-stage processing architecture: a lightweight AI at the edge filters out empty shots to reduce data transmission, while a large-scale AI in the cloud performs high-precision re-evaluation to ensure accurate notifications.
     Field experiments showed that the proposed system reduced unnecessary image transmission by approximately 81.2\% during the daytime and 50.7\% at night.
-    Additionally, cost estimation based on a five-camera configuration showed that the system can reduce initial costs and operational costs compared to conventional LTE cameras.
 \end{eabstract}
 \begin{ekeyword}
     Wildlife Damage Control, Trail Camera, YOLOv8, ESP32, Raspberry Pi
@@ -103,15 +101,20 @@ Fennellら\cite{Fennell2022}は，このMegaDetectorの検証において，動�
 
 リアルタイム性を重視した研究として，Whytockら\cite{Whytock2023}は衛星通信を利用した即時アラートシステムを開発したが，通信コストが極めて高く，一般の農家や自治体が広範囲に導入するには障壁が高い．
 エッジデバイス上で推論を行う試みとして，Patkarら\cite{Patkar2025}やRahmanら\cite{Computers2025}はRaspberry Piなどのシングルボードコンピュータを用いた高性能な監視システムを提案している．
-特にPatkarらの研究では，エッジ側でYOLOv8nを用いた空撮影画像の除去が行われており，Raspberry Piのような安価なシングルボードコンピュータ上でも高速な推論が可能であることが示されている．
+特にPatkarらの研究では，エッジ側でYOLOv8nを用いた空撮影画像の除去が行われており，安価なデバイス上でも高速な推論が可能であることが示されている．
+近年では，Kathirら\cite{10716895}やSelvarajら\cite{11459678}も同様にYOLOベースの動物侵入検知およびアラートシステムを提案しており，農地周辺での鳥獣害対策におけるエッジAIの有効性が広く確認されている．
 しかし，これらのデバイスは消費電力が比較的大きく，商用電源が得られない山間部等での長期運用には，大型のバッテリーやソーラーパネルが必要となり，機材コストと設置の難易度を増大させる．
 
-省電力化のアプローチとして，Satoら\cite{Sato2022}は，複数の子機と1台の親機からなるネットワークアーキテクチャを提案している．
+省電力化や通信コスト削減のアプローチとして，Satoら\cite{Sato2022}は，複数の子機と1台の親機からなるネットワークアーキテクチャを提案している．
 この手法では，通信回線を親機に集約することで，システム全体の運用コストや消費電力を削減する効果が示されている．
-しかし，彼らの手法では子機側で深層学習による動物検知を行っているため，多数配置される子機それぞれに依然として一定の計算リソースと電力が要求されるという課題が残る．
-また，Saitoら\cite{IEICE2020}は省電力マイコンと高性能なシングルボードコンピュータ（Raspberry Pi）を組み合わせた階層的な制御手法を提案し，待機電力を削減するノード構築の可能性を示した．
-さらに，Sembaら\cite{SMC2024}はPTZカメラと深層学習を用いた自動追跡デバイスを開発している．
-しかし，これらの研究は小規模な構成での検証に留まっており，実際のフィールド環境における広域な通信網の構築や，環境ノイズによる空撮影画像の実践的なフィルタリング効果については十分に検証されていない．
+また，システムの低コスト化や通信遅延の解消を目的として，Monburinonら\cite{8912138}はRaspberry Pi等のゲートウェイデバイスに主要な処理を委譲する階層型エッジコンピューティングを提案し，Zualkernanら\cite{9345858}はエッジ推論とクラウドDBを連携させたIoTアーキテクチャを構築している．
+しかし，これらの手法においてもカメラ機能を持つエッジデバイス（子機）側で深層学習による検知等を行っている場合が多く，多数配置されるカメラノードそれぞれに依然として一定の計算リソースと電力が要求されるという課題が残る．
+また，Saitoら\cite{IEICE2020}は省電力マイコンとRaspberry Piを組み合わせたノード制御手法を提案し，Sembaら\cite{SMC2024}は深層学習を用いた自動追跡デバイスを開発しているが，これらは小規模な構成での検証に留まっており，実際のフィールド環境における広域な通信網の構築や空撮影画像の実践的なフィルタリング効果については十分に検証されていない．
+
+さらに近年では，画像による検知にとどまらず，より能動的な鳥獣害対策の研究も進んでいる．
+例えば，Kamesakaら\cite{8716170}は深層学習を用いて猿の群れを認識し，自動で罠を作動させる捕獲システムを開発している．
+また，Manavalasundaramら\cite{11324419}は検知した動物の種別に応じて特有の超音波を発し，撃退するシステムを提案している．
+本研究で提案する低コスト通信型警戒システムは，将来的にこれらの高度な被害抑止・捕獲システムと連携し，広範な農地での運用を支えるセンサネットワークとしても応用可能であると考えられる．
 
 \section{提案システム}
 第2章で述べたように，従来の監視システムをフィールド環境で広域展開するには，エッジデバイスの消費電力や計算リソースの制約，および空撮影画像の実践的なフィルタリングが課題となる．
@@ -397,10 +400,8 @@ RSSI -35dBm程度の良好な通信環境において，システム全体の処
 
 \section{むすび}
 本論文では，鳥獣害対策における画像確認負荷および導入・運用コストの削減を目的として，エッジカメラ，エッジサーバ，クラウドサーバからなる3層構造の低コスト通信型警戒システムを提案した．
-実験の結果，エッジサーバ上のYOLOv8nによる一次選別により，昼間では約81.2\%，夜間では約50.7\%の通信削減率を確認した．
-また，5台構成を想定したシステムについて部材費を整理し，安価な汎用品による導入コストの抑制に加え，複数のカメラをエッジサーバに集約することで通信契約数を削減し，運用コストの低減が期待できることを示した．
-一方で，夜間画像に対する再現率は68.4\%に留まり，動物の見逃し抑制という観点では改善の余地がある．
-また，エッジカメラおよびエッジサーバの消費電力が大きく，現状の構成では長期無人運用に課題が残ることも明らかとなった．
+エッジカメラとエッジサーバ間にローカルネットワークを構築することで，カメラ個別の通信回線契約を不要とし，複数カメラの通信を1回線に集約して運用コストを大幅に抑制するアーキテクチャを示した．
+さらに，エッジサーバ上のYOLOv8nによる一次選別とクラウドでの再判定を組み合わせた検証実験により，昼間では約81.2\%，夜間では約50.7\%の高い通信削減率を確認した．
 今後は，夜間画像に対応した検出モデルの改善，カメラモジュールの給電制御，エッジサーバの間欠動作や電源構成の見直しを進め，実環境での長期運用性を高める予定である．
 さらに，監視エリアの拡大と障害物が多い環境での通信安定性確保に向け，LPWA（Low Power Wide Area）通信の導入を検討する．加えて，エッジ側のAIモデルの転移学習による削減率と再現率の向上，クラウド側での動物種判別機能の実装，およびユーザ向けのWebインターフェースの構築など，システムの実用性と利便性を高める機能拡充も進めていく．
 
