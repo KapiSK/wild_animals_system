@@ -1110,12 +1110,18 @@ static void configureWakeAndMaybeSleepEarly() {
     }
 
     // If it was a cold boot (not PIR or Timer), go back to sleep immediately to save power
+    /* 
+     * コールドブート（電源投入時）の即座スリープを無効化（テスト用）
+     * 運用時に戻す場合はこのコメントアウトを外してください。
+     */
+    /*
     if (wakeup_reason != ESP_SLEEP_WAKEUP_EXT1 && wakeup_reason != ESP_SLEEP_WAKEUP_TIMER) {
         LOG_PRINTLN("[SLEEP] Cold boot detected, entering sleep immediately.");
         status::setLed(status::LedState::OFF); // Turn off LED
         delay(sleepcfg::PREP_MS);              // Short delay
         esp_deep_sleep_start();                // Enter deep sleep
     }
+    */
     // Otherwise, continue with normal operation
 }
 

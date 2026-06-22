@@ -840,6 +840,8 @@ def get_recipients_for_camera(cam_id: str) -> list:
     """Return the recipient list for a given camera ID. Falls back to RECIPIENT_EMAIL."""
     alert_cfg = load_camera_alert_config()
     list_name = alert_cfg.get(cam_id)
+    if list_name == "__NONE__":
+        return ["__NONE__"]
     if list_name:
         ml = load_mailing_lists()
         recipients = ml.get(list_name, [])
@@ -948,6 +950,10 @@ def send_email(subject: str, body: str, attachment_path: str = None, recipients:
     Send an email notification with an optional image attachment.
     If recipients is None, falls back to RECIPIENT_EMAIL env var.
     """
+    if recipients == ["__NONE__"]:
+        logger.info("Email sending is disabled for this camera.")
+        return
+
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = SENDER_EMAIL
@@ -2783,6 +2789,7 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                 for (const [mac, id] of Object.entries(currentMapping)) {
                     const selectedList = currentCameraAlert[id] || '';
                     const optionsHtml = `<option value="">デフォルト (Default)</option>` +
+                        `<option value="__NONE__" ${selectedList === '__NONE__' ? 'selected' : ''}>送信しない (Do Not Send)</option>` +
                         listNames.map(n => `<option value="${n}" ${n === selectedList ? 'selected' : ''}>${n}</option>`).join('');
                     const tr = document.createElement('tr');
                     tr.className = 'row-item';
