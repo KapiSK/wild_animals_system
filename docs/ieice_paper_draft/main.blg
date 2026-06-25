@@ -11,14 +11,14 @@ Repeated entry---line 421 of file refs.bib
 I'm skipping whatever remains of this entry
 You've used 22 entries,
             4010 wiz_defined-function locations,
-            966 strings with 11769 characters,
-and the built_in function-call counts, 86727 in all, are:
-= -- 11843
+            965 strings with 11701 characters,
+and the built_in function-call counts, 86824 in all, are:
+= -- 11879
 > -- 400
 < -- 0
 + -- 148
 - -- 126
-* -- 3971
+* -- 3972
 := -- 9226
 add.period$ -- 23
 call.type$ -- 22
@@ -28,17 +28,17 @@ cite$ -- 22
 duplicate$ -- 556
 empty$ -- 6442
 format.name$ -- 503
-if$ -- 22239
+if$ -- 22275
 int.to.chr$ -- 0
 int.to.str$ -- 22
 missing$ -- 20
 newline$ -- 134
 num.names$ -- 22
-pop$ -- 324
+pop$ -- 325
 preamble$ -- 1
 purify$ -- 0
 quote$ -- 0
-skip$ -- 4590
+skip$ -- 4613
 stack$ -- 0
 substring$ -- 21852
 swap$ -- 178
