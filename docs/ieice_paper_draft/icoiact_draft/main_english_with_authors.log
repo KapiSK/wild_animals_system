@@ -1,9 +1,9 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  26 JUN 2026 16:35
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  26 JUN 2026 16:36
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
-**main_english.tex
-(./main_english.tex
+**main_english_with_authors.tex
+(./main_english_with_authors.tex
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
 (./IEEEtran.cls
@@ -250,8 +250,8 @@ Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
 File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count302
 )
-(./main_english.aux)
-\openout1 = `main_english.aux'.
+(./main_english_with_authors.aux)
+\openout1 = `main_english_with_authors.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 14.
 LaTeX Font Info:    ... okay on input line 14.
@@ -291,7 +291,7 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
 File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
 e
 ))
-Underfull \hbox (badness 3375) in paragraph at lines 29--31
+Underfull \hbox (badness 3375) in paragraph at lines 58--60
 []\OT1/ptm/b/it/9 Index Terms\OT1/ptm/b/n/9 ---Wildlife Dam-age Con-trol, Trail
  Cam-era,
  []
@@ -300,45 +300,41 @@ Underfull \hbox (badness 3375) in paragraph at lines 29--31
 5/texmf-dist/fonts/enc/dvips/base/8r.enc}
 
 
-]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-<../img/system_structure_eng.png, id=9, 500.62032pt x 340.27126pt>
+] [2]
+<../img/system_structure_eng.png, id=13, 500.62032pt x 340.27126pt>
 File: ../img/system_structure_eng.png Graphic file (type png)
 <use ../img/system_structure_eng.png>
-Package pdftex.def Info: ../img/system_structure_eng.png  used on input line 74
-.
+Package pdftex.def Info: ../img/system_structure_eng.png  used on input line 10
+3.
 (pdftex.def)             Requested size: 201.60077pt x 137.03027pt.
- [2]
 <../img/prototype_camera.jpeg, id=15, 3035.34pt x 2867.71375pt>
 File: ../img/prototype_camera.jpeg Graphic file (type jpg)
 <use ../img/prototype_camera.jpeg>
-Package pdftex.def Info: ../img/prototype_camera.jpeg  used on input line 85.
+Package pdftex.def Info: ../img/prototype_camera.jpeg  used on input line 114.
 (pdftex.def)             Requested size: 113.39923pt x 107.11893pt.
-<../img/system_flow_eng.png, id=16, 1376.14125pt x 1114.1625pt>
+ [3 <../img/system_structure_eng.png> <../img/prototype_camera.jpeg>]
+<../img/system_flow_eng.png, id=20, 1376.14125pt x 1114.1625pt>
 File: ../img/system_flow_eng.png Graphic file (type png)
 <use ../img/system_flow_eng.png>
-Package pdftex.def Info: ../img/system_flow_eng.png  used on input line 109.
+Package pdftex.def Info: ../img/system_flow_eng.png  used on input line 138.
 (pdftex.def)             Requested size: 252.0pt x 204.02574pt.
-
-[3 <../img/system_structure_eng.png> <../img/prototype_camera.jpeg>]
-LaTeX Font Info:    Trying to load font information for U+msa on input line 162
+LaTeX Font Info:    Trying to load font information for U+msa on input line 191
 .
 
 (c:/texlive/2025/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 162
+LaTeX Font Info:    Trying to load font information for U+msb on input line 191
 .
 
 (c:/texlive/2025/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
-Overfull \hbox (28.67694pt too wide) in paragraph at lines 162--163
+Overfull \hbox (28.67694pt too wide) in paragraph at lines 191--192
  [] 
  []
 
-[4 <../img/system_flow_eng.png>] [5] (./main_english.bbl)
+[4 <../img/system_flow_eng.png>] [5] (./main_english_with_authors.bbl [6])
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -350,20 +346,22 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[6] (./main_english.aux)
+[7
+
+] (./main_english_with_authors.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 4055 strings out of 469471
- 63180 string characters out of 5469204
- 488523 words of memory out of 5000000
- 32684 multiletter control sequences out of 15000+600000
- 666390 words of font info for 113 fonts, out of 8000000 for 9000
+ 4057 strings out of 469471
+ 63416 string characters out of 5469204
+ 492885 words of memory out of 5000000
+ 32685 multiletter control sequences out of 15000+600000
+ 667468 words of font info for 114 fonts, out of 8000000 for 9000
  36 hyphenation exceptions out of 8191
- 57i,10n,65p,1514b,351s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 57i,10n,65p,1527b,351s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb><c:/tex
 live/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb><c:/texlive/2025/
 texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb><c:/texlive/2025/texmf-dis
@@ -371,10 +369,10 @@ t/fonts/type1/public/amsfonts/cm/cmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/ty
 pe1/urw/times/utmb8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmb
 i8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmr8a.pfb><c:/texliv
 e/2025/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on main_english.pdf (6 pages, 1743359 bytes).
+Output written on main_english_with_authors.pdf (7 pages, 1745252 bytes).
 PDF statistics:
- 70 PDF objects out of 1000 (max. 8388607)
- 40 compressed objects within 1 object stream
+ 75 PDF objects out of 1000 (max. 8388607)
+ 44 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
  16 words of extra memory for PDF output out of 10000 (max. 10000000)
 
