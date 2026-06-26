@@ -36,6 +36,19 @@ M.~A. Tabak, M.~S. Norouzzadeh, D.~W. Wolfson, S.~J. Sweeney, K.~C.
   Applications in ecology,'' \emph{Methods in Ecology and Evolution}, vol.~10,
   no.~4, pp. 585--590, April 2019.
 
+\bibitem{Beery2019}
+S.~Beery, D.~Morris, and S.~Yang, ``Efficient pipeline for camera trap image
+  review,'' 07 2019.
+
+\bibitem{rs18030502}
+\BIBentryALTinterwordspacing
+K.~Hitchcock, S.~Tollington, R.~W. Yarnell, L.~J. Williams, K.~Hamill, and
+  P.~Fergus, ``Optimizing the accuracy and efficiency of camera trap image
+  analysis: Evaluating ai model performance and a semi-automated workflow,''
+  \emph{Remote Sensing}, vol.~18, no.~3, p. 502, 2026. [Online]. Available:
+  \url{https://www.mdpi.com/2072-4292/18/3/502}
+\BIBentrySTDinterwordspacing
+
 \bibitem{Whytock2023}
 R.~Whytock, T.~Suijten, T.~Deursen, J.~Świeżewski, H.~Mermiaghe, N.~Madamba,
   N.~Mouckoumou, J.~Zwerts, A.~Pambo, L.~Bahaa-El-Din, S.~Brittain, A.~Cardoso,
@@ -49,9 +62,40 @@ A.~Patkar, P.~Hole, and L.~Salvi, ``Real-time wildlife intrusion detection
   system using iot and yolov8,'' \emph{Journal of Smart Sensors and Computing},
   vol.~1, p. 25209, 09 2025.
 
-\bibitem{Beery2019}
-S.~Beery, D.~Morris, and S.~Yang, ``Efficient pipeline for camera trap image
-  review,'' 07 2019.
+\bibitem{9345858}
+I.~A. Zualkernan, S.~Dhou, J.~Judas, A.~R. Sajun, B.~R. Gomez, L.~A. Hussain,
+  and D.~Sakhnini, ``Towards an iot-based deep learning architecture for camera
+  trap image classification,'' in \emph{2020 IEEE Global Conference on
+  Artificial Intelligence and Internet of Things (GCAIoT)}, 2020, pp. 1--6.
+
+\bibitem{Sato2022}
+R.~Sato, H.~Saito, Y.~Tomioka, and Y.~Kohira, ``Energy reduction methods for
+  wild animal detection devices,'' \emph{IEEE Access}, vol.~10, pp.
+  24\,149--24\,161, 2022.
+
+\bibitem{10394750}
+A.~D. Shetty and S.~Ashwath, ``Animal detection and classification in image \&
+  video frames using yolov5 and yolov8,'' in \emph{2023 7th International
+  Conference on Electronics, Communication and Aerospace Technology (ICECA)},
+  2023, pp. 677--683.
+
+\bibitem{10126065}
+C.~Madhumathi, V.~Naveen, N.~Akshay, M.~Kumar, and M.~Aslam, ``Advanced wild
+  animal detection and alert system using yolo v5 model,'' in \emph{2023 7th
+  International Conference on Trends in Electronics and Informatics (ICOEI)},
+  2023, pp. 365--371.
+
+\bibitem{VELASCOMONTERO2024102815}
+D.~Velasco-Montero, J.~Fernández-Berni, R.~Carmona-Galan, A.~Sanglas, and
+  F.~Palomares, ``Reliable and efficient integration of ai into camera traps
+  for smart wildlife monitoring based on continual learning,'' \emph{Ecological
+  Informatics}, vol.~83, p. 102815, 09 2024.
+
+\bibitem{IEICE2020}
+H.~Saito, T.~Otake, H.~Kato, M.~Tokutake, S.~Semba, Y.~Tomioka, and Y.~Kohira,
+  ``Battery-powered wild animal detection nodes with deep learning,''
+  \emph{IEICE Transactions on Communications}, vol. E103.B, pp. 1394--1402, 07
+  2020.
 
 \bibitem{Fennell2022}
 M.~Fennell, C.~Beirne, and C.~Burton, ``Use of object detection in camera trap
@@ -59,6 +103,13 @@ M.~Fennell, C.~Beirne, and C.~Burton, ``Use of object detection in camera trap
   human and animal detections for research and application in recreation
   ecology,'' \emph{Global Ecology and Conservation}, vol.~35, p. e02104, 03
   2022.
+
+\bibitem{Mulero2025}
+M.~Mulero-Pázmány, S.~Hurtado, C.~Barba-González, M.~L. Antequera-Gómez,
+  F.~Díaz-Ruiz, R.~Real, I.~Navas-Delgado, and J.~F. Aldana-Montes,
+  ``Addressing significant challenges for animal detection in camera trap
+  images: a novel deep learning-based approach,'' \emph{Scientific Reports},
+  vol.~15, no.~1, p. 16191, 2025.
 
 \bibitem{Computers2025}
 M.~Rahman, S.~Giordano, and M.~Pagano, ``Smart wildlife monitoring: Real-time
@@ -76,10 +127,16 @@ K.~Selvaraj, M.Anandaraj, A.~J, and S.Saravanan, ``An efficient automated
   to forest reserves,'' in \emph{2025 6th International Conference on Smart
   Electronics and Communication (ICOSEC)}, 2025, pp. 1659--1664.
 
-\bibitem{Sato2022}
-R.~Sato, H.~Saito, Y.~Tomioka, and Y.~Kohira, ``Energy reduction methods for
-  wild animal detection devices,'' \emph{IEEE Access}, vol.~10, pp.
-  24\,149--24\,161, 2022.
+\bibitem{SMC2024}
+S.~Semba, H.~Saito, Y.~Tomioka, and Y.~Kohira, ``A battery-powered wild animal
+  tracking device using a ptz camera and deep learning,'' in \emph{Proc. 2024
+  IEEE International Conference on Systems, Man, and Cybernetics (SMC)}, 10
+  2024, pp. 3181--3186.
+
+\bibitem{11337723}
+S.~K~S, S.~S, S.~B. K, S.~Doss, J.~L, and S.~K. G, ``Eyes in the thicket: A
+  neural gaze for invisible wildlife encounters,'' in \emph{2025 Control
+  Instrumentation System Conference (CISCON)}, 2025, pp. 1--6.
 
 \bibitem{8912138}
 N.~Monburinon, S.~M.~S. Zabir, N.~Vechprasit, S.~Utsumi, and N.~Shiratori, ``A
@@ -87,24 +144,6 @@ N.~Monburinon, S.~M.~S. Zabir, N.~Vechprasit, S.~Utsumi, and N.~Shiratori, ``A
   distributed image recognition in iot systems,'' in \emph{2019 4th
   International Conference on Information Technology (InCIT)}, 2019, pp.
   294--299.
-
-\bibitem{9345858}
-I.~A. Zualkernan, S.~Dhou, J.~Judas, A.~R. Sajun, B.~R. Gomez, L.~A. Hussain,
-  and D.~Sakhnini, ``Towards an iot-based deep learning architecture for camera
-  trap image classification,'' in \emph{2020 IEEE Global Conference on
-  Artificial Intelligence and Internet of Things (GCAIoT)}, 2020, pp. 1--6.
-
-\bibitem{IEICE2020}
-H.~Saito, T.~Otake, H.~Kato, M.~Tokutake, S.~Semba, Y.~Tomioka, and Y.~Kohira,
-  ``Battery-powered wild animal detection nodes with deep learning,''
-  \emph{IEICE Transactions on Communications}, vol. E103.B, pp. 1394--1402, 07
-  2020.
-
-\bibitem{SMC2024}
-S.~Semba, H.~Saito, Y.~Tomioka, and Y.~Kohira, ``A battery-powered wild animal
-  tracking device using a ptz camera and deep learning,'' in \emph{Proc. 2024
-  IEEE International Conference on Systems, Man, and Cybernetics (SMC)}, 10
-  2024, pp. 3181--3186.
 
 \bibitem{8716170}
 R.~Kamesaka and Y.~Hoshino, ``Development of a prevention system for beast
