@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  26 JUN 2026 16:36
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  29 JUN 2026 11:53
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -117,6 +117,11 @@ LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <24> not available
 \@IEEEtranrubishbin=\box54
 )
 ** ATTENTION: Overriding command lockouts (line 2).
+(c:/texlive/2025/texmf-dist/tex/latex/cite/cite.sty
+LaTeX Info: Redefining \cite on input line 302.
+LaTeX Info: Redefining \nocite on input line 332.
+Package: cite 2015/02/27  v 5.5
+)
 (c:/texlive/2025/texmf-dist/tex/latex/amsmath/amsmath.sty
 Package: amsmath 2025/07/09 v2.17z AMS math features
 \@mathmargin=\skip52
@@ -334,7 +339,7 @@ Overfull \hbox (28.67694pt too wide) in paragraph at lines 191--192
  [] 
  []
 
-[4 <../img/system_flow_eng.png>] [5] (./main_english_with_authors.bbl [6])
+[4 <../img/system_flow_eng.png>] [5] (./main_english_with_authors.bbl)
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -346,19 +351,17 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[7
-
-] (./main_english_with_authors.aux)
+[6] (./main_english_with_authors.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 4057 strings out of 469471
- 63416 string characters out of 5469204
- 492885 words of memory out of 5000000
- 32685 multiletter control sequences out of 15000+600000
+ 4156 strings out of 469471
+ 64853 string characters out of 5469204
+ 492480 words of memory out of 5000000
+ 32781 multiletter control sequences out of 15000+600000
  667468 words of font info for 114 fonts, out of 8000000 for 9000
  36 hyphenation exceptions out of 8191
  57i,10n,65p,1527b,351s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -369,10 +372,10 @@ t/fonts/type1/public/amsfonts/cm/cmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/ty
 pe1/urw/times/utmb8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmb
 i8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmr8a.pfb><c:/texliv
 e/2025/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on main_english_with_authors.pdf (7 pages, 1745252 bytes).
+Output written on main_english_with_authors.pdf (6 pages, 1744679 bytes).
 PDF statistics:
- 75 PDF objects out of 1000 (max. 8388607)
- 44 compressed objects within 1 object stream
+ 70 PDF objects out of 1000 (max. 8388607)
+ 40 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
  16 words of extra memory for PDF output out of 10000 (max. 10000000)
 
