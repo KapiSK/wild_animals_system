@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  29 JUN 2026 11:53
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  29 JUN 2026 12:05
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -295,14 +295,8 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
 (c:/texlive/2025/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
 File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
 e
-))
-Underfull \hbox (badness 3375) in paragraph at lines 58--60
-[]\OT1/ptm/b/it/9 Index Terms\OT1/ptm/b/n/9 ---Wildlife Dam-age Con-trol, Trail
- Cam-era,
- []
-
-[1{c:/texlive/2025/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{c:/texlive/202
-5/texmf-dist/fonts/enc/dvips/base/8r.enc}
+)) [1{c:/texlive/2025/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{c:/texlive/
+2025/texmf-dist/fonts/enc/dvips/base/8r.enc}
 
 
 ] [2]
@@ -372,7 +366,7 @@ t/fonts/type1/public/amsfonts/cm/cmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/ty
 pe1/urw/times/utmb8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmb
 i8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmr8a.pfb><c:/texliv
 e/2025/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on main_english_with_authors.pdf (6 pages, 1744679 bytes).
+Output written on main_english_with_authors.pdf (6 pages, 1744520 bytes).
 PDF statistics:
  70 PDF objects out of 1000 (max. 8388607)
  40 compressed objects within 1 object stream
