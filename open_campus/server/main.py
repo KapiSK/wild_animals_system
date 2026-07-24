@@ -365,6 +365,8 @@ async def get_images():
         files = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
         # Sort by modification time descending (newest first)
         files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
+        # Limit to 10 most recent images
+        files = files[:10]
         return {"status": "ok", "images": files}
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")
