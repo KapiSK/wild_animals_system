@@ -268,9 +268,14 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks, api_
     
     try:
         # Save file asynchronously by streaming the request body
-        async with aiofiles.open(file_path, "wb") as buffer:
+        # Use .tmp extension while writing to avoid race conditions with GET /images
+        tmp_file_path = file_path + ".tmp"
+        async with aiofiles.open(tmp_file_path, "wb") as buffer:
             async for chunk in request.stream():
                 await buffer.write(chunk)
+        
+        # Rename to final filename (which makes it visible to /api/images)
+        os.rename(tmp_file_path, file_path)
         
         save_end = time.perf_counter()
         save_duration = save_end - receive_start
@@ -284,6 +289,9 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks, api_
         
     except Exception as e:
         logger.error(f"Failed to save upload {filename}: {e}")
+        # Clean up tmp file if exists
+        if os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)
         return {"status": "error", "message": str(e)}
 
 @app.get("/healthz")
