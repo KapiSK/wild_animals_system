@@ -211,10 +211,20 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
         try:
             # Measure Inference Time
             inference_start = time.perf_counter()
-            # Run detection (save_path=None to skip BB drawing)
-            is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=None)
+            # Determine save path for bounding box image
+            file_root, file_ext = os.path.splitext(file_path)
+            save_path = f"{file_root}_det{file_ext}"
+            
+            # Run detection (save_path draws bounding boxes)
+            is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=save_path)
             inference_duration = time.perf_counter() - inference_start
             
+            if os.path.exists(save_path):
+                os.remove(file_path) # Delete original to avoid duplicates in gallery
+                file_path = save_path
+                file_name_root, _ = os.path.splitext(filename)
+                filename = f"{file_name_root}_det{file_ext}"
+
             if is_animal:
                 logger.info(f"Target detected in {filename}: {label}")
             else:

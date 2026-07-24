@@ -133,6 +133,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial load
     fetchImages();
 
-    // Poll every 5 seconds
-    setInterval(fetchImages, 5000);
+    // Poll every 1 second for faster UI updates
+    setInterval(fetchImages, 1000);
 });
