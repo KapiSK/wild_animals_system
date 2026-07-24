@@ -19,6 +19,7 @@ load_dotenv()
 # Configuration
 # Images are saved here
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+PROCESSING_DIR = os.getenv("PROCESSING_DIR", "processing")
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 
 async def verify_api_token(x_api_key: str = Header(None)):
@@ -41,8 +42,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Ensure upload directory exists
+# Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROCESSING_DIR, exist_ok=True)
 
 detector = None
 
@@ -102,7 +104,7 @@ class CycleManager:
         })
         self.lock = asyncio.Lock()
 
-    async def add_result(self, cycle_id, file_path, filename, is_animal, timing_info):
+    async def add_result(self, cycle_id, file_path, filename, is_person, confidence, timing_info):
         async with self.lock:
             cycle = self.cycles[cycle_id]
             
@@ -116,7 +118,8 @@ class CycleManager:
             cycle['files'].append({
                 'path': file_path,
                 'filename': filename,
-                'is_animal': is_animal
+                'is_person': is_person,
+                'confidence': confidence
             })
             cycle['timings'].append(timing_info)
             cycle['last_update'] = datetime.datetime.now()
@@ -129,8 +132,27 @@ class CycleManager:
                 cycle_end_time = time.perf_counter()
                 total_cycle_time = (cycle_end_time - cycle['start_time']) * 1000 # ms
                 
-                animal_count = sum(1 for f in files if f['is_animal'])
-                logger.info(f"Cycle {cycle_id} complete. Detected targets: {animal_count}/{count}")
+                person_count = sum(1 for f in files if f['is_person'])
+                logger.info(f"Cycle {cycle_id} complete. Detected persons: {person_count}/{count}")
+
+                if person_count > 0:
+                    best_file = max(files, key=lambda x: x['confidence'])
+                    final_path = os.path.join(UPLOAD_DIR, best_file['filename'])
+                    try:
+                        os.rename(best_file['path'], final_path)
+                        logger.info(f"Published best image to gallery: {best_file['filename']} (Conf: {best_file['confidence']:.2f})")
+                    except Exception as e:
+                        logger.error(f"Failed to publish {best_file['filename']}: {e}")
+                else:
+                    logger.info(f"No person detected in cycle {cycle_id}. Discarding cycle (no web update).")
+
+                # Cleanup all remaining files in processing dir for this cycle
+                for f in files:
+                    if os.path.exists(f['path']):
+                        try:
+                            os.remove(f['path'])
+                        except Exception as e:
+                            pass
                 
                 # Calculate total specific times
                 total_receive_save = sum(t['save_duration'] for t in cycle['timings']) * 1000 # ms
@@ -216,7 +238,7 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
             save_path = f"{file_root}_det{file_ext}"
             
             # Run detection (save_path draws bounding boxes)
-            is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=save_path)
+            is_person, confidence = await asyncio.to_thread(detector.detect, file_path, save_path=save_path)
             inference_duration = time.perf_counter() - inference_start
             
             if os.path.exists(save_path):
@@ -225,10 +247,10 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
                 file_name_root, _ = os.path.splitext(filename)
                 filename = f"{file_name_root}_det{file_ext}"
 
-            if is_animal:
-                logger.info(f"Target detected in {filename}: {label}")
+            if is_person:
+                logger.info(f"Person detected in {filename} with confidence {confidence:.2f}")
             else:
-                logger.info(f"No target detected in {filename}")
+                logger.info(f"No person detected in {filename}")
 
             # Extract Cycle ID
             cycle_id = extract_cycle_id(original_filename)
@@ -241,7 +263,7 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
             }
 
             if cycle_id != "unknown":
-                await cycle_manager.add_result(cycle_id, file_path, filename, is_animal, timing_info)
+                await cycle_manager.add_result(cycle_id, file_path, filename, is_person, confidence, timing_info)
             else:
                 logger.warning(f"Could not extract Cycle ID from {filename}, skipping buffering.")
 
@@ -272,7 +294,7 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks, api_
     # Generate timestamp for storage
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"{timestamp}_{original_filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
+    file_path = os.path.join(PROCESSING_DIR, filename)
     
     logger.info(f"Receiving upload: {filename}")
     
