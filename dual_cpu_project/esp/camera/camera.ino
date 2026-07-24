@@ -41,10 +41,8 @@
 // Includes
 // =======================================================
 #include "driver/gpio.h"   // For gpio_hold_en/dis
-#include "driver/rtc_io.h" // For deep sleep pin configuration
 #include "esp_bt.h"        // For disabling Bluetooth
 #include "esp_camera.h"
-#include "esp_sleep.h"
 #include "freertos/FreeRTOS.h" // For tasks
 #include "freertos/task.h"     // For Task Handles
 #include "mbedtls/sha256.h"    // For SHA256 hashing
@@ -70,20 +68,21 @@
 #define CAMERA_MODEL_XIAO_ESP32S3
 #include "camera_pins.h" // Include the board-specific camera pin definitions
 
+// Forward declarations
+static String deviceIdHex();
+
 namespace hw {
-constexpr uint8_t SD_CS = 21;        // SD Card Chip Select
+constexpr uint8_t SD_CS = 3;         // SD Card Chip Select
 constexpr uint8_t SD_MOSI = 9;       // SD Card MOSI
 constexpr uint8_t SD_MISO = 8;       // SD Card MISO
 constexpr uint8_t SD_SCK = 7;        // SD Card Clock
-constexpr uint8_t PIN_MOTION = 1;    // PIR Sensor Input
-constexpr uint8_t PIN_MOTOR_IN1 = 2; // Motor Driver Input 1
-constexpr uint8_t PIN_MOTOR_IN2 = 3; // Motor Driver Input 2 (GPIO 3)
-constexpr uint8_t PIN_CDS = 5;       // CDS Light Sensor Input (Analog)
-constexpr uint8_t PIN_FLASH = 6;     // Flash/IR LED Control Output
-constexpr uint8_t PIN_STATUS = 4;    // Status LED Output (GPIO 4)
-constexpr uint8_t PIN_FLAG =
-    PIN_MOTION; // Alias for wake pin used in sleep setup
-constexpr uint8_t PIN_MOTOR = PIN_MOTOR_IN1; // Alias for Motor IN1
+constexpr uint8_t PIN_SD_PWR = 44;   // SD Card Power Control
+
+constexpr uint8_t PIN_DONE = 4;      // PIC microcontroller DONE signal (HIGH = shutdown)
+constexpr uint8_t PIN_CDS = 2;       // CDS Light Sensor Input (Analog)
+constexpr uint8_t PIN_BATT_SENSE = 5;// 2.1V Battery voltage drop detection
+
+constexpr uint8_t PIN_FLASH = 6;     // Flash LED (5VA DCDC) Control Output
 
 } // namespace hw
 
@@ -121,95 +120,12 @@ constexpr int MAX_ARCHIVE_CYCLES =
     100; // Maximum number of cycles to keep in /archive
 constexpr uint8_t UPLOAD_RETRY_WINDOW =
     3; // How many recent cycles (relative to current) to retry uploading
-constexpr uint32_t SLEEP_COOLDOWN_MS =
-    30000; // Mandatory wait time before entering deep sleep (ms)
 constexpr uint32_t MIN_FREE_SPACE_MB = 30;
 } // namespace param
 
 // =======================================================
 // Status LED Control (using a dedicated FreeRTOS task)
 // =======================================================
-namespace status {
-enum class LedState { OFF, ON, BLINK_FAST, BLINK_SLOW, BLINK_ERROR };
-volatile LedState currentLedState =
-    LedState::OFF; // State variable (volatile for thread safety)
-TaskHandle_t ledTaskHandle = NULL; // Handle for the LED task
-
-// FreeRTOS Task function to manage LED patterns
-void ledTask(void *pvParameters) {
-  pinMode(hw::PIN_STATUS, OUTPUT);
-  LedState taskState = LedState::OFF; // Local copy of the state
-  LedState lastState = LedState::OFF; // Store previous state to detect changes
-  uint32_t blinkDelay = 1000;         // Delay between state checks or blinks
-
-  for (;;) {                     // Infinite loop for the task
-    taskState = currentLedState; // Safely read the volatile state variable
-
-    // If state changed, ensure LED is off briefly before starting new pattern
-    if (taskState != lastState) {
-      lastState = taskState;
-      digitalWrite(hw::PIN_STATUS, LOW);
-      vTaskDelay(pdMS_TO_TICKS(50)); // Short gap prevents visual glitches
-    }
-
-    // Set LED state based on current pattern
-    switch (taskState) {
-    case LedState::ON: // Solid ON (e.g., Booted, Wi-Fi connected)
-      digitalWrite(hw::PIN_STATUS, HIGH);
-      blinkDelay = 1000; // Check state again in 1 second
-      break;
-    case LedState::BLINK_FAST: // Fast blink (e.g., Capturing, Uploading, Error)
-      digitalWrite(hw::PIN_STATUS, !digitalRead(hw::PIN_STATUS)); // Toggle LED
-      blinkDelay = 150; // 150ms interval
-      break;
-    case LedState::BLINK_SLOW: // Slow blink (e.g., Connecting Wi-Fi, Resolving
-                               // mDNS)
-      digitalWrite(hw::PIN_STATUS, !digitalRead(hw::PIN_STATUS)); // Toggle LED
-      blinkDelay = 500; // 500ms interval
-      break;
-    case LedState::BLINK_ERROR: // Very fast "panic" blink for fatal errors
-      digitalWrite(hw::PIN_STATUS, !digitalRead(hw::PIN_STATUS)); // Toggle LED
-      blinkDelay = 75; // 75ms interval (faster than BLINK_FAST)
-      break;
-    case LedState::OFF: // Solid OFF (e.g., Sleeping, Wi-Fi failed)
-    default:
-      digitalWrite(hw::PIN_STATUS, LOW);
-      blinkDelay = 1000; // Check state again in 1 second
-      break;
-    }
-    // Wait for the calculated delay, or until notified by setLed to change
-    // state immediately
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(blinkDelay));
-  }
-}
-
-// Public function to change the LED state
-void setLed(LedState state) {
-  currentLedState = state;
-  // Notify the LED task to potentially update its pattern immediately
-  if (ledTaskHandle != NULL) {
-    xTaskNotifyGive(ledTaskHandle);
-  }
-}
-
-// Initialize and start the LED control task
-void begin() {
-  // Create the FreeRTOS task
-  BaseType_t result = xTaskCreate(
-      ledTask,       // Function to implement the task
-      "LedTask",     // Name of the task
-      1024,          // Stack size in words
-      NULL,          // Task input parameter
-      1,             // Priority of the task (lower numbers are lower priority)
-      &ledTaskHandle // Task handle to keep track of the created task
-  );
-  // Check if task creation was successful
-  if (result != pdPASS || ledTaskHandle == NULL) {
-    // Use direct Serial print as logging might not be ready
-    Serial.println("[ERR] Failed to create LED Task!");
-  }
-}
-} // namespace status
 
 // =======================================================
 // Global Variables
@@ -438,8 +354,6 @@ static void appendWithRotate(const char *path, const String &s,
  */
 static void initWiFi() {
   g_tWifiStart = millis(); // Record start of WiFi connection
-  status::setLed(
-      status::LedState::BLINK_SLOW); // LED: Indicates connection attempt
   WiFi.mode(WIFI_STA);               // Set Wi-Fi mode to Station (client)
   WiFi.begin(net::WIFI_SSID, net::WIFI_PASS); // Start connection attempt
   LOG_PRINTF("[WIFI] Connecting to %s", net::WIFI_SSID);
@@ -449,7 +363,6 @@ static void initWiFi() {
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - t0 > net::WIFI_TIMEOUT) {
       LOG_PRINTLN("\n[WIFI] Connection Failed (Timeout)!");
-      status::setLed(status::LedState::OFF); // LED: Off indicates failure
       return;                                // Exit if connection timed out
     }
     Serial.print("."); // Visual progress on Serial
@@ -462,7 +375,6 @@ static void initWiFi() {
   LOG_PRINTLN("[WIFI] IP Address: " + WiFi.localIP().toString());
   g_rssi = WiFi.RSSI();
   LOG_PRINTF("[WIFI] Signal Strength (RSSI): %d dBm\n", g_rssi);
-  status::setLed(status::LedState::ON); // LED: Solid ON indicates success
   g_tWifiEnd = millis();                // Record end of WiFi connection
 }
 
@@ -559,6 +471,8 @@ static void powerDownCameraPins() {
  */
 static void powerDownSdCardPins() {
   LOG_PRINTLN("[PWR ] Powering down SD card pins...");
+  pinMode(hw::PIN_SD_PWR, OUTPUT);
+  digitalWrite(hw::PIN_SD_PWR, LOW);
   // CSピン（Chip
   // Select）はLOWに引っ張るとSDカードがアクティブになり電力を消費するため、PULLUPにします
   pinMode(hw::SD_CS, INPUT_PULLUP);
@@ -579,11 +493,7 @@ static void powerDownSdCardPins() {
  * error.
  */
 static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex, bool night) {
-  status::setLed(
-      status::LedState::BLINK_FAST);     // LED: Indicate capture activity
   camera_fb_t *fb = esp_camera_fb_get(); // Get frame buffer
-  status::setLed(
-      status::LedState::ON); // LED: Back to solid after capture attempt
 
   // Check if frame buffer acquisition failed
   if (!fb) {
@@ -631,7 +541,6 @@ static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex, bool night) {
   sprintf(path, "%s/%s-%u%c.jpg", cycleDir.c_str(), g_cycleId.c_str(),
           saveIndex, suffix);
 
-  status::setLed(status::LedState::BLINK_FAST); // LED: Indicate saving to SD
   File file = SD.open(path, FILE_WRITE);        // Open file for writing
   bool success = false;
   if (file) {
@@ -650,7 +559,6 @@ static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex, bool night) {
   } else {
     LOG_PRINTF("[ERR] Failed to open file for writing: %s\n", path);
   }
-  status::setLed(status::LedState::ON); // LED: Back to solid after save attempt
 
   esp_camera_fb_return(fb); // IMPORTANT: Always return the frame buffer
   return success;
@@ -734,15 +642,12 @@ static bool resolvePiHost() {
     LOG_PRINTLN("[mDNS] Wi-Fi not connected, cannot resolve host.");
     return false;
   }
-  status::setLed(
-      status::LedState::BLINK_SLOW); // LED: Indicate mDNS resolution attempt
   LOG_PRINTF("[mDNS] Resolving host: %s.local ...\n", net::PI_MDNS_HOST);
 
   // Start mDNS (use a unique hostname for the ESP itself if needed)
   String myHostname = "esp32-cam-" + deviceIdHex();
   if (!MDNS.begin(myHostname.c_str())) { // Hostname for this ESP device
     LOG_PRINTLN("[ERR] Failed to start mDNS responder.");
-    status::setLed(status::LedState::ON); // Back to solid ON (Wi-Fi state)
     return false;
   }
   LOG_PRINTF("[mDNS] My hostname: %s.local\n", myHostname.c_str());
@@ -756,7 +661,6 @@ static bool resolvePiHost() {
   if (piIP == INADDR_NONE || piIP[0] == 0) { // Check for 0.0.0.0 as well
     LOG_PRINTLN("[mDNS] Host not found.");
     g_piHostResolved = false;
-    status::setLed(status::LedState::ON); // Back to solid ON (Wi-Fi state)
     return false;
   }
 
@@ -769,8 +673,6 @@ static bool resolvePiHost() {
   net::PI_HEALTHZ = hostBase + "/healthz";
   net::PI_ESPLOG_URL = hostBase + "/esp_log";
   g_piHostResolved = true;
-  status::setLed(
-      status::LedState::ON); // Back to solid ON (resolution successful)
   return true;
 }
 
@@ -786,13 +688,11 @@ static bool resolvePiHost() {
  */
 static bool uploadFile(const String &url, const String &path, const char *ctype,
                        const String &cycleId, int imgIdx) {
-  status::setLed(status::LedState::BLINK_FAST); // LED: Indicate file transfer
   File file = SD.open(path, FILE_READ);
 
   // Check if file opened successfully
   if (!file) {
     LOG_PRINTF("[ERR] Upload: File not found %s\n", path.c_str());
-    status::setLed(status::LedState::ON); // Back to solid ON
     return false;
   }
   // Check if file is empty
@@ -800,7 +700,6 @@ static bool uploadFile(const String &url, const String &path, const char *ctype,
   if (fileSize == 0) {
     LOG_PRINTF("[WARN] Upload: Skipping empty file %s\n", path.c_str());
     file.close();
-    status::setLed(status::LedState::ON);
     return true; // Treat empty file upload as success? Or should it be false?
                  // Let's say true.
   }
@@ -863,7 +762,6 @@ static bool uploadFile(const String &url, const String &path, const char *ctype,
   }
 
   file.close();                         // Ensure file is closed
-  status::setLed(status::LedState::ON); // LED: Back to solid after attempt
   return success;
 }
 
@@ -961,7 +859,6 @@ static void uploadPendingData() {
     LOG_PRINTLN("[UPLOAD] Pi host not resolved, skip.");
     return;
   }
-  status::setLed(status::LedState::ON); // LED: Solid before check
 
   // 1. サーバーのヘルスチェック
   HTTPClient healthCheckClient;
@@ -1071,14 +968,12 @@ static void uploadPendingData() {
 
     // --- アップロード実行 ---
     LOG_PRINTF("[UPLOAD] Uploading %s (seq %ld)...\n", cid.c_str(), cycleSeq);
-    status::setLed(status::LedState::BLINK_FAST);
 
     bool ok1 = uploadFile(net::PI_UPLOAD_URL, p1, "image/jpeg", cid, 1);
     bool ok2 = uploadFile(net::PI_UPLOAD_URL, p2, "image/jpeg", cid, 2);
     bool ok3 = uploadFile(net::PI_UPLOAD_URL, p3, "image/jpeg", cid, 3);
     bool okLog = uploadFile(net::PI_ESPLOG_URL, pLog, "text/plain", cid, 0);
 
-    status::setLed(status::LedState::ON);
 
     if (ok1 && ok2 && ok3 && okLog) {
       markAsUploaded(cid);
@@ -1149,124 +1044,16 @@ static bool isNight() {
 namespace daynight {
 constexpr bool LED_ON_AT_NIGHT = true;    // Turn flash ON at night
 constexpr bool LED_ON_AT_DAY = false;     // Turn flash OFF during day
-enum class Dir { FWD, REV, STOP };        // Motor direction states
-constexpr Dir MOTOR_DIR_NIGHT = Dir::REV; // Motor direction at night
-constexpr Dir MOTOR_DIR_DAY = Dir::FWD;   // Motor direction during day
 } // namespace daynight
 
-// --- Motor Control Functions ---
-static inline void motorReverse() {
-  digitalWrite(hw::PIN_MOTOR, HIGH);
-  digitalWrite(hw::PIN_MOTOR_IN2, LOW);
-  LOG_PRINTLN("[MOTOR] Forward");
-}
-static inline void motorForward() {
-  digitalWrite(hw::PIN_MOTOR, LOW);
-  digitalWrite(hw::PIN_MOTOR_IN2, HIGH);
-  LOG_PRINTLN("[MOTOR] Reverse");
-}
-static inline void motorStop() {
-  digitalWrite(hw::PIN_MOTOR, LOW);
-  digitalWrite(hw::PIN_MOTOR_IN2, LOW);
-  LOG_PRINTLN("[MOTOR] Stop");
-}
-
-/** @brief Activates LED and Motor based on the isNight() status. */
+/** @brief Activates LED based on the isNight() status. */
 static void applyDayNightActions(bool night) {
   // Control Flash LED
   bool ledOn = night ? daynight::LED_ON_AT_NIGHT : daynight::LED_ON_AT_DAY;
   digitalWrite(hw::PIN_FLASH, ledOn ? HIGH : LOW);
   LOG_PRINTF("[LED ] Flash %s\n", ledOn ? "ON" : "OFF");
-
-  // Control Motor Direction
-  daynight::Dir direction =
-      night ? daynight::MOTOR_DIR_NIGHT : daynight::MOTOR_DIR_DAY;
-  switch (direction) {
-  case daynight::Dir::FWD:
-    motorForward();
-    break;
-  case daynight::Dir::REV:
-    motorReverse();
-    break;
-  case daynight::Dir::STOP:
-  default:
-    motorStop();
-    break;
-  }
 }
 
-/***********************************************************
- * 15.  Sleep helpers
- ***********************************************************/
-namespace sleepcfg {
-constexpr int WAKE_PIN = hw::PIN_FLAG; // GPIO pin for PIR wake-up
-constexpr bool WAKE_HIGH = true;       // Wake up on HIGH signal from PIR
-constexpr uint32_t PREP_MS = 200;      // Short delay before entering sleep
-constexpr uint64_t TIMER_US =
-    uint64_t(20) * 60 * 1000000ULL; // 20 minute timer wake-up
-} // namespace sleepcfg
-
-/**
- * @brief Configures wake-up sources (PIR pin, Timer) and logs the wake-up
- * reason. If wake reason is COLD BOOT (power on reset), enters deep sleep
- * immediately.
- */
-static void configureWakeAndMaybeSleepEarly() {
-  // Configure PIR wake-up pin (EXT1)
-  rtc_gpio_deinit(
-      GPIO_NUM_1); // スリープ設定を解除し、デジタルピンとして再有効化
-  pinMode(sleepcfg::WAKE_PIN,
-          sleepcfg::WAKE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
-  esp_sleep_enable_ext1_wakeup(1ULL << sleepcfg::WAKE_PIN,
-                               sleepcfg::WAKE_HIGH ? ESP_EXT1_WAKEUP_ANY_HIGH
-                                                   : ESP_EXT1_WAKEUP_ALL_LOW);
-
-  // Enable timer wake-up
-  esp_sleep_enable_timer_wakeup(sleepcfg::TIMER_US);
-
-  // Get and log the reason for waking up
-  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-  switch (wakeup_reason) {
-  case ESP_SLEEP_WAKEUP_EXT1:
-    LOG_PRINTLN("[SLEEP] Wake reason: PIR Sensor (EXT1)");
-    break;
-  case ESP_SLEEP_WAKEUP_TIMER:
-    LOG_PRINTLN("[SLEEP] Wake reason: Timer (20 min)");
-    break;
-  case ESP_SLEEP_WAKEUP_UNDEFINED:
-    LOG_PRINTLN("[SLEEP] Wake reason: Power On / Cold Boot");
-    break;
-  default:
-    LOG_PRINTF("[SLEEP] Wake reason: Other (%d)\n", (int)wakeup_reason);
-    break;
-  }
-
-  // If it was a cold boot (not PIR or Timer), go back to sleep immediately to
-  // save power
-  /*
-   * コールドブート（電源投入時）の即座スリープを無効化（テスト用）
-   * 運用時に戻す場合はこのコメントアウトを外してください。
-   */
-  if (wakeup_reason != ESP_SLEEP_WAKEUP_EXT1 &&
-      wakeup_reason != ESP_SLEEP_WAKEUP_TIMER) {
-    LOG_PRINTLN("[SLEEP] Cold boot detected, entering sleep immediately.");
-    status::setLed(status::LedState::OFF); // Turn off LED
-    delay(sleepcfg::PREP_MS);              // Short delay
-
-    // スリープ中のPIRセンサ検知を有効にするため、RTC GPIOとして再設定
-    rtc_gpio_init(GPIO_NUM_1);
-    if (sleepcfg::WAKE_HIGH) {
-      rtc_gpio_pulldown_en(GPIO_NUM_1);
-      rtc_gpio_pullup_dis(GPIO_NUM_1);
-    } else {
-      rtc_gpio_pullup_en(GPIO_NUM_1);
-      rtc_gpio_pulldown_dis(GPIO_NUM_1);
-    }
-
-    esp_deep_sleep_start(); // Enter deep sleep
-  }
-  // Otherwise, continue with normal operation
-}
 
 /** @brief Recursively removes a directory and all its contents. Use with
  * caution! */
@@ -1409,142 +1196,13 @@ static void cleanupOldArchives() {
   }
 }
 
-static void goDeepSleepNow() {
-  status::setLed(status::LedState::OFF); // Turn LED off during final prep
-
-  // --- Cleanup and Resource Release ---
-  cleanupOldArchives(); // Remove old cycles if > MAX_ARCHIVE_CYCLES
-  esp_camera_deinit();  // Deinitialize camera
-  if (WiFi.getMode() != WIFI_OFF) {
-    WiFi.disconnect(true, true); // Disconnect Wi-Fi
-    delay(100);                  // Short delay for disconnect process
-    WiFi.mode(WIFI_OFF);         // Turn off Wi-Fi module
-  }
-  btStop(); // Turn off Bluetooth module (saves power)
-  delay(100);
-
-  // --- Cooldown Period & Final Pin State ---
-
-  // Performance Logging
-  uint32_t tTotal = millis() - g_tWake;
-  uint32_t tCap = (g_tCapEnd > g_tCapStart) ? (g_tCapEnd - g_tCapStart) : 0;
-  uint32_t tWifi =
-      (g_tWifiEnd > g_tWifiStart) ? (g_tWifiEnd - g_tWifiStart) : 0;
-  uint32_t tUp =
-      (g_tUploadEnd > g_tUploadStart) ? (g_tUploadEnd - g_tUploadStart) : 0;
-
-  LOG_PRINTF("[PERF] Cycle: %s, Total: %u ms, Cap: %u ms, Wifi: %u ms, Upload: "
-             "%u ms, RSSI: %d\n",
-             g_cycleId.c_str(), tTotal, tCap, tWifi, tUp, g_rssi);
-
-  // --- Write Metrics to CSV ---
-  File metricFile = SD.open("/metrics.csv", FILE_APPEND);
-  if (metricFile) {
-    // If file is empty, write header first
-    if (metricFile.size() == 0) {
-      metricFile.println(
-          "CycleID,Total_ms,Capture_ms,Wifi_ms,Upload_ms,RSSI_dBm");
-    }
-    metricFile.printf("%s,%u,%u,%u,%u,%d\n", g_cycleId.c_str(), tTotal, tCap,
-                      tWifi, tUp, g_rssi);
-    metricFile.close();
-    LOG_PRINTLN("[PERF] Metrics written to /metrics.csv");
-  } else {
-    LOG_PRINTLN("[ERR] Failed to open /metrics.csv for writing");
-  }
-
-  // --- Flush Remaining Logs (Wifi, Upload, Perf) ---
-  // これまでのログ(Wi-Fi接続、アップロード、パフォーマンス計測結果など)を
-  // ファイルに書き出してからスリープする
-  String remainingLogs = makeEspLogChunkForCurrentCycle();
-  if (remainingLogs.length() > 0) {
-    // 1. メインのログファイル (/logs/esp.log) に追記
-    updateEspLogAppendRotate(remainingLogs);
-
-    // 2. サイクルアーカイブ (/archive/[CID]/esp_chunk.log) に追記
-    if (g_cycleId.length() > 0) {
-      String logChunkPath = "/archive/" + g_cycleId + "/esp_chunk.log";
-      File file = SD.open(logChunkPath, FILE_APPEND); // 追記モード
-      if (file) {
-        file.print(remainingLogs);
-        file.close();
-        LOG_PRINTF("[SAVE] Flushed remaining logs to: %s\n",
-                   logChunkPath.c_str());
-      } else {
-        LOG_PRINTF("[ERR] Failed to flush remaining logs to: %s\n",
-                   logChunkPath.c_str());
-      }
-    }
-  }
-
-  LOG_PRINTF("[SLEEP] Entering %u ms cooldown...\n", param::SLEEP_COOLDOWN_MS);
-
-  const uint32_t ledWarningTime = 5000; // 5秒間の警告灯
-  uint32_t initialWaitTime = 0;
-
-  // 30秒から5秒を引いた、最初の待機時間
-  if (param::SLEEP_COOLDOWN_MS > ledWarningTime) {
-    initialWaitTime = param::SLEEP_COOLDOWN_MS - ledWarningTime;
-  }
-
-  // 1. 最初の待機 (LEDはローパワー状態) - Light Sleepを使用
-  if (initialWaitTime > 0) {
-    digitalWrite(hw::PIN_STATUS, LOW);
-    pinMode(hw::PIN_STATUS, INPUT_PULLDOWN);
-
-    LOG_PRINTF("[SLEEP] Light Sleep waiting for %u ms...\n", initialWaitTime);
-
-    // PIRセンサー等がHighのままの場合に即時WakeUpするのを防ぐため、一旦すべて無効化
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-
-    // Timer Wakeup for Light Sleep
-    esp_sleep_enable_timer_wakeup((uint64_t)initialWaitTime * 1000ULL);
-
-    // Enter Light Sleep to save power compared to delay()
-    // CPU stops, RAM is retained, peripherals are gated.
-    esp_light_sleep_start();
-
-    LOG_PRINTLN("[SLEEP] Woke up from Light Sleep.");
-  }
-
-  // 2. 5秒間のスリープ前警告 (LED点灯)
-  LOG_PRINTLN("[SLEEP] 5 sec warning LED ON before sleep.");
-  pinMode(hw::PIN_STATUS, OUTPUT);    // ピンをOUTPUTに設定
-  digitalWrite(hw::PIN_STATUS, HIGH); // LED点灯
-  delay(ledWarningTime);
-  digitalWrite(hw::PIN_STATUS, LOW); // LED消灯
-
-  // 3. スリープのためにピンをローパワー状態(INPUT_PULLDOWN)に設定
-  pinMode(hw::PIN_STATUS, INPUT_PULLDOWN);
-
-  // --- Configure Wake Up Sources ---
-  // PIR Sensor (EXT1)
-  rtc_gpio_init(
-      GPIO_NUM_1); // スリープ中のプルダウンのためにRTC GPIOとして初期化
-  if (sleepcfg::WAKE_HIGH) {
-    rtc_gpio_pulldown_en(GPIO_NUM_1);
-    rtc_gpio_pullup_dis(GPIO_NUM_1);
-  } else {
-    rtc_gpio_pullup_en(GPIO_NUM_1);
-    rtc_gpio_pulldown_dis(GPIO_NUM_1);
-  }
-  esp_sleep_enable_ext1_wakeup(1ULL << sleepcfg::WAKE_PIN,
-                               sleepcfg::WAKE_HIGH ? ESP_EXT1_WAKEUP_ANY_HIGH
-                                                   : ESP_EXT1_WAKEUP_ALL_LOW);
-  // Timer
-  esp_sleep_enable_timer_wakeup(sleepcfg::TIMER_US);
-
-  LOG_PRINTLN("[SLEEP] Cooldown finished. Entering Deep Sleep NOW.");
-
-  // Ensure flash is off and hold it
-  digitalWrite(hw::PIN_FLASH, LOW);
+static void requestShutdownAndWait() {
+  LOG_PRINTLN("[SHUTDOWN] Task completed. Requesting PIC to cut power...");
   gpio_hold_en((gpio_num_t)hw::PIN_FLASH);
-
-  // Power down SD card pins just before sleep
   powerDownSdCardPins();
-
-  esp_deep_sleep_start(); // Enter Deep Sleep
-  // --- Code execution stops here until next wake up ---
+  digitalWrite(hw::PIN_DONE, HIGH);
+  LOG_PRINTLN("[SHUTDOWN] Waiting for power off...");
+  while(1) { delay(1000); }
 }
 
 /***********************************************************
@@ -1662,7 +1320,6 @@ static void beginCapture() {
 
   // --- Cleanup after capture ---
   digitalWrite(hw::PIN_FLASH, LOW); // Turn off flash LED
-  motorStop();                      // Stop motor
 
   // Explicitly power down camera interface to save power during WiFi/Upload
   esp_camera_deinit();
@@ -1690,27 +1347,22 @@ void setup() {
   Serial.begin(115200);
   delay(500); // Allow Serial Monitor time to connect
 
-  status::begin();
   // Start the status LED task
-  status::setLed(status::LedState::ON);
   // Solid LED indicates booting
   LOG_PRINTLN("\n=== ESP-CAM Boot (Cooldown Version) ===");
   g_tWake = millis();
   // Record wake-up time
 
-  // Check wake reason, sleep immediately if it was a cold boot
-  configureWakeAndMaybeSleepEarly();
   // If code reaches here, wake reason was PIR or Timer
 
   // --- Initialize Hardware ---
   // Pin Modes
   gpio_hold_dis((gpio_num_t)hw::PIN_FLASH); // Release hold from deep sleep
-  pinMode(hw::PIN_FLAG, INPUT);
+  pinMode(hw::PIN_DONE, OUTPUT);
+  digitalWrite(hw::PIN_DONE, LOW);
   // Wake pin
   pinMode(hw::PIN_FLASH, OUTPUT); // Flash LED
-  pinMode(hw::PIN_MOTOR, OUTPUT);
   // Motor IN1
-  pinMode(hw::PIN_MOTOR_IN2, OUTPUT); // Motor IN2 (GPIO 3)
   pinMode(hw::PIN_CDS, INPUT);
   analogSetAttenuation(
       ADC_11db); // Use 11dB attenuation for full-range (0-3.3V) analog reading
@@ -1718,18 +1370,20 @@ void setup() {
 
   // Initial Pin States
   digitalWrite(hw::PIN_FLASH, LOW);
-  digitalWrite(hw::PIN_MOTOR, LOW);
-  digitalWrite(hw::PIN_MOTOR_IN2, LOW); // Ensure motor is stopped
 
   // SD Card Initialization
+  // Power on SD module
+  pinMode(hw::PIN_SD_PWR, OUTPUT);
+  digitalWrite(hw::PIN_SD_PWR, HIGH);
+  delay(100);
+
   SPI.begin(hw::SD_SCK, hw::SD_MISO, hw::SD_MOSI, hw::SD_CS);
   g_sdReady = SD.begin(hw::SD_CS); // Attempt to mount SD card
   if (!g_sdReady) {
     LOG_PRINTLN("[FAIL] SD Card Mount Failed! -> Sleeping");
-    status::setLed(status::LedState::BLINK_ERROR); // Fast blink indicates error
     delay(3000);
     // Show error blink for 3 seconds
-    goDeepSleepNow();
+    requestShutdownAndWait();
     // Enter sleep (will skip cooldown)
   }
   elog::ensure();
@@ -1740,16 +1394,13 @@ void setup() {
   // 1. Initialize Camera
   if (!initCamera()) {
     LOG_PRINTLN("[FAIL] Camera Initialization Failed! -> Sleeping");
-    status::setLed(status::LedState::BLINK_ERROR); // Fast blink indicates error
     delay(3000);
-    goDeepSleepNow();
+    requestShutdownAndWait();
   }
 
   // 2. Perform Capture Sequence (Takes priority)
-  status::setLed(status::LedState::BLINK_FAST);
   // Fast blink indicates capturing
   beginCapture(); // Takes 4 shots, saves 3 to /archive/[cycleId]
-  status::setLed(status::LedState::ON);
   // Solid ON indicates capture finished
 
   // ▼▼▼ ★★★ 修正箇所 (ここから) ★★★ ▼▼▼
@@ -1799,15 +1450,13 @@ void setup() {
 
   // 4. Enter Sleep (includes cooldown)
   LOG_PRINTLN("[STEP] All tasks complete. Entering cooldown then sleep.");
-  goDeepSleepNow(); // Saves logs, cleans archive, waits 30s, sets pins, sleeps
+  requestShutdownAndWait(); // Saves logs, cleans archive, waits 30s, sets pins, sleeps
 }
 
 void loop() {
   // If execution unexpectedly reaches here, log an error and force sleep
   LOG_PRINTLN("[FATAL] Execution reached main loop! This should not happen. "
               "Forcing sleep.");
-  status::setLed(
-      status::LedState::BLINK_ERROR); // Fast blink indicates error state
   delay(2000);                        // Show error blink
-  goDeepSleepNow();
+  requestShutdownAndWait();
 }
