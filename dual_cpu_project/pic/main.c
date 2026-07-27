@@ -52,6 +52,14 @@ void main(void) {
     // GPIOの初期出力値設定 (すべてLOW)
     GPIO = 0x00;
 
+    // --- デバッグ用：起動確認のLED点滅 (3回) ---
+    for(uint8_t i = 0; i < 3; i++) {
+        PIN_LED = 1;
+        __delay_ms(200);
+        PIN_LED = 0;
+        __delay_ms(200);
+    }
+
     // --- 割り込み設定 ---
     // GP2(PIR)ピンの状態変化割り込み(Interrupt On Change)を有効化
     IOC = 0b00000100;
@@ -91,6 +99,15 @@ void main(void) {
             PIN_XIAO_SIG = 1;
             PIN_LED = 1;
 
+            // ESP32がブートし、ピン状態が安定するまで待機（起動直後の誤検知防止）
+            // デバッグ用：待機中はLEDを細かく点滅させて動作確認
+            for(uint8_t i = 0; i < 15; i++) { // 200ms x 15 = 3000ms
+                PIN_LED = 1;
+                __delay_ms(100);
+                PIN_LED = 0;
+                __delay_ms(100);
+            }
+
             // 4. xiaoの処理完了またはタイムアウト待ちループ
             uint16_t timeout_counter = 0;
             while(timeout_counter < TIMEOUT_MAX_COUNT) {
@@ -102,6 +119,11 @@ void main(void) {
                 // 100ms 待機してカウンタを進める
                 __delay_ms(100);
                 timeout_counter++;
+                
+                // デバッグ用：ESP32処理待ち中はLEDを点滅 (約500ms周期)
+                if (timeout_counter % 5 == 0) {
+                    PIN_LED ^= 1;
+                }
             }
             
             // 5. 処理完了（またはタイムアウト）。ループを抜けたので出力をOFFにして再度スリープの準備へ
@@ -119,11 +141,16 @@ void main(void) {
                 PIN_LED = 0;
             }
             
-            // 連続撮影を防ぐため、30秒間のインターバル（不感時間）を設ける
-            // (100ms * 300回 = 30秒)
-            for(uint16_t i = 0; i < 300; i++) {
+            // 連続撮影を防ぐため、1分間のインターバル（不感時間）を設ける
+            // (100ms * 600回 = 60秒 = 1分)
+            for(uint16_t i = 0; i < 600; i++) {
                 __delay_ms(100);
+                // デバッグ用：不感時間中はLEDをゆっくり点滅 (1秒ごとに反転)
+                if (i % 10 == 0) {
+                    PIN_LED ^= 1;
+                }
             }
+            PIN_LED = 0; // 最後に確実に消灯
             
             // 状態が落ち着いたのでフラグをクリア
             dummy = GPIO;

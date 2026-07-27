@@ -91,8 +91,8 @@ constexpr uint8_t PIN_MOTOR = PIN_MOTOR_IN1; // Alias for Motor IN1
 // Network Configuration
 // =======================================================
 namespace net {
-constexpr char WIFI_SSID[] = "SLAB-g";     // Your Wi-Fi Network Name
-constexpr char WIFI_PASS[] = "wakaW1sat0"; // Your Wi-Fi Password
+constexpr char WIFI_SSID[] = "aterm-e1ab3a";  // Your Wi-Fi Network Name
+constexpr char WIFI_PASS[] = "7cac2cfd46f83"; // Your Wi-Fi Password
 constexpr uint32_t WIFI_TIMEOUT =
     30000; // Wi-Fi connection attempt timeout (ms)
 constexpr char PI_MDNS_HOST[] =

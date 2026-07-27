@@ -40,8 +40,7 @@
 // =======================================================
 // Includes
 // =======================================================
-#include "driver/gpio.h"   // For gpio_hold_en/dis
-#include "esp_bt.h"        // For disabling Bluetooth
+#include "esp_bt.h"      // For disabling Bluetooth
 #include "esp_camera.h"
 #include "freertos/FreeRTOS.h" // For tasks
 #include "freertos/task.h"     // For Task Handles
@@ -72,17 +71,18 @@
 static String deviceIdHex();
 
 namespace hw {
-constexpr uint8_t SD_CS = 3;         // SD Card Chip Select
-constexpr uint8_t SD_MOSI = 9;       // SD Card MOSI
-constexpr uint8_t SD_MISO = 8;       // SD Card MISO
-constexpr uint8_t SD_SCK = 7;        // SD Card Clock
-constexpr uint8_t PIN_SD_PWR = 44;   // SD Card Power Control
+constexpr uint8_t SD_CS = 21;      // SD Card Chip Select
+constexpr uint8_t SD_MOSI = 9;     // SD Card MOSI
+constexpr uint8_t SD_MISO = 8;     // SD Card MISO
+constexpr uint8_t SD_SCK = 7;      // SD Card Clock
+constexpr uint8_t PIN_SD_PWR = 44; // SD Card Power Control
 
-constexpr uint8_t PIN_DONE = 4;      // PIC microcontroller DONE signal (HIGH = shutdown)
-constexpr uint8_t PIN_CDS = 2;       // CDS Light Sensor Input (Analog)
-constexpr uint8_t PIN_BATT_SENSE = 5;// 2.1V Battery voltage drop detection
+constexpr uint8_t PIN_DONE =
+    4; // PIC microcontroller DONE signal (HIGH = shutdown)
+constexpr uint8_t PIN_CDS = 2;        // CDS Light Sensor Input (Analog)
+constexpr uint8_t PIN_BATT_SENSE = 5; // 2.1V Battery voltage drop detection
 
-constexpr uint8_t PIN_FLASH = 6;     // Flash LED (5VA DCDC) Control Output
+constexpr uint8_t PIN_FLASH = 6; // Flash LED (5VA DCDC) Control Output
 
 } // namespace hw
 
@@ -354,7 +354,7 @@ static void appendWithRotate(const char *path, const String &s,
  */
 static void initWiFi() {
   g_tWifiStart = millis(); // Record start of WiFi connection
-  WiFi.mode(WIFI_STA);               // Set Wi-Fi mode to Station (client)
+  WiFi.mode(WIFI_STA);     // Set Wi-Fi mode to Station (client)
   WiFi.begin(net::WIFI_SSID, net::WIFI_PASS); // Start connection attempt
   LOG_PRINTF("[WIFI] Connecting to %s", net::WIFI_SSID);
 
@@ -363,7 +363,7 @@ static void initWiFi() {
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - t0 > net::WIFI_TIMEOUT) {
       LOG_PRINTLN("\n[WIFI] Connection Failed (Timeout)!");
-      return;                                // Exit if connection timed out
+      return; // Exit if connection timed out
     }
     Serial.print("."); // Visual progress on Serial
     // The LED task handles blinking, just check status periodically
@@ -375,7 +375,7 @@ static void initWiFi() {
   LOG_PRINTLN("[WIFI] IP Address: " + WiFi.localIP().toString());
   g_rssi = WiFi.RSSI();
   LOG_PRINTF("[WIFI] Signal Strength (RSSI): %d dBm\n", g_rssi);
-  g_tWifiEnd = millis();                // Record end of WiFi connection
+  g_tWifiEnd = millis(); // Record end of WiFi connection
 }
 
 // =======================================================
@@ -541,7 +541,7 @@ static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex, bool night) {
   sprintf(path, "%s/%s-%u%c.jpg", cycleDir.c_str(), g_cycleId.c_str(),
           saveIndex, suffix);
 
-  File file = SD.open(path, FILE_WRITE);        // Open file for writing
+  File file = SD.open(path, FILE_WRITE); // Open file for writing
   bool success = false;
   if (file) {
     size_t written = file.write(fb->buf, fb->len); // Write frame buffer content
@@ -761,7 +761,7 @@ static bool uploadFile(const String &url, const String &path, const char *ctype,
     LOG_PRINTF("[ERR] HTTPClient begin failed for URL: %s\n", url.c_str());
   }
 
-  file.close();                         // Ensure file is closed
+  file.close(); // Ensure file is closed
   return success;
 }
 
@@ -974,7 +974,6 @@ static void uploadPendingData() {
     bool ok3 = uploadFile(net::PI_UPLOAD_URL, p3, "image/jpeg", cid, 3);
     bool okLog = uploadFile(net::PI_ESPLOG_URL, pLog, "text/plain", cid, 0);
 
-
     if (ok1 && ok2 && ok3 && okLog) {
       markAsUploaded(cid);
       uploadCount++; // カウントアップ
@@ -1042,8 +1041,8 @@ static bool isNight() {
 
 // Configuration for Day/Night actions
 namespace daynight {
-constexpr bool LED_ON_AT_NIGHT = true;    // Turn flash ON at night
-constexpr bool LED_ON_AT_DAY = false;     // Turn flash OFF during day
+constexpr bool LED_ON_AT_NIGHT = true; // Turn flash ON at night
+constexpr bool LED_ON_AT_DAY = false;  // Turn flash OFF during day
 } // namespace daynight
 
 /** @brief Activates LED based on the isNight() status. */
@@ -1053,7 +1052,6 @@ static void applyDayNightActions(bool night) {
   digitalWrite(hw::PIN_FLASH, ledOn ? HIGH : LOW);
   LOG_PRINTF("[LED ] Flash %s\n", ledOn ? "ON" : "OFF");
 }
-
 
 /** @brief Recursively removes a directory and all its contents. Use with
  * caution! */
@@ -1198,11 +1196,18 @@ static void cleanupOldArchives() {
 
 static void requestShutdownAndWait() {
   LOG_PRINTLN("[SHUTDOWN] Task completed. Requesting PIC to cut power...");
-  gpio_hold_en((gpio_num_t)hw::PIN_FLASH);
+  
   powerDownSdCardPins();
+  
+  // デバッグ用：本当にこの行まで到達しているか確認するためLEDを点灯
+  pinMode(hw::PIN_FLASH, OUTPUT);
+  digitalWrite(hw::PIN_FLASH, HIGH);
+  
   digitalWrite(hw::PIN_DONE, HIGH);
   LOG_PRINTLN("[SHUTDOWN] Waiting for power off...");
-  while(1) { delay(1000); }
+  while (1) {
+    delay(1000);
+  }
 }
 
 /***********************************************************
@@ -1357,7 +1362,7 @@ void setup() {
 
   // --- Initialize Hardware ---
   // Pin Modes
-  gpio_hold_dis((gpio_num_t)hw::PIN_FLASH); // Release hold from deep sleep
+
   pinMode(hw::PIN_DONE, OUTPUT);
   digitalWrite(hw::PIN_DONE, LOW);
   // Wake pin
@@ -1450,13 +1455,14 @@ void setup() {
 
   // 4. Enter Sleep (includes cooldown)
   LOG_PRINTLN("[STEP] All tasks complete. Entering cooldown then sleep.");
-  requestShutdownAndWait(); // Saves logs, cleans archive, waits 30s, sets pins, sleeps
+  requestShutdownAndWait(); // Saves logs, cleans archive, waits 30s, sets pins,
+                            // sleeps
 }
 
 void loop() {
   // If execution unexpectedly reaches here, log an error and force sleep
   LOG_PRINTLN("[FATAL] Execution reached main loop! This should not happen. "
               "Forcing sleep.");
-  delay(2000);                        // Show error blink
+  delay(2000); // Show error blink
   requestShutdownAndWait();
 }
