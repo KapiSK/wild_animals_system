@@ -77,12 +77,12 @@ constexpr uint8_t SD_MISO = 8;     // SD Card MISO
 constexpr uint8_t SD_SCK = 7;      // SD Card Clock
 constexpr uint8_t PIN_SD_PWR = 44; // SD Card Power Control
 
-constexpr uint8_t PIN_DONE =
-    4; // PIC microcontroller DONE signal (HIGH = shutdown)
-constexpr uint8_t PIN_CDS = 2;        // CDS Light Sensor Input (Analog)
-constexpr uint8_t PIN_BATT_SENSE = 5; // 2.1V Battery voltage drop detection
+constexpr uint8_t PIN_DONE = 3;      // PIC microcontroller DONE signal (HIGH = shutdown)
+constexpr uint8_t PIN_CDS = 2;       // CDS Light Sensor Input (Analog)
+constexpr uint8_t PIN_BATT_SENSE = 4;// 2.1V Battery voltage drop detection
+constexpr uint8_t PIN_PIC_IN = 5;    // Input from PIC microcontroller
 
-constexpr uint8_t PIN_FLASH = 6; // Flash LED (5VA DCDC) Control Output
+constexpr uint8_t PIN_FLASH = 6;     // Flash LED (5VA DCDC) Control Output
 
 } // namespace hw
 
