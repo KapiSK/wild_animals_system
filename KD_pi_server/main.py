@@ -80,8 +80,8 @@ async def periodic_cleanup():
 async def lifespan(app: FastAPI):
     global detector
     logger.info("Initializing YOLO Detector...")
-    # NCNNモデルのスレッドセーフティを確保するため、メインスレッドで同期的に初期化します
-    detector = Detector()
+    # Initialize in background to avoid blocking startup
+    detector = await asyncio.to_thread(Detector)
     logger.info("Detector initialized.")
     cleanup_task = asyncio.create_task(periodic_cleanup())
     yield
@@ -252,8 +252,8 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
             # Measure Inference Time
             inference_start = time.perf_counter()
             if not skip_inference:
-                # Run detection synchronously in the main thread to prevent NCNN thread-context Segfaults
-                is_animal, label = detector.detect(file_path, save_path=None)
+                # Run detection in background thread
+                is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=None)
                 if is_animal:
                     logger.info(f"Target detected in {filename}: {label}")
                 else:

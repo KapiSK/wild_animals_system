@@ -3,9 +3,9 @@ import cv2
 
 class Detector:
     def __init__(self):
-        # 蒸留済みのNCNNモデルを使用します。
-        # UltralyticsのNCNNラッパーはスレッドセーフではないため、初期化と推論を同じスレッドで行う必要があります。
-        self.model = YOLO("best_ncnn_model", task='detect') 
+        # 蒸留済みのモデルをRaspberry Piで非同期(マルチスレッド)かつ高速・安定に動かすため、
+        # TFLite(.tflite) または ONNX(.onnx) 形式のモデルを使用します。
+        self.model = YOLO("best.tflite") # .onnx の場合は "best.onnx" に変更してください
 
     def detect(self, image_path, save_path=None):
         results = self.model(image_path)
@@ -17,11 +17,12 @@ class Detector:
             for box in boxes:
                 cls = int(box.cls[0])
                 label = self.model.names[cls]
-                # Filter for animals
-                # COCO classes: 0: person, 14: bird, 15: cat, 16: dog, 17: horse, 18: sheep, 
-                # 19: cow, 20: elephant, 21: bear, 22: zebra, 23: giraffe
-                animal_classes = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-                if cls in animal_classes: 
+                # 独自の推論モデル（animal か empty の判定）に対応
+                # COCOのID指定ではなく、ラベル名（文字）で直接判定するように変更します
+                label_lower = label.lower()
+                
+                # "empty"（空）以外の何かが検出されたら転送対象とする
+                if "empty" not in label_lower and "none" not in label_lower:
                     is_animal_detected = True
                     label_detected = label
                     break # Return first detected animal
