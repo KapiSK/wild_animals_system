@@ -8,7 +8,9 @@ class Detector:
         self.model = YOLO("best.onnx") # .onnx の場合は "best.onnx" に変更してください
 
     def detect(self, image_path, save_path=None):
-        results = self.model(image_path)
+        # 推論の実行 (conf=0.50 は「AIの自信度が50%以上のときだけ検出する」という閾値設定です)
+        # 誤検知が多い場合は0.60等に上げ、検知漏れが多い場合は0.25等に下げてください。
+        results = self.model(image_path, conf=0.004)
         is_animal_detected = False
         label_detected = None
 
