@@ -1300,6 +1300,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
 
     for index, row in df.iterrows():
         cls = int(row['class'])
+        if source == "pi" and 'animal' not in str(row['name']).lower():
+            continue
         if cls in TARGET_CLASSES:
             target_found = True
             label = row['name']
@@ -1351,6 +1353,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
             img = cv2.imread(image_path)
             for index, row in df.iterrows():
                 cls = int(row['class'])
+                if source == "pi" and 'animal' not in str(row['name']).lower():
+                    continue
                 if cls in TARGET_CLASSES:
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
                     name_str = str(row['name']).lower()
