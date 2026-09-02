@@ -5,7 +5,7 @@ class Detector:
     def __init__(self):
         # 蒸留済みのモデルをRaspberry Piで非同期(マルチスレッド)かつ高速・安定に動かすため、
         # TFLite(.tflite) または ONNX(.onnx) 形式のモデルを使用します。
-        self.model = YOLO("best.tflite") # .onnx の場合は "best.onnx" に変更してください
+        self.model = YOLO("best.onnx") # .onnx の場合は "best.onnx" に変更してください
 
     def detect(self, image_path, save_path=None):
         results = self.model(image_path)
