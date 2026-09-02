@@ -22,12 +22,18 @@ class Detector:
                 # 独自の推論モデル（animal か empty の判定）に対応
                 # COCOのID指定ではなく、ラベル名（文字）で直接判定するように変更します
                 label_lower = label.lower()
+                conf = float(box.conf[0])
+                label_with_conf = f"{label} (conf: {conf:.2f})"
                 
                 # "empty"（空）以外の何かが検出されたら転送対象とする
                 if "empty" not in label_lower and "none" not in label_lower:
                     is_animal_detected = True
-                    label_detected = label
+                    label_detected = label_with_conf
                     break # Return first detected animal
+                else:
+                    # もし転送対象じゃなかった場合(empty等)もログに残すために保存しておく
+                    if not is_animal_detected:
+                        label_detected = label_with_conf
             
             # Save result image if requested
             if save_path:

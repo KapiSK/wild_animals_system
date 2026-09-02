@@ -257,7 +257,7 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
                 if is_animal:
                     logger.info(f"Target detected in {filename}: {label}")
                 else:
-                    logger.info(f"No target detected in {filename}")
+                    logger.info(f"No target detected in {filename} (Result: {label})")
             
             inference_duration = time.perf_counter() - inference_start
             

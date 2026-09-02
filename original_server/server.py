@@ -1283,7 +1283,11 @@ def extract_cycle_id(filename: str) -> str:
 
 
 def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
-    model.conf = 0.25
+    if source == "pi":
+        model.conf = 0.001
+    else:
+        model.conf = 0.25
+        
     results = model(image_path)
 
     detected_targets = {}
