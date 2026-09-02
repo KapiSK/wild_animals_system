@@ -3,9 +3,9 @@ import cv2
 
 class Detector:
     def __init__(self):
-        # Load a model
-        # The model will be downloaded automatically on first use
-        self.model = YOLO("best_ncnn_model") 
+        # 蒸留済みのNCNNモデルを使用します。
+        # UltralyticsのNCNNラッパーはスレッドセーフではないため、初期化と推論を同じスレッドで行う必要があります。
+        self.model = YOLO("best_ncnn_model", task='detect') 
 
     def detect(self, image_path, save_path=None):
         results = self.model(image_path)
