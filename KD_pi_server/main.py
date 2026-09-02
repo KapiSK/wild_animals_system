@@ -80,7 +80,7 @@ async def periodic_cleanup():
 async def lifespan(app: FastAPI):
     global detector
     logger.info("Initializing YOLO Detector...")
-    # Initialize in background to avoid blocking startup (downloads yolov8n.pt if missing)
+    # Initialize in background to avoid blocking startup
     detector = await asyncio.to_thread(Detector)
     logger.info("Detector initialized.")
     cleanup_task = asyncio.create_task(periodic_cleanup())
@@ -252,12 +252,12 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
             # Measure Inference Time
             inference_start = time.perf_counter()
             if not skip_inference:
-                # Run detection (save_path=None to skip BB drawing)
+                # Run detection in background thread
                 is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=None)
                 if is_animal:
                     logger.info(f"Target detected in {filename}: {label}")
                 else:
-                    logger.info(f"No target detected in {filename}")
+                    logger.info(f"No target detected in {filename} (Result: {label})")
             
             inference_duration = time.perf_counter() - inference_start
             

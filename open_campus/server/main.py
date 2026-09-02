@@ -7,11 +7,10 @@ import re
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Header, HTTPException, status, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import aiofiles
-import httpx
 from detector import Detector
 
 # Load environment variables
@@ -20,11 +19,7 @@ load_dotenv()
 # Configuration
 # Images are saved here
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-# Optional: URL to forward images to (if not set in .env, forwarding is skipped)
-# Optional: URL to forward images to (if not set in .env, forwarding is skipped)
-MAIN_SERVER_URL = os.getenv("MAIN_SERVER_URL")
-# Local Mode: If True, skips forwarding to external server
-LOCAL_MODE = os.getenv("LOCAL_MODE", "False").lower() == "true"
+PROCESSING_DIR = os.getenv("PROCESSING_DIR", "processing")
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 
 async def verify_api_token(x_api_key: str = Header(None)):
@@ -47,8 +42,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Ensure upload directory exists
+# Ensure directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROCESSING_DIR, exist_ok=True)
 
 detector = None
 
@@ -108,7 +104,7 @@ class CycleManager:
         })
         self.lock = asyncio.Lock()
 
-    async def add_result(self, cycle_id, file_path, filename, is_animal, timing_info):
+    async def add_result(self, cycle_id, file_path, filename, is_person, confidence, timing_info):
         async with self.lock:
             cycle = self.cycles[cycle_id]
             
@@ -122,7 +118,8 @@ class CycleManager:
             cycle['files'].append({
                 'path': file_path,
                 'filename': filename,
-                'is_animal': is_animal
+                'is_person': is_person,
+                'confidence': confidence
             })
             cycle['timings'].append(timing_info)
             cycle['last_update'] = datetime.datetime.now()
@@ -135,20 +132,34 @@ class CycleManager:
                 cycle_end_time = time.perf_counter()
                 total_cycle_time = (cycle_end_time - cycle['start_time']) * 1000 # ms
                 
-                animal_count = sum(1 for f in files if f['is_animal'])
-                logger.info(f"Cycle {cycle_id} complete. Detected targets: {animal_count}/{count}")
+                person_count = sum(1 for f in files if f['is_person'])
+                logger.info(f"Cycle {cycle_id} complete. Detected persons: {person_count}/{count}")
+
+                if person_count > 0:
+                    best_file = max(files, key=lambda x: x['confidence'])
+                    final_path = os.path.join(UPLOAD_DIR, best_file['filename'])
+                    try:
+                        os.rename(best_file['path'], final_path)
+                        logger.info(f"Published best image to gallery: {best_file['filename']} (Conf: {best_file['confidence']:.2f})")
+                    except Exception as e:
+                        logger.error(f"Failed to publish {best_file['filename']}: {e}")
+                else:
+                    logger.info(f"No person detected in cycle {cycle_id}. Discarding cycle (no web update).")
+
+                # Cleanup all remaining files in processing dir for this cycle
+                for f in files:
+                    if os.path.exists(f['path']):
+                        try:
+                            os.remove(f['path'])
+                        except Exception as e:
+                            pass
                 
                 # Calculate total specific times
                 total_receive_save = sum(t['save_duration'] for t in cycle['timings']) * 1000 # ms
                 total_inference = sum(t['inference_duration'] for t in cycle['timings']) * 1000 # ms
                 
-                forward_start = time.perf_counter()
-                if animal_count >= 1:
-                    logger.info(f"Cycle {cycle_id} MET criteria (>=1 target). Forwarding all strings.")
-                    await self.forward_cycle(files)
-                else:
-                    logger.info(f"Cycle {cycle_id} NOT met criteria. Not forwarding.")
-                forward_duration = (time.perf_counter() - forward_start) * 1000 # ms
+                # Cloud forwarding logic removed for local demo
+                forward_duration = 0
 
                 # Calculate Overhead/Wait time
                 # Total = (Receive/Save + Inference) + Forward + Overhead
@@ -177,7 +188,7 @@ class CycleManager:
                             await f.write("timestamp,cycle_id,total_time_ms,total_recv_save_ms,total_inference_ms,forward_ms,wait_overhead_ms,animal_count,forwarded\n")
                         
                         do_forward = (animal_count >= 1)
-                        await f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.0f},{total_receive_save:.0f},{total_inference:.0f},{forward_duration:.0f},{wait_overhead:.0f},{animal_count},{do_forward}\n")
+                        await f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.0f},{total_receive_save:.0f},{total_inference:.0f},{wait_overhead:.0f},{animal_count},{do_forward}\n")
                 except Exception as e:
                     logger.error(f"Failed to write to {csv_file}: {e}")
                 
@@ -188,23 +199,6 @@ class CycleManager:
             else:
                  logger.info(f"Cycle {cycle_id} buffered. Count: {count}/3")
 
-    async def forward_cycle(self, files):
-        if LOCAL_MODE:
-            logger.info("Local mode enabled. Skipping forwarding.")
-            return
-
-        if not MAIN_SERVER_URL:
-             logger.info("MAIN_SERVER_URL not set, skipping forwarding.")
-             return
-
-        for file_info in files:
-            await forward_image(file_info['path'], file_info['filename'])
-
-    async def has_detected_animal(self, cycle_id):
-        async with self.lock:
-            if cycle_id in self.cycles:
-                return any(f['is_animal'] for f in self.cycles[cycle_id]['files'])
-            return False
 
     async def cleanup_old_cycles(self, max_age_seconds=300):
         # Potentially clean up incomplete cycles that are too old
@@ -237,29 +231,30 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
     async with processing_semaphore:
         logger.info(f"Starting processing for {filename}")
         try:
-            # Extract Cycle ID first
-            cycle_id = extract_cycle_id(original_filename)
-            logger.info(f"Cycle ID for {original_filename}: {cycle_id}")
-
-            # Check for Early Exit
-            skip_inference = False
-            if cycle_id != "unknown" and await cycle_manager.has_detected_animal(cycle_id):
-                logger.info(f"Early Exit: Cycle {cycle_id} already has a positive detection. Skipping inference for {filename}.")
-                skip_inference = True
-                is_animal = False
-                label = "skipped (early exit)"
-
             # Measure Inference Time
             inference_start = time.perf_counter()
-            if not skip_inference:
-                # Run detection (save_path=None to skip BB drawing)
-                is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=None)
-                if is_animal:
-                    logger.info(f"Target detected in {filename}: {label}")
-                else:
-                    logger.info(f"No target detected in {filename}")
+            # Determine save path for bounding box image
+            file_root, file_ext = os.path.splitext(file_path)
+            save_path = f"{file_root}_det{file_ext}"
             
+            # Run detection (save_path draws bounding boxes)
+            is_person, confidence = await asyncio.to_thread(detector.detect, file_path, save_path=save_path)
             inference_duration = time.perf_counter() - inference_start
+            
+            if os.path.exists(save_path):
+                os.remove(file_path) # Delete original to avoid duplicates in gallery
+                file_path = save_path
+                file_name_root, _ = os.path.splitext(filename)
+                filename = f"{file_name_root}_det{file_ext}"
+
+            if is_person:
+                logger.info(f"Person detected in {filename} with confidence {confidence:.2f}")
+            else:
+                logger.info(f"No person detected in {filename}")
+
+            # Extract Cycle ID
+            cycle_id = extract_cycle_id(original_filename)
+            logger.info(f"Cycle ID for {original_filename}: {cycle_id}")
             
             timing_info = {
                 'receive_start': receive_start,
@@ -268,37 +263,13 @@ async def process_image(file_path: str, filename: str, original_filename: str, r
             }
 
             if cycle_id != "unknown":
-                await cycle_manager.add_result(cycle_id, file_path, filename, is_animal, timing_info)
+                await cycle_manager.add_result(cycle_id, file_path, filename, is_person, confidence, timing_info)
             else:
                 logger.warning(f"Could not extract Cycle ID from {filename}, skipping buffering.")
 
         except Exception as e:
             logger.error(f"Error processing {filename}: {e}")
 
-async def forward_image(file_path: str, filename: str):
-    """
-    Forward the image to the main server
-    """
-    logger.info(f"Forwarding {filename} to {MAIN_SERVER_URL}")
-    try:
-        # verify=False is required to connect to the cloud server using a self-signed SSL certificate
-        async with httpx.AsyncClient(verify=False) as client:
-            # Open file asynchronously for reading
-            async with aiofiles.open(file_path, "rb") as f:
-                content = await f.read()
-                
-            files = {"file": (filename, content, "image/jpeg")}
-            headers = {"X-API-KEY": API_TOKEN}
-            
-            # Note: External server (server.py) expects just the file and the API key header.
-            response = await client.post(MAIN_SERVER_URL, files=files, headers=headers)
-            response.raise_for_status()
-            logger.info(f"Successfully forwarded {filename}. Status: {response.status_code}")
-            
-    except httpx.HTTPError as e:
-        logger.error(f"Failed to forward {filename}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error forwarding {filename}: {e}")
 
 @app.post("/upload")
 async def upload_image(request: Request, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_token)):
@@ -323,15 +294,20 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks, api_
     # Generate timestamp for storage
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"{timestamp}_{original_filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
+    file_path = os.path.join(PROCESSING_DIR, filename)
     
     logger.info(f"Receiving upload: {filename}")
     
     try:
         # Save file asynchronously by streaming the request body
-        async with aiofiles.open(file_path, "wb") as buffer:
+        # Use .tmp extension while writing to avoid race conditions with GET /images
+        tmp_file_path = file_path + ".tmp"
+        async with aiofiles.open(tmp_file_path, "wb") as buffer:
             async for chunk in request.stream():
                 await buffer.write(chunk)
+        
+        # Rename to final filename (which makes it visible to /api/images)
+        os.rename(tmp_file_path, file_path)
         
         save_end = time.perf_counter()
         save_duration = save_end - receive_start
@@ -345,6 +321,9 @@ async def upload_image(request: Request, background_tasks: BackgroundTasks, api_
         
     except Exception as e:
         logger.error(f"Failed to save upload {filename}: {e}")
+        # Clean up tmp file if exists
+        if os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)
         return {"status": "error", "message": str(e)}
 
 @app.get("/healthz")
@@ -386,116 +365,12 @@ async def get_images():
         files = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
         # Sort by modification time descending (newest first)
         files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
+        # Limit to 10 most recent images
+        files = files[:10]
         return {"status": "ok", "images": files}
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/gallery", response_class=HTMLResponse)
-async def gallery():
-    """
-    Serve a simple HTML page to view the uploaded images.
-    """
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="ja">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Edge Server Gallery</title>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-            body { font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; background-color: #f2f7f4; color: #2d3748; }
-            h1 { text-align: center; color: #1c4532; margin-bottom: 10px; font-weight: 600; letter-spacing: -0.5px; font-size: 2.2rem; }
-            h2 { color: #276749; font-weight: 500; font-size: 1.2rem; margin-bottom: 20px; text-align: center; }
-            .header-accent { display: block; width: 60px; height: 4px; background: #38a169; margin: 0 auto 40px auto; border-radius: 2px; }
-            .latest-container { margin: 0 auto 50px auto; max-width: 900px; text-align: center; }
-            .latest-item { background: #ffffff; border-radius: 16px; box-shadow: 0 20px 40px rgba(39, 103, 73, 0.08); overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; border: 1px solid #e2e8f0; transition: transform 0.3s ease, box-shadow 0.3s ease; }
-            .latest-item:hover { transform: translateY(-5px); box-shadow: 0 25px 50px rgba(39, 103, 73, 0.12); }
-            .latest-item img { width: 100%; max-height: 550px; object-fit: contain; cursor: pointer; background: #f8fafc; border-bottom: 1px solid #edf2f7; }
-            .latest-item span { padding: 18px; font-size: 15px; color: #4a5568; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; }
-            .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px; max-width: 1200px; margin: 0 auto; padding: 0 20px; }
-            .item { background: #ffffff; border-radius: 14px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025); overflow: hidden; display: flex; flex-direction: column; align-items: center; transition: all 0.3s ease; border: 1px solid #edf2f7; }
-            .item:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(39, 103, 73, 0.1), 0 10px 10px -5px rgba(39, 103, 73, 0.04); border-color: #c6f6d5; }
-            .item .img-wrapper { width: 100%; height: 220px; overflow: hidden; background: #edf2f7; cursor: pointer; }
-            .item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
-            .item img:hover { transform: scale(1.05); }
-            .item span { padding: 16px 12px; font-size: 13px; color: #718096; font-weight: 500; word-break: break-all; width: 100%; box-sizing: border-box; text-align: center; }
-            .empty-msg { text-align: center; color: #718096; font-size: 16px; margin-top: 50px; font-weight: 500; }
-        </style>
-    </head>
-    <body>
-        <h1>Edge Server Gallery</h1>
-        <div class="header-accent"></div>
-        <div id="gallery-wrapper"></div>
-        <script>
-            let currentImages = null;
-
-            function arraysEqual(a, b) {
-                if (a === b) return true;
-                if (a == null || b == null) return false;
-                if (a.length !== b.length) return false;
-                for (let i = 0; i < a.length; ++i) {
-                    if (a[i] !== b[i]) return false;
-                }
-                return true;
-            }
-
-            function fetchImages() {
-                fetch('/api/images')
-                    .then(response => response.json())
-                    .then(data => {
-                        const wrapper = document.getElementById('gallery-wrapper');
-                        if (data.status === 'ok' && data.images && data.images.length > 0) {
-                            if (arraysEqual(currentImages, data.images)) {
-                                return; // No changes
-                            }
-                            currentImages = data.images;
-                            const images = data.images;
-                            const latestImg = images[0];
-                            
-                            let html = `
-                                <div class="latest-container">
-                                    <h2>Latest Capture</h2>
-                                    <div class="latest-item">
-                                        <img src="/images/${latestImg}" title="クリックしてフルサイズの画像を表示" onclick="window.open(this.src, '_blank')">
-                                        <span>${latestImg}</span>
-                                    </div>
-                                </div>
-                            `;
-                            
-                            if (images.length > 1) {
-                                html += '<div class="gallery">';
-                                for (let i = 1; i < images.length; i++) {
-                                    html += `
-                                        <div class="item">
-                                            <div class="img-wrapper" onclick="window.open('/images/${images[i]}', '_blank')">
-                                                <img src="/images/${images[i]}" title="クリックしてフルサイズの画像を表示">
-                                            </div>
-                                            <span>${images[i]}</span>
-                                        </div>
-                                    `;
-                                }
-                                html += '</div>';
-                            }
-                            
-                            wrapper.innerHTML = html;
-                        } else {
-                            wrapper.innerHTML = '<div class="empty-msg">画像が見つかりません。カメラで撮影された画像がここに表示されます。</div>';
-                        }
-                    })
-                    .catch(err => {
-                        document.getElementById('gallery-wrapper').innerHTML = '<div class="empty-msg" style="color:#e53e3e;">エラーが発生しました: ' + err.message + '</div>';
-                    });
-            }
-
-            // Initial load
-            fetchImages();
-
-            // Poll every 5 seconds to auto-update
-            setInterval(fetchImages, 5000);
-        </script>
-    </body>
-    </html>
-    """
-    return html_content
+# Mount frontend static files
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wild Animals - Edge Server Demo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="glass-header">
+            <div class="logo">
+                <span class="icon">🐾</span>
+                <h1>Wild Animals <span class="badge">Edge Demo</span></h1>
+            </div>
+            <div class="status-indicator">
+                <span class="pulse"></span>
+                <span class="status-text">System Active</span>
+            </div>
+        </header>
+
+        <main>
+            <section class="latest-section">
+                <h2>Latest Detection</h2>
+                <div id="latest-container" class="glass-card latest-card loading-state">
+                    <div class="loader"></div>
+                    <p>Waiting for camera input...</p>
+                </div>
+            </section>
+
+            <section class="gallery-section">
+                <h2>Recent Captures</h2>
+                <div id="gallery-grid" class="gallery-grid">
+                    <!-- Images will be injected here -->
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>Open Campus Demonstration</p>
+        </footer>
+    </div>
+    
+    <!-- Modal for full size image -->
+    <div id="image-modal" class="modal">
+        <span class="close-btn">&times;</span>
+        <img class="modal-content" id="modal-img">
+        <div id="caption"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -428,23 +428,54 @@ def build_video_filename(camera_id: str, seq: str, suffix: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     return f"{camera_id}_{timestamp}_{seq}{suffix.lower()}"
 
+_EVENT_METADATA_CACHE = {}
+_VIDEO_LIST_CACHE = {}
+_DIR_LIST_CACHE = {}
+
+def get_dir_max_mtime(base_dir: str) -> float:
+    if not os.path.isdir(base_dir):
+        return 0.0
+    try:
+        max_m = os.stat(base_dir).st_mtime
+        for entry in os.scandir(base_dir):
+            if entry.is_dir():
+                max_m = max(max_m, entry.stat().st_mtime)
+        return max_m
+    except Exception:
+        return 0.0
+
 
 def get_video_relpaths_for_event(camera_id: str, event_id: str) -> list:
     camera_dir = os.path.join(VIDEO_DIR, camera_id)
     if not os.path.isdir(camera_dir):
         return []
 
-    relpaths = []
-    for name in os.listdir(camera_dir):
-        file_path = os.path.join(camera_dir, name)
-        if not os.path.isfile(file_path):
-            continue
-        if extract_event_id_from_video_filename(name) != event_id:
-            continue
-        relpaths.append(f"{camera_id}/{name}".replace(os.sep, "/"))
+    try:
+        current_mtime = os.stat(camera_dir).st_mtime
+    except Exception:
+        current_mtime = 0.0
 
-    relpaths.sort(key=lambda x: os.path.getmtime(os.path.join(VIDEO_DIR, x.replace("/", os.sep))), reverse=True)
-    return relpaths
+    cache_entry = _VIDEO_LIST_CACHE.get(camera_id)
+    if not cache_entry or cache_entry["mtime"] != current_mtime:
+        events_map = defaultdict(list)
+        try:
+            for entry in os.scandir(camera_dir):
+                if entry.is_file():
+                    name = entry.name
+                    ev_id = extract_event_id_from_video_filename(name)
+                    relpath = f"{camera_id}/{name}".replace(os.sep, "/")
+                    events_map[ev_id].append((relpath, entry.stat().st_mtime))
+        except Exception:
+            pass
+            
+        for ev_id, paths in events_map.items():
+            paths.sort(key=lambda x: x[1], reverse=True)
+            events_map[ev_id] = [p[0] for p in paths]
+            
+        _VIDEO_LIST_CACHE[camera_id] = {"mtime": current_mtime, "events": events_map}
+        cache_entry = _VIDEO_LIST_CACHE[camera_id]
+
+    return cache_entry["events"].get(event_id, [])
 
 
 def get_related_event_images(base_dir: str, camera_id: str, event_id: str) -> list:
@@ -485,15 +516,22 @@ def save_event_metadata(camera_id: str, event_id: str, metadata: dict) -> None:
     path = get_event_metadata_path(camera_id, event_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
+    _EVENT_METADATA_CACHE[f"{camera_id}/{event_id}"] = metadata
 
 
 def load_event_metadata(camera_id: str, event_id: str) -> dict | None:
+    cache_key = f"{camera_id}/{event_id}"
+    if cache_key in _EVENT_METADATA_CACHE:
+        return _EVENT_METADATA_CACHE[cache_key]
+
     path = get_event_metadata_path(camera_id, event_id)
     if not os.path.isfile(path):
         return None
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            meta = json.load(f)
+            _EVENT_METADATA_CACHE[cache_key] = meta
+            return meta
     except Exception as e:
         logger.error(f"Failed to read event metadata {path}: {e}")
         return None
@@ -1245,7 +1283,11 @@ def extract_cycle_id(filename: str) -> str:
 
 
 def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
-    model.conf = 0.25
+    if source == "pi":
+        model.conf = 0.1
+    else:
+        model.conf = 0.25
+        
     results = model(image_path)
 
     detected_targets = {}
@@ -1258,6 +1300,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
 
     for index, row in df.iterrows():
         cls = int(row['class'])
+        if source == "pi" and 'animal' not in str(row['name']).lower():
+            continue
         if cls in TARGET_CLASSES:
             target_found = True
             label = row['name']
@@ -1309,6 +1353,8 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
             img = cv2.imread(image_path)
             for index, row in df.iterrows():
                 cls = int(row['class'])
+                if source == "pi" and 'animal' not in str(row['name']).lower():
+                    continue
                 if cls in TARGET_CLASSES:
                     x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
                     name_str = str(row['name']).lower()
@@ -1844,15 +1890,28 @@ async def get_images(
     Return a list of raw and processed images.
     """
     def get_all_images(base_dir):
+        current_mtime = get_dir_max_mtime(base_dir)
+        cache_entry = _DIR_LIST_CACHE.get(base_dir)
+        if cache_entry and cache_entry["mtime"] == current_mtime:
+            return cache_entry["files"]
+            
         files = []
-        for root, dirs, filenames in os.walk(base_dir):
-            for f in filenames:
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    rel_path = os.path.relpath(os.path.join(root, f), base_dir)
-                    rel_path = rel_path.replace(os.sep, '/')
-                    files.append(rel_path)
-        files.sort(key=lambda x: os.path.getmtime(os.path.join(base_dir, x)), reverse=True)
-        return files
+        if os.path.isdir(base_dir):
+            try:
+                for cam_entry in os.scandir(base_dir):
+                    if cam_entry.is_dir():
+                        for file_entry in os.scandir(cam_entry.path):
+                            name = file_entry.name
+                            if name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                                rel_path = f"{cam_entry.name}/{name}"
+                                files.append((rel_path, file_entry.stat().st_mtime))
+            except Exception as e:
+                logger.error(f"Error scanning {base_dir}: {e}")
+        
+        files.sort(key=lambda x: x[1], reverse=True)
+        result = [x[0] for x in files]
+        _DIR_LIST_CACHE[base_dir] = {"mtime": current_mtime, "files": result}
+        return result
 
     try:
         raw_files = filter_images_for_principal(get_all_images(UPLOAD_DIR), principal)
