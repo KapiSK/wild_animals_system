@@ -1284,7 +1284,7 @@ def extract_cycle_id(filename: str) -> str:
 
 def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
     if source == "pi":
-        model.conf = 0.001
+        model.conf = 0.1
     else:
         model.conf = 0.25
         
