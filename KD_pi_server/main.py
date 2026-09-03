@@ -282,7 +282,7 @@ async def forward_image(file_path: str, filename: str):
     logger.info(f"Forwarding {filename} to {MAIN_SERVER_URL}")
     try:
         # verify=False is required to connect to the cloud server using a self-signed SSL certificate
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
             # Open file asynchronously for reading
             async with aiofiles.open(file_path, "rb") as f:
                 content = await f.read()

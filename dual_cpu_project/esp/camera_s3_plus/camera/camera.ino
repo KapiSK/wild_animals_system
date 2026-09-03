@@ -1,4 +1,4 @@
-﻿/* *****************************************************
+/* *****************************************************
  * camera.ino — XIAO ESP32-S3 Sense Plus (Dual CPU Configuration)
  *
  * トレイルカメラの動作 (デュアルCPU/超低消費電力アーキテクチャ):
@@ -1348,6 +1348,9 @@ void setup() {
   // Start the status LED task
   // Solid LED indicates booting
   LOG_PRINTLN("\n=== ESP-CAM Boot (Cooldown Version) ===");
+  uint8_t baseMac[6];
+  esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
+  LOG_PRINTF("[BOOT] MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n", baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
   g_tWake = millis();
   // Record wake-up time
 
