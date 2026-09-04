@@ -8,13 +8,14 @@
  * PIRセンサーからの割り込み検知のみでスリープから復帰し、
  * MOSFETをONにしてESP32システム全体へ給電する極低消費電力の電源管理プログラム。
  * ESP32からの処理完了信号(または3分タイムアウト)でMOSFETをOFFにして再度スリープへ入る。
+ * WDT(ウォッチドッグタイマー)を有効化し、信頼性向上と待機時のスリープ化による省電力を実現。
  */
 
 // --- コンフィグレーションビットの設定 ---
 #pragma config FOSC =                                                          \
     INTRCIO // 内部オシレータ使用 (GP4/GP5はデジタルI/Oとして使用)
 #pragma config WDTE =                                                          \
-    OFF // ウォッチドッグタイマー無効 (スリープ時の消費電力を下げるため)
+    ON // ウォッチドッグタイマー有効 (フリーズ対策 兼 スリープ時のタイマー)
 #pragma config PWRTE = ON // パワーアップタイマー有効
 #pragma config MCLRE =                                                         \
     OFF // GP3/MCLRピンはデジタル入力として使用(内部でVDDにプルアップ)
@@ -29,59 +30,78 @@
 #define _XTAL_FREQ 4000000 // 4MHz
 
 // --- ピン割り当て ---
-#define PIN_MOSFET GP0    // 出力: xiaoの電源制御 (HIGHでMOSFET ON)
-#define PIN_XIAO_DONE GP1 // 入力: xiaoからの処理完了信号 (HIGHで完了)
-#define PIN_PIR GP2       // 入力: PIRセンサー (状態変化割り込み IOC を使用)
-#define PIN_XIAO_SIG GP4  // 出力: xiaoへの信号
-#define PIN_LED GP5       // 出力: LED
+#define PIN_MOSFET GP0 // 出力: xiaoの電源制御 (HIGHでMOSFET ON)
+#define PIN_XIAO_DONE                                                          \
+  GP1 // 入力/出力: xiaoからの完了信号(入力) / フローティング防止(出力LOW)
+#define PIN_PIR GP2      // 入力: PIRセンサー (状態変化割り込み INT を使用)
+#define PIN_XIAO_SIG GP4 // 出力: xiaoへの信号
+#define PIN_LED GP5      // 出力: LED
 
 // --- パラメータ設定 ---
-// タイムアウト時間（約100ms * 1800回 = 180秒 = 3分）
+// タイムアウト時間: 3分 = 180秒 (100ms * 1800回)
 #define TIMEOUT_MAX_COUNT 1800
+
+// 撮影後インターバル: 3分30秒 = 210秒
+// WDTプリスケーラ1:128の場合、1回のタイムアウトは約2.3秒
+// 210秒 / 2.3秒 ≒ 91回
+#define INTERVAL_WDT_CYCLES 91
+
+// --- 関数定義 ---
+// LEDを指定回数、指定間隔(ms)で点滅させる（WDTクリア付き）
+void blink_led(uint8_t count, uint16_t delay_ms) {
+  uint16_t loops = delay_ms / 10;
+  if (loops == 0)
+    loops = 1;
+
+  for (uint8_t i = 0; i < count; i++) {
+    PIN_LED = 1;
+    for (uint16_t j = 0; j < loops; j++) {
+      __delay_ms(10);
+      CLRWDT();
+    }
+    PIN_LED = 0;
+    for (uint16_t j = 0; j < loops; j++) {
+      __delay_ms(10);
+      CLRWDT();
+    }
+  }
+}
 
 void main(void) {
   // --- 初期化 ---
   // コンパレータの無効化（デジタルI/Oとして使うため必須）
   CMCON = 0x07;
 
-  // GPIOの入出力方向設定 (0=出力, 1=入力)
-  // GP0(MOSFET) = 出力(0)
-  // GP1(XIAO_DONE) = 入力(1)
-  // GP2(PIR) = 入力(1)
-  // GP3(MCLR) = 入力(1) - 入力専用
-  // GP4(XIAO_SIG), GP5(LED) = 出力(0)
-  TRISIO = 0b00001110;
-
   // GPIOの初期出力値設定 (すべてLOW)
   GPIO = 0x00;
 
-  // --- デバッグ用：起動確認のLED点滅 (3回) ---
-  for (uint8_t i = 0; i < 3; i++) {
-    PIN_LED = 1;
-    __delay_ms(200);
-    PIN_LED = 0;
-    __delay_ms(200);
-  }
+  // WDT用プリスケーラの設定 (OPTION_REG)
+  // PSA(bit3)=1(WDTに割り当て), PS2-PS0(bit2-0)=111 (1:128)
+  // これによりWDTタイムアウトは約2.3秒(Typ)となる。
+  OPTION_REGbits.PSA = 1;
+  OPTION_REGbits.PS = 0b111;
+
+  // GPIOの入出力方向設定 (0=出力, 1=入力)
+  // GP0(MOSFET) = 出力(0)
+  // GP1(XIAO_DONE) = 最初は出力(0)にしてLOW固定（フローティング対策）
+  // GP2(PIR) = 入力(1)
+  // GP3(MCLR) = 入力(1) - 入力専用
+  // GP4(XIAO_SIG), GP5(LED) = 出力(0)
+  TRISIO = 0b00001100; // GP1を出力(0)に変更
+
+  // --- デバッグ用：起動確認のLED点滅 (3回、200ms間隔) ---
+  blink_led(3, 200);
 
   // --- PIRセンサー安定化待ち (約30秒) ---
-  // PIRセンサーは電源投入直後、出力が不安定になるため、
-  // 割り込みを有効にする前に完全に安定するまで待機します。
-  // 待機中はLEDをゆっくり点滅させます（約2秒周期）。
-  for (uint16_t i = 0; i < 30; i++) {
-    PIN_LED = 1;
-    for (uint8_t j = 0; j < 10; j++)
-      __delay_ms(100); // 1秒待機
-    PIN_LED = 0;
-    for (uint8_t j = 0; j < 10; j++)
-      __delay_ms(100); // 1秒待機
+  // 待機中はLEDを約2秒周期でゆっくり点滅
+  for (uint8_t i = 0; i < 15; i++) {
+    blink_led(1, 1000);
   }
 
-  // --- 割り込み設定 (変更: 確実なINT割り込みを使用) ---
-  // GP2ピンは専用の「外部割り込み(INT)」が使えるため、ノイズに弱いIOCではなくこちらを使います
+  // --- 割り込み設定 (INT割り込みを使用) ---
   OPTION_REGbits.INTEDG =
-      1;    // 立ち上がりエッジ（LOWからHIGHになった瞬間）で割り込み
-  INTE = 1; // GP2/INT外部割り込み許可
-  GIE = 0;  // スリープからそのまま復帰させるためGIEは0
+      1;   // 立ち上がりエッジ（LOWからHIGHになった瞬間）で割り込み
+  GIE = 0; // スリープからそのまま復帰させるため全体割り込みは無効(0)
 
   // --- メインループ ---
   while (1) {
@@ -90,87 +110,103 @@ void main(void) {
     PIN_XIAO_SIG = 0;
     PIN_LED = 0;
 
-    // スリープ前の割り込みフラグクリア処理
-    INTF = 0; // INT割り込みフラグをクリア
+    // フローティング対策: ESP32電源OFF時はGP1(XIAO_DONE)を出力LOWにする
+    TRISIO = 0b00001100; // GP1を出力に設定
+    PIN_XIAO_DONE = 0;
 
     // 2. 超低消費電力スリープモードへ移行
-    // 【重要】スリープに入る前にPIRが既にHIGHになっていないか確認する
-    // (既にHIGHの場合、立ち上がりエッジが発生しないため一生起きられなくなる罠を防ぐ)
+    INTE = 1; // INT外部割り込み許可
+    INTF = 0; // INT割り込みフラグをクリア
+
+    // PIRがLOWなら安心してスリープ
     if (PIN_PIR == 0) {
-      // LOWなら安心してスリープ
-      // ※もしこの直後にHIGHになっても、INTFが立つためSLEEP命令は自動的にスキップ(NOP扱い)され安全です
-      SLEEP();
+      // WDT有効のため約2.3秒おきに起床するが、PIR検知(INTF=1)までは再スリープ
+      while (INTF == 0) {
+        CLRWDT();
+        SLEEP();
+      }
     }
+
+    // 割り込み禁止（以後の処理中やインターバル中に誤検知しないため）
+    INTE = 0;
 
     // ------------------------------------------------
     // 3. スリープから復帰（PIR検知確定）
     // ------------------------------------------------
 
     // チャタリングや一瞬のノイズ(静電気等)による誤作動を防ぐため少し待機
-    __delay_ms(50);
+    for (uint8_t i = 0; i < 8; i++) {
+      __delay_ms(10);
+      CLRWDT();
+    }
 
     // 50ms後もまだPIRがHIGHのままであれば本物の検知とみなす
     if (PIN_PIR == 1) {
-      // すぐに xiaoへの給電をON、信号出力、LED点灯
+      // ESP32起動前にフローティング対策を解除し、GP1(XIAO_DONE)を入力に戻す
+      TRISIO = 0b00001110; // GP1を入力に
+
+      // すぐに xiaoへの給電をON、信号出力
       PIN_MOSFET = 1;
       PIN_XIAO_SIG = 1;
       PIN_LED = 1;
 
       // ESP32がブートし、ピン状態が安定するまで待機（起動直後の誤検知防止）
-      // デバッグ用：待機中はLEDを細かく点滅させて動作確認
-      for (uint8_t i = 0; i < 15; i++) { // 200ms x 15 = 3000ms
-        PIN_LED = 1;
-        __delay_ms(100);
-        PIN_LED = 0;
-        __delay_ms(100);
-      }
+      // 待機中はLEDを細かく点滅 (約3秒)
+      blink_led(15, 100);
 
-      // 4. xiaoの処理完了またはタイムアウト待ちループ
+      // 4. xiaoの処理完了またはタイムアウト(3分)待ちループ
       uint16_t timeout_counter = 0;
       while (timeout_counter < TIMEOUT_MAX_COUNT) {
+        CLRWDT();
+
         // xiaoから「処理完了」のHIGH信号が来たら抜ける
         if (PIN_XIAO_DONE == 1) {
           break;
         }
 
-        // 100ms 待機してカウンタを進める
         __delay_ms(100);
         timeout_counter++;
 
-        // デバッグ用：ESP32処理待ち中はLEDを点滅 (約500ms周期)
+        // 処理待ち中はLEDを点滅 (500ms周期)
         if (timeout_counter % 5 == 0) {
           PIN_LED ^= 1;
         }
       }
 
-      // 5.
-      // 処理完了（またはタイムアウト）。ループを抜けたので出力をOFFにして再度スリープの準備へ
+      // 5. 処理完了またはタイムアウト。出力をOFFにして再度スリープの準備へ
       PIN_MOSFET = 0;
       PIN_XIAO_SIG = 0;
       PIN_LED = 0;
 
-      // PIRセンサーが反応し続けている（動物がまだ前にいる等）場合、
-      // すぐにスリープに入ると即座に起きてしまうため、PIRがLOWに落ち着くまで待機する
+      // 再びフローティング対策
+      TRISIO = 0b00001100; // GP1を出力に
+      PIN_XIAO_DONE = 0;
+
+      // PIRセンサーが反応し続けている場合、PIRがLOWに落ち着くまでWDTスリープで待機
       while (PIN_PIR == 1) {
-        // デバッグ用：PIRがLOWになるのを待っている間は、短いチカッという点滅で「待機中」であることを知らせる
         PIN_LED = 1;
         __delay_ms(10);
         PIN_LED = 0;
-        
-        __delay_ms(490);
-        PIN_MOSFET = 0;
-        PIN_XIAO_SIG = 0;
+
+        CLRWDT();
+        SLEEP(); // 約2.3秒スリープ
       }
 
-      // 連続撮影を防ぐため、5分間のインターバル（不感時間）を設ける
-      for (uint16_t i = 0; i < 1800; i++) {
-        __delay_ms(100);
-        // デバッグ用：不感時間中はLEDをゆっくり点滅 (1秒ごとに反転)
-        if (i % 10 == 0) {
-          PIN_LED ^= 1;
+      // 6. 連続撮影を防ぐインターバル (3分30秒)
+      // 約2.3秒(WDT) × 91回 ＝ 約210秒(3.5分)
+      for (uint16_t i = 0; i < INTERVAL_WDT_CYCLES; i++) {
+        // デバッグ用: インターバル中は約4.6秒(2周期)ごとにチカッと短く点滅
+        if (i % 2 == 0) {
+          PIN_LED = 1;
+          __delay_ms(10);
+          PIN_LED = 0;
         }
+
+        CLRWDT();
+        SLEEP(); // 約2.3秒スリープ
       }
+
       PIN_LED = 0; // 最後に確実に消灯
-    } // end of if(PIN_PIR == 1)
+    }
   }
 }
