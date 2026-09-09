@@ -107,7 +107,7 @@ constexpr char API_TOKEN[] = "wild-animals-token-2026"; // Edge Server API Token
 // =======================================================
 namespace param {
 constexpr uint8_t NUM_SHOTS_TOTAL =
-    4; // Total shots to take (1 discard + 3 save)
+    6; // Total shots to take (3 discard + 3 save)
 constexpr uint8_t NUM_SHOTS_SAVE = 3;      // Number of shots to actually save
 constexpr uint32_t SHOT_INTERVAL_MS = 500; // Interval between shots (ms)
 constexpr int MAX_ARCHIVE_CYCLES =
@@ -416,6 +416,15 @@ static bool initCamera() {
     return false;
   }
 
+  // Configure sensor for faster exposure stabilization
+  sensor_t * s = esp_camera_sensor_get();
+  if (s != NULL) {
+    s->set_exposure_ctrl(s, 1); // AEC (Auto Exposure Control)
+    s->set_aec2(s, 1);          // AEC2 (DSP Auto Exposure Control)
+    s->set_gain_ctrl(s, 1);     // AGC (Auto Gain Control)
+    s->set_awb_gain(s, 1);      // AWB (Auto White Balance)
+  }
+
   // Optional: Get sensor object to configure settings like V-Flip, brightness
   // etc. sensor_t * s = esp_camera_sensor_get(); s->set_vflip(s, 1);       //
   // Example: Flip camera image vertically s->set_brightness(s, 0); // Example:
@@ -502,7 +511,7 @@ static bool shootAndSave(uint8_t captureIndex, uint8_t saveIndex, bool night) {
   }
 
   // --- Discard Logic ---
-  if (captureIndex == 1) {
+  if (saveIndex == 0) {
     LOG_PRINTF("[CAM] Discarding stabilization shot #%u\n", captureIndex);
     esp_camera_fb_return(fb); // Return the buffer without saving
     return true;              // Indicate success for the sequence step
@@ -1321,16 +1330,17 @@ static void beginCapture() {
   applyDayNightActions(night);
 
   // --- Capture Loop ---
-  // Takes NUM_SHOTS_TOTAL (4), saves NUM_SHOTS_SAVE (3)
+  // Takes NUM_SHOTS_TOTAL, saves NUM_SHOTS_SAVE
   uint8_t savedCount = 0;
   bool captureOk = true;
+  uint8_t numDiscard = param::NUM_SHOTS_TOTAL - param::NUM_SHOTS_SAVE;
   for (uint8_t i = 1; i <= param::NUM_SHOTS_TOTAL; ++i) {
     // Determine save index (0 for discard, 1, 2, 3 for saving)
-    uint8_t saveIdx = (i == 1) ? 0 : savedCount + 1;
+    uint8_t saveIdx = (i <= numDiscard) ? 0 : savedCount + 1;
     bool success = shootAndSave(i, saveIdx, night); // Attempt capture/save
 
     // Track success only for shots meant to be saved
-    if (i > 1) { // If it wasn't the discarded shot
+    if (saveIdx > 0) { // If it wasn't the discarded shot
       if (success) {
         savedCount++;
       } else {
