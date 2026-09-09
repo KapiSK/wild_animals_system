@@ -106,8 +106,7 @@ constexpr char API_TOKEN[] = "wild-animals-token-2026"; // Edge Server API Token
 // Behaviour Parameters
 // =======================================================
 namespace param {
-constexpr uint8_t NUM_SHOTS_TOTAL =
-    6; // Total shots to take (3 discard + 3 save)
+constexpr uint8_t WARMUP_FRAMES = 5;       // Number of fast discard frames for AEC/AGC
 constexpr uint8_t NUM_SHOTS_SAVE = 3;      // Number of shots to actually save
 constexpr uint32_t SHOT_INTERVAL_MS = 500; // Interval between shots (ms)
 constexpr int MAX_ARCHIVE_CYCLES =
@@ -1329,29 +1328,28 @@ static void beginCapture() {
   bool night = isNight();
   applyDayNightActions(night);
 
-  // --- Capture Loop ---
-  // Takes NUM_SHOTS_TOTAL, saves NUM_SHOTS_SAVE
+  // --- Warmup Loop (Fast discard to stabilize AEC/AGC) ---
+  LOG_PRINTLN("[CAM] Warming up sensor...");
+  for (uint8_t i = 1; i <= param::WARMUP_FRAMES; ++i) {
+    shootAndSave(i, 0, night); // saveIndex=0 for discard
+    delay(50); // Short delay for fast frame reading
+  }
+
+  // --- Capture Loop (Actual saving) ---
   uint8_t savedCount = 0;
   bool captureOk = true;
-  uint8_t numDiscard = param::NUM_SHOTS_TOTAL - param::NUM_SHOTS_SAVE;
-  for (uint8_t i = 1; i <= param::NUM_SHOTS_TOTAL; ++i) {
-    // Determine save index (0 for discard, 1, 2, 3 for saving)
-    uint8_t saveIdx = (i <= numDiscard) ? 0 : savedCount + 1;
-    bool success = shootAndSave(i, saveIdx, night); // Attempt capture/save
+  for (uint8_t i = 1; i <= param::NUM_SHOTS_SAVE; ++i) {
+    bool success = shootAndSave(i, i, night); // saveIndex=i
 
-    // Track success only for shots meant to be saved
-    if (saveIdx > 0) { // If it wasn't the discarded shot
-      if (success) {
-        savedCount++;
-      } else {
-        captureOk = false; // Mark the sequence as potentially incomplete
-        LOG_PRINTF("[WARN] Failed to save shot for index %u\n", saveIdx);
-        // Continue trying remaining shots
-      }
+    if (success) {
+      savedCount++;
+    } else {
+      captureOk = false; // Mark the sequence as potentially incomplete
+      LOG_PRINTF("[WARN] Failed to save shot for index %u\n", i);
     }
 
     // Delay between shots (except after the last one)
-    if (i < param::NUM_SHOTS_TOTAL) {
+    if (i < param::NUM_SHOTS_SAVE) {
       delay(param::SHOT_INTERVAL_MS);
     }
   }

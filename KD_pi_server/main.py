@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import aiofiles
 import httpx
+from urllib.parse import urlparse
 from detector import Detector
 
 # Load environment variables
@@ -76,6 +77,27 @@ async def periodic_cleanup():
             logger.error(f"Periodic cleanup error: {e}")
         await asyncio.sleep(86400) # Run daily
 
+async def periodic_heartbeat():
+    while True:
+        try:
+            if MAIN_SERVER_URL and not LOCAL_MODE:
+                parsed = urlparse(MAIN_SERVER_URL)
+                base_url = f"{parsed.scheme}://{parsed.netloc}"
+                heartbeat_url = f"{base_url}/api/v1/heartbeat"
+                
+                async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+                    headers = {"X-API-KEY": API_TOKEN}
+                    payload = {"node_id": "pi", "status": "alive"}
+                    response = await client.post(heartbeat_url, json=payload, headers=headers)
+                    if response.status_code == 200:
+                        logger.info("Heartbeat sent successfully.")
+                    else:
+                        logger.warning(f"Heartbeat failed with status: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Heartbeat error: {e}")
+            
+        await asyncio.sleep(3600) # 1時間おきに実行
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global detector
@@ -84,8 +106,10 @@ async def lifespan(app: FastAPI):
     detector = await asyncio.to_thread(Detector)
     logger.info("Detector initialized.")
     cleanup_task = asyncio.create_task(periodic_cleanup())
+    heartbeat_task = asyncio.create_task(periodic_heartbeat())
     yield
     cleanup_task.cancel()
+    heartbeat_task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 

@@ -930,6 +930,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class HeartbeatPayload(BaseModel):
+    node_id: str
+    status: str = "alive"
 
 app = FastAPI()
 
@@ -1534,6 +1537,15 @@ async def upload_video(
     except Exception as e:
         logger.error(f"Failed to save video upload: {e}")
         return {"status": "error", "message": str(e)}
+@app.post("/api/v1/heartbeat")
+async def receive_heartbeat(payload: HeartbeatPayload, api_key: str = Depends(verify_api_token)):
+    telemetry = load_telemetry()
+    telemetry[payload.node_id] = {
+        "last_seen": datetime.now().isoformat(),
+        "status": payload.status
+    }
+    save_telemetry(telemetry)
+    return {"status": "ok", "message": "Heartbeat recorded"}
 
 @app.post("/api/telemetry")
 async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_token)):
