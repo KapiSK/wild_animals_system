@@ -84,8 +84,12 @@ constexpr uint8_t PIN_FLASH = 6; // Flash LED (5VA DCDC) Control Output
 // Network Configuration
 // =======================================================
 namespace net {
-constexpr char WIFI_SSID[] = "SLAB_KD01";
-constexpr char WIFI_PASS[] = "wakaW1sat0";
+String WIFI_SSID = "your_wifi_ssid";
+String WIFI_PASS = "your_wifi_password";
+char STATIC_IP[16] = "";
+char STATIC_GW[16] = "";
+char STATIC_SN[16] = "";
+char STATIC_DNS[16] = "";
 constexpr uint32_t WIFI_TIMEOUT =
     30000; // Wi-Fi connection attempt timeout (ms)
 constexpr char PI_MDNS_HOST[] =
@@ -106,19 +110,15 @@ constexpr char API_TOKEN[] = "wild-animals-token-2026"; // Edge Server API Token
 // Behaviour Parameters
 // =======================================================
 namespace param {
-constexpr uint8_t WARMUP_FRAMES = 5;       // Number of fast discard frames for AEC/AGC
-constexpr uint8_t NUM_SHOTS_SAVE = 3;      // Number of shots to actually save
-constexpr uint32_t SHOT_INTERVAL_MS = 500; // Interval between shots (ms)
-constexpr int MAX_ARCHIVE_CYCLES =
-    100; // Maximum number of cycles to keep in /archive
-constexpr uint8_t UPLOAD_RETRY_WINDOW =
+uint8_t WARMUP_FRAMES = 15;       // Number of fast discard frames for AEC/AGC
+uint8_t NUM_SHOTS_SAVE = 3;      // Number of shots to actually save
+uint32_t SHOT_INTERVAL_MS = 500; // Interval between shots (ms)
+int MAX_ARCHIVE_CYCLES =
+    50; // Max number of cycle folders to keep before cleanup
+uint8_t UPLOAD_RETRY_WINDOW =
     3; // How many recent cycles (relative to current) to retry uploading
 constexpr uint32_t MIN_FREE_SPACE_MB = 30;
 } // namespace param
-
-// =======================================================
-// Status LED Control (using a dedicated FreeRTOS task)
-// =======================================================
 
 // =======================================================
 // Global Variables
@@ -144,6 +144,58 @@ const char *UPLOADED_LIST_PATH =
     "/logs/uploaded_cids.txt"; // Path to store the uploaded list persistently
 uint32_t g_currentSeqNum =
     0; // Sequence number of the current cycle (from /seq.txt)
+
+// =======================================================
+// Config Loader (SD Card)
+// =======================================================
+static void loadConfigFromSD() {
+  File file = SD.open("/config.txt");
+  if (!file) {
+    LOG_PRINTLN("[CFG ] No /config.txt found. Using default values.");
+    return;
+  }
+  LOG_PRINTLN("[CFG ] Loading /config.txt...");
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0 || line.startsWith("#")) continue;
+
+    int eqIdx = line.indexOf('=');
+    if (eqIdx > 0) {
+      String key = line.substring(0, eqIdx);
+      String val = line.substring(eqIdx + 1);
+      key.trim();
+      val.trim();
+
+      if (key == "WARMUP_FRAMES") {
+        int v = val.toInt();
+        if (v >= 0 && v <= 50) param::WARMUP_FRAMES = v;
+      } else if (key == "NUM_SHOTS_SAVE") {
+        int v = val.toInt();
+        if (v > 0 && v <= 10) param::NUM_SHOTS_SAVE = v;
+      } else if (key == "SHOT_INTERVAL_MS") {
+        int v = val.toInt();
+        if (v >= 50 && v <= 5000) param::SHOT_INTERVAL_MS = v;
+      } else if (key == "MAX_ARCHIVE_CYCLES") {
+        int v = val.toInt();
+        if (v >= 10 && v <= 500) param::MAX_ARCHIVE_CYCLES = v;
+      } else if (key == "UPLOAD_RETRY_WINDOW") {
+        int v = val.toInt();
+        if (v >= 0 && v <= 20) param::UPLOAD_RETRY_WINDOW = v;
+      } else if (key == "NIGHT_THRESHOLD") {
+        int v = val.toInt();
+        if (v >= 0 && v <= 4095) daynight::NIGHT_THRESHOLD = v;
+      } else if (key == "WIFI_SSID") {
+        if (val.length() > 0) net::WIFI_SSID = val;
+      } else if (key == "WIFI_PASS") {
+        net::WIFI_PASS = val;
+      }
+    }
+  }
+  file.close();
+  LOG_PRINTF("[CFG ] WARMUP=%u, SAVE=%u, INT=%ums, SSID=%s\n",
+             param::WARMUP_FRAMES, param::NUM_SHOTS_SAVE, param::SHOT_INTERVAL_MS, net::WIFI_SSID.c_str());
+}
 
 // =======================================================
 // Utility Functions
@@ -347,9 +399,26 @@ static void appendWithRotate(const char *path, const String &s,
  */
 static void initWiFi() {
   g_tWifiStart = millis(); // Record start of WiFi connection
-  WiFi.mode(WIFI_STA);     // Set Wi-Fi mode to Station (client)
-  WiFi.begin(net::WIFI_SSID, net::WIFI_PASS); // Start connection attempt
-  LOG_PRINTF("[WIFI] Connecting to %s", net::WIFI_SSID);
+  LOG_PRINTF("[WIFI] Connecting to %s ", net::WIFI_SSID.c_str());
+
+  WiFi.mode(WIFI_STA);
+
+  // Initialize static IP structure (if configured)
+  if (strlen(net::STATIC_IP) > 0) {
+    LOG_PRINTF("\n[WIFI] Configuring static IP: %s\n", net::STATIC_IP);
+    IPAddress local_ip, gateway, subnet, dns;
+    if (local_ip.fromString(net::STATIC_IP) &&
+        gateway.fromString(net::STATIC_GW) &&
+        subnet.fromString(net::STATIC_SN) && dns.fromString(net::STATIC_DNS)) {
+      if (!WiFi.config(local_ip, gateway, subnet, dns)) {
+        LOG_PRINTLN("[WIFI] STA Failed to configure Static IP");
+      }
+    } else {
+      LOG_PRINTLN("[WIFI] Invalid static IP configuration format in code.");
+    }
+  }
+
+  WiFi.begin(net::WIFI_SSID.c_str(), net::WIFI_PASS.c_str());
 
   uint32_t t0 = millis();
   // Wait for connection or timeout
@@ -1057,24 +1126,21 @@ static void saveCurrentLogChunkToSD(const char* label) {
 /***********************************************************
  * 14.  Light (CDS) & Motor Control
  ***********************************************************/
-namespace lux {
-constexpr int THRESH = 2800;
-} // namespace lux
+// Configuration for Day/Night actions
+namespace daynight {
+int NIGHT_THRESHOLD = 3000;
+constexpr bool LED_ON_AT_NIGHT = true; // Flash LED enabled at night
+constexpr bool LED_ON_AT_DAY = false;  // Turn flash OFF during day
+} // namespace daynight
 
 /** @brief Reads CDS sensor and determines if it's currently night. */
 static bool isNight() {
   int v = analogRead(hw::PIN_CDS); // Read analog value (0-4095)
-  bool night = (v < lux::THRESH);
+  bool night = (v < daynight::NIGHT_THRESHOLD);
   LOG_PRINTF("[LUX ] CDS Pin=%u, Value=%d, Threshold=%d -> %s\n", hw::PIN_CDS,
-             v, lux::THRESH, night ? "NIGHT" : "DAY");
+             v, daynight::NIGHT_THRESHOLD, night ? "NIGHT" : "DAY");
   return night;
 }
-
-// Configuration for Day/Night actions
-namespace daynight {
-constexpr bool LED_ON_AT_NIGHT = true; // Turn flash ON at night
-constexpr bool LED_ON_AT_DAY = false;  // Turn flash OFF during day
-} // namespace daynight
 
 /** @brief Activates LED based on the isNight() status. */
 static void applyDayNightActions(bool night) {
@@ -1333,6 +1399,21 @@ static void beginCapture() {
   for (uint8_t i = 1; i <= param::WARMUP_FRAMES; ++i) {
     shootAndSave(i, 0, night); // saveIndex=0 for discard
     delay(50); // Short delay for fast frame reading
+  }
+
+  // --- Lock AEC/AGC/AWB for consistent burst capture ---
+  sensor_t * s = esp_camera_sensor_get();
+  if (s != NULL) {
+    LOG_PRINTLN("[CAM] Locking Auto Exposure/Gain/WB for burst.");
+    s->set_exposure_ctrl(s, 0); // Disable AEC (locks current exposure)
+    s->set_aec2(s, 0);          // Disable AEC2
+    s->set_gain_ctrl(s, 0);     // Disable AGC (locks current gain)
+    s->set_awb_gain(s, 0);      // Disable AWB (locks current white balance)
+
+    // レジスタ変更が走査中の画像に反映されて「半分だけ色が変わる」のを防ぐため、
+    // 変更直後の1フレームを意図的に読み捨てる（フラッシュする）
+    delay(100);
+    shootAndSave(255, 0, night); 
   }
 
   // --- Capture Loop (Actual saving) ---
