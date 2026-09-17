@@ -930,6 +930,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class HeartbeatPayload(BaseModel):
+    node_id: str
+    status: str = "alive"
 
 app = FastAPI()
 
@@ -1534,6 +1537,15 @@ async def upload_video(
     except Exception as e:
         logger.error(f"Failed to save video upload: {e}")
         return {"status": "error", "message": str(e)}
+@app.post("/api/v1/heartbeat")
+async def receive_heartbeat(payload: HeartbeatPayload, api_key: str = Depends(verify_api_token)):
+    telemetry = load_telemetry()
+    telemetry[payload.node_id] = {
+        "last_seen": datetime.now().isoformat(),
+        "status": payload.status
+    }
+    save_telemetry(telemetry)
+    return {"status": "ok", "message": "Heartbeat recorded"}
 
 @app.post("/api/telemetry")
 async def update_telemetry(payload: dict, api_key: str = Depends(verify_api_token)):
@@ -2287,6 +2299,92 @@ async def update_env(config: EnvConfig, admin: dict = Depends(verify_admin)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+class CameraMigrationRequest(BaseModel):
+    source_camera_id: str
+    dest_camera_id: str
+    start_datetime: str
+
+@app.post("/api/admin/migrate_camera")
+async def migrate_camera_data(req: CameraMigrationRequest, admin: dict = Depends(verify_admin)):
+    import shutil
+    source = req.source_camera_id.strip()
+    dest = req.dest_camera_id.strip()
+    
+    if not source or not dest:
+        return {"status": "error", "message": "Source and Destination IDs are required"}
+        
+    try:
+        start_dt = datetime.fromisoformat(req.start_datetime)
+    except ValueError:
+        return {"status": "error", "message": "Invalid start_datetime format. Use ISO8601 (e.g., 2026-09-17T12:00:00)"}
+
+    migrated_count = 0
+    errors = []
+    dirs_to_check = [UPLOAD_DIR, PROCESSED_DIR, VIDEO_DIR, EVENT_METADATA_DIR]
+    
+    for base_dir in dirs_to_check:
+        source_dir = os.path.join(base_dir, source)
+        dest_dir = os.path.join(base_dir, dest)
+        
+        if not os.path.exists(source_dir):
+            continue
+            
+        os.makedirs(dest_dir, exist_ok=True)
+        
+        for filename in os.listdir(source_dir):
+            file_path = os.path.join(source_dir, filename)
+            if not os.path.isfile(file_path):
+                continue
+                
+            file_dt = None
+            match = re.search(r'_(\d{14})_', filename)
+            if match:
+                dt_str = match.group(1)
+                try:
+                    file_dt = datetime.strptime(dt_str, "%Y%m%d%H%M%S")
+                except ValueError:
+                    pass
+            
+            if not file_dt:
+                mtime = os.path.getmtime(file_path)
+                file_dt = datetime.fromtimestamp(mtime)
+                
+            if file_dt >= start_dt:
+                new_filename = filename
+                if new_filename.startswith(f"{source}_"):
+                    new_filename = new_filename.replace(f"{source}_", f"{dest}_", 1)
+                elif new_filename.startswith(source):
+                    new_filename = new_filename.replace(source, dest, 1)
+                
+                new_file_path = os.path.join(dest_dir, new_filename)
+                
+                try:
+                    if base_dir == EVENT_METADATA_DIR and filename.endswith(".json"):
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            meta = json.load(f)
+                        if meta.get("camera_id") == source:
+                            meta["camera_id"] = dest
+                        meta_str = json.dumps(meta)
+                        meta_str = meta_str.replace(f'/{source}/', f'/{dest}/')
+                        meta_str = meta_str.replace(f'{source}_', f'{dest}_')
+                        meta = json.loads(meta_str)
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            json.dump(meta, f, ensure_ascii=False, indent=2)
+                            
+                    shutil.move(file_path, new_file_path)
+                    migrated_count += 1
+                except Exception as e:
+                    errors.append(f"Failed to migrate {filename}: {str(e)}")
+
+    if migrated_count == 0 and not errors:
+        return {"status": "error", "message": "No files found matching the criteria."}
+
+    return {
+        "status": "ok" if not errors else "partial", 
+        "message": f"Migrated {migrated_count} files.", 
+        "errors": errors
+    }
+
 
 @app.get("/")
 async def root():
@@ -2718,6 +2816,33 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     </div>
                 </details>
                 <div id="user-access-body" class="user-access-list"></div>
+            </div>
+
+            <div class="glass-card" style="border-top: 4px solid #f59e0b;">
+                <div class="card-header">
+                    <h2>Camera Data Migration (Advanced)</h2>
+                </div>
+                <p style="color: var(--text-sub); margin-top:0; line-height:1.7;">
+                    カメラの設置場所変更等により、過去の画像やイベントデータを新しいカメラIDに一括移行します。<br>
+                    <span style="color: #dc3545;"><strong>注意:</strong> この操作はサーバー上のファイルを直接移動・リネームするため、元に戻せません。</span>
+                </p>
+                <div class="config-grid" style="grid-template-columns: 1fr 1fr 1.5fr auto; align-items: end;">
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Source Camera ID</label>
+                        <input type="text" id="migrate-source" placeholder="CAM_01">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Destination Camera ID</label>
+                        <input type="text" id="migrate-dest" placeholder="CAM_02">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <label>Start Date & Time</label>
+                        <input type="datetime-local" id="migrate-datetime" step="1">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0">
+                        <button class="btn btn-danger" onclick="migrateCameraData()" style="padding: 10px 16px;">Migrate Data</button>
+                    </div>
+                </div>
             </div>
 
             <div class="page-actions">
@@ -3214,6 +3339,46 @@ async def admin_dashboard(request: Request, credentials: HTTPBasicCredentials = 
                     showToast("Email Settings Saved! 📧");
                 } catch(e) {
                     alert("Error saving env settings");
+                }
+            }
+
+            async function migrateCameraData() {
+                const source = document.getElementById('migrate-source').value.trim();
+                const dest = document.getElementById('migrate-dest').value.trim();
+                const dtInput = document.getElementById('migrate-datetime').value;
+                
+                if (!source || !dest || !dtInput) {
+                    alert("Please fill in all fields (Source, Destination, Date & Time).");
+                    return;
+                }
+                
+                if (!confirm(`Are you sure you want to migrate data from ${source} to ${dest} starting at ${dtInput}?\nThis action cannot be undone.`)) {
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/admin/migrate_camera', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            source_camera_id: source,
+                            dest_camera_id: dest,
+                            start_datetime: dtInput
+                        })
+                    });
+                    const data = await response.json();
+                    
+                    if (data.status === "ok" || data.status === "partial") {
+                        showToast(`Migration Success: ${data.message}`);
+                        if(data.errors && data.errors.length > 0) {
+                            console.error("Migration Errors:", data.errors);
+                            alert("Migrated with some errors. Check console.");
+                        }
+                    } else {
+                        alert(`Migration Failed: ${data.message}`);
+                    }
+                } catch(e) {
+                    alert("Error connecting to migration API");
                 }
             }
 

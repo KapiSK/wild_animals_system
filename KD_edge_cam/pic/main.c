@@ -182,16 +182,6 @@ void main(void) {
       TRISIO = 0b00001100; // GP1を出力に
       PIN_XIAO_DONE = 0;
 
-      // PIRセンサーが反応し続けている場合、PIRがLOWに落ち着くまでWDTスリープで待機
-      while (PIN_PIR == 1) {
-        PIN_LED = 1;
-        __delay_ms(10);
-        PIN_LED = 0;
-
-        CLRWDT();
-        SLEEP(); // 約2.3秒スリープ
-      }
-
       // 6. 連続撮影を防ぐインターバル (3分30秒)
       // 約2.3秒(WDT) × 91回 ＝ 約210秒(3.5分)
       for (uint16_t i = 0; i < INTERVAL_WDT_CYCLES; i++) {
