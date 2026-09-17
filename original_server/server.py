@@ -2168,32 +2168,9 @@ async def get_mapping(admin: dict = Depends(verify_admin)):
 @app.post("/api/config/mapping")
 async def update_mapping(mapping: dict, admin: dict = Depends(verify_admin)):
     try:
-        old_mapping = {}
-        if os.path.exists(MAC_MAPPING_FILE):
-            with open(MAC_MAPPING_FILE, 'r') as f:
-                old_mapping = json.load(f)
-
-        for mac, new_name in mapping.items():
-            old_name = old_mapping.get(mac, mac)
-            if old_name != new_name:
-                for base_dir in [UPLOAD_DIR, PROCESSED_DIR]:
-                    old_path = os.path.join(base_dir, old_name)
-                    new_path = os.path.join(base_dir, new_name)
-                    if os.path.exists(old_path) and os.path.isdir(old_path):
-                        if os.path.exists(new_path) and os.path.isdir(new_path):
-                            for item in os.listdir(old_path):
-                                src_item = os.path.join(old_path, item)
-                                dst_item = os.path.join(new_path, item)
-                                if not os.path.exists(dst_item):
-                                    shutil.move(src_item, new_path)
-                            try:
-                                os.rmdir(old_path)
-                            except OSError:
-                                pass
-                        else:
-                            os.rename(old_path, new_path)
-
-        with open(MAC_MAPPING_FILE, 'w') as f:
+        # MAC_MAPPING_FILE を更新するのみとし、既存フォルダのリネーム・移動は行わない
+        # （KD5->KD7へ変更した場合、過去のKD5画像はそのまま維持され、新規分からKD7となる）
+        with open(MAC_MAPPING_FILE, 'w', encoding="utf-8") as f:
             json.dump(mapping, f, indent=4)
         return {"status": "ok"}
     except Exception as e:
