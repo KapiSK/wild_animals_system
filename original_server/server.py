@@ -1,5 +1,6 @@
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
@@ -21,6 +22,12 @@ import json
 import secrets
 import shutil
 import csv
+import sys
+import hashlib
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from pipeline_common import (Store, worker, receive_file, validate_jpeg, image_identity,
+                             InvalidUpload, ReceiptConflict, StorageFull, sync_directory)
 
 # Load environment variables
 load_dotenv()
@@ -53,6 +60,10 @@ API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 USER_ACCESS_FILE = resolve_config_path(os.getenv("USER_ACCESS_FILE", "user_access_config.json"))
 TELEMETRY_FILE = resolve_config_path(os.getenv("TELEMETRY_FILE", "telemetry.json"))
 SERVER_SEQUENCE_FILE = resolve_config_path(os.getenv("SERVER_SEQUENCE_FILE", "server_sequence.json"))
+
+delivery_store = Store(resolve_config_path(os.getenv("PIPELINE_DB", "pipeline.sqlite3")))
+CYCLE_TIMEOUT_SECONDS = int(os.getenv("CYCLE_TIMEOUT_SECONDS", "300"))
+MIN_FREE_BYTES = int(os.getenv("MIN_FREE_MB", "64")) * 1024 * 1024
 
 APP_VERSION = os.getenv("APP_VERSION", "1.0.1")
 
@@ -226,30 +237,16 @@ def save_server_sequence(data: dict) -> None:
         logger.error(f"Failed to save server sequence: {e}")
 
 def get_or_increment_server_sequence(camera_id: str, edge_event_id: str, timeout_sec: int = 300) -> str:
+    # Stable across delayed retries, interleaved events and service restarts.
     with _seq_lock_sync:
         data = load_server_sequence()
-        cam_data = data.get(camera_id, {
-            "current_server_seq": 0,
-            "last_edge_event_id": "",
-            "last_update_time": 0.0
-        })
-        
-        now = time.time()
-        # 同一エッジイベントで、かつタイムアウト以内なら、同じシーケンス番号を返す
-        if cam_data["last_edge_event_id"] == edge_event_id and (now - cam_data["last_update_time"]) <= timeout_sec:
-            cam_data["last_update_time"] = now
-            data[camera_id] = cam_data
-            save_server_sequence(data)
-            return f"{cam_data['current_server_seq']:04d}"
-            
-        # そうでなければカウントアップ
-        cam_data["current_server_seq"] += 1
-        cam_data["last_edge_event_id"] = edge_event_id
-        cam_data["last_update_time"] = now
-        data[camera_id] = cam_data
+        floor = int(data.get(camera_id, {}).get('current_server_seq', 0))
+        value = delivery_store.sequence(camera_id, edge_event_id, floor)
+        data[camera_id] = {'current_server_seq': max(floor, value),
+                           'last_edge_event_id': edge_event_id, 'last_update_time': time.time()}
         save_server_sequence(data)
-        
-        return f"{cam_data['current_server_seq']:04d}"
+        return f"{value:04d}"
+
 
 def init_server_sequence() -> None:
     data = load_server_sequence()
@@ -514,8 +511,13 @@ def get_event_metadata_path(camera_id: str, event_id: str) -> str:
 
 def save_event_metadata(camera_id: str, event_id: str, metadata: dict) -> None:
     path = get_event_metadata_path(camera_id, event_id)
-    with open(path, "w", encoding="utf-8") as f:
+    temporary = path + '.tmp'
+    with open(temporary, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, path)
+    sync_directory(Path(path).parent)
     _EVENT_METADATA_CACHE[f"{camera_id}/{event_id}"] = metadata
 
 
@@ -659,12 +661,19 @@ def backfill_event_metadata() -> None:
     skipped = 0
     for camera_id, event_id in sorted(event_keys):
         try:
+            raw_paths = [os.path.join(UPLOAD_DIR, name) for name in raw_events.get((camera_id, event_id), [])]
+            if delivery_store.manages_paths(raw_paths):
+                skipped += 1
+                continue
             payload = build_event_metadata_payload(camera_id, event_id)
             if not payload:
                 skipped += 1
                 continue
 
             existing_metadata = load_event_metadata(camera_id, event_id)
+            if existing_metadata and existing_metadata.get('origin_cycle_id'):
+                skipped += 1
+                continue
             if existing_metadata == payload:
                 skipped += 1
                 continue
@@ -758,6 +767,10 @@ def reinfer_missing_cycles() -> None:
     skipped = 0
     for camera_id, event_id in event_keys:
         try:
+            raw_paths = [os.path.join(UPLOAD_DIR, name) for name in get_related_raw_images(camera_id, event_id)]
+            if delivery_store.manages_paths(raw_paths):
+                skipped += 1
+                continue
             if not cycle_needs_reinference(camera_id, event_id):
                 skipped += 1
                 continue
@@ -924,7 +937,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("server.log"),
+        RotatingFileHandler("server.log", maxBytes=5*1024*1024, backupCount=3, encoding='utf-8', delay=True),
         logging.StreamHandler()
     ]
 )
@@ -986,16 +999,18 @@ if not TARGET_CLASSES:
     
 logger.info(f"Target classes set to: {TARGET_CLASSES}")
 
-def send_email(subject: str, body: str, attachment_path: str = None, recipients: list = None):
+def send_email(subject: str, body: str, attachment_path: str = None, recipients: list = None, message_id: str = None):
     """
     Send an email notification with an optional image attachment.
     If recipients is None, falls back to RECIPIENT_EMAIL env var.
     """
     if recipients == ["__NONE__"]:
         logger.info("Email sending is disabled for this camera.")
-        return
+        return False
 
     msg = EmailMessage()
+    if message_id:
+        msg['Message-ID'] = message_id
     msg['Subject'] = subject
     msg['From'] = SENDER_EMAIL
     if not recipients:
@@ -1012,60 +1027,31 @@ def send_email(subject: str, body: str, attachment_path: str = None, recipients:
             msg.add_attachment(file_data, maintype='image', subtype='jpeg', filename=file_name)
         except Exception as e:
             logger.error(f"Failed to attach image: {e}")
+            raise
 
     try:
         if SENDER_EMAIL == "your_email@example.com":
-            logger.warning("Email configuration not set. Skipping email send.")
-            return
+            raise RuntimeError("Email configuration not set; notification retained")
 
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as smtp:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=30) as smtp:
             smtp.starttls()
             smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
-            smtp.send_message(msg)
+            refused = smtp.send_message(msg)
+            if refused:
+                raise RuntimeError(f"SMTP refused recipients: {list(refused)}")
         logger.info(f"Email sent to {recipients}")
+        return True
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
+        raise
 
 # Cycle Manager for Aggregation
 class CycleManager:
-    def __init__(self):
-        # { cycle_id: { 'files': [], 'last_update': datetime.now(), 'start_time': None, 'timings': [] } }
-        self.cycles = defaultdict(lambda: {
-            'files': [], 
-            'last_update': datetime.now(),
-            'start_time': None,
-            'timings': []
-        })
-        self.lock = asyncio.Lock()
-
-    async def add_result(self, cycle_id, result_data, timing_info):
-        """
-        result_data include 'target_count'
-        """
-        async with self.lock:
-            cycle = self.cycles[cycle_id]
-            
-            # Set cycle start time if it's the first image
-            if cycle['start_time'] is None:
-                cycle['start_time'] = timing_info['receive_start']
-            elif timing_info['receive_start'] < cycle['start_time']:
-                cycle['start_time'] = timing_info['receive_start']
-
-            cycle['files'].append(result_data)
-            cycle['timings'].append(timing_info)
-            cycle['last_update'] = datetime.now()
-            
-            # Check if cycle is complete (assuming 3 images per cycle)
-            if len(self.cycles[cycle_id]['files']) >= 3:
-                await self.process_cycle(cycle_id)
-                del self.cycles[cycle_id]
-
-    async def process_cycle(self, cycle_id):
-        cycle_data = self.cycles[cycle_id]
+    async def process_cycle(self, cycle_id, cycle_data):
         files = cycle_data['files']
-        logger.info(f"Cycle {cycle_id} complete. Processing aggregated email.")
+        logger.info("Cycle %s aggregated: complete=%s indices=%s", cycle_id, cycle_data["complete"], cycle_data["indices"])
         
-        cycle_end_time = time.perf_counter()
+        cycle_end_time = time.time()
         if cycle_data['start_time']:
             total_cycle_time = (cycle_end_time - cycle_data['start_time']) * 1000
         else:
@@ -1173,21 +1159,18 @@ class CycleManager:
         # ユーザー指定の件名フォーマット（案3 個体数なしver）
         subject = f"【検知】CAM-{raw_id} ｜ {short_time} ｜ {labels_part}"
         
-        # 3. Send Email (Skip if no detections)
-        email_duration = 0.0
+        # SMTP is a separate durable job, independent of receiving/inference.
         if detected_images_count > 0:
-            email_start = time.perf_counter()
-            # カメラIDに応じたメーリングリスト宛先を取得
             alert_recipients = get_recipients_for_camera(raw_id)
-            send_email(subject, body, best_data['annotated_path'], recipients=alert_recipients)
-            email_duration = (time.perf_counter() - email_start) * 1000
-            logger.info(f"Email sent to {alert_recipients} for Cycle {cycle_id}")
-        else:
-            logger.info(f"Cycle {cycle_id} complete. No targets detected. Skipping email notification.")
+            await asyncio.to_thread(delivery_store.enqueue, 'notify:'+cycle_data['origin_cycle'], 'notify', {
+                'subject': subject, 'body': body, 'attachment_path': best_data['annotated_path'],
+                'recipients': alert_recipients,
+                'message_id': '<'+hashlib.sha256(cycle_data['origin_cycle'].encode()).hexdigest()+'@wild-animals>',
+                'origin_cycle': cycle_data['origin_cycle']})
 
         # Log Performance Metrics
         logger.info(f"[PERF] Cycle {cycle_id} Finished. Total Time: {total_cycle_time:.2f}ms")
-        logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms, Email={email_duration:.2f}ms")
+        logger.info(f"[PERF] Breakdown: Save={total_save:.2f}ms, Inference={total_inference:.2f}ms; notification tracked separately")
 
         current_telemetry = load_telemetry().get(camera_id, {})
         temperature = current_telemetry.get("temperature", "")
@@ -1195,6 +1178,13 @@ class CycleManager:
         try:
             event_metadata = {
                 "event_id": cycle_id,
+                "origin_cycle_id": cycle_data['origin_cycle'],
+                "complete": cycle_data['complete'],
+                "received_indices": cycle_data['indices'],
+                "capture_times": cycle_data['capture_times'],
+                "edge_decisions": cycle_data['edge_decisions'],
+                "transfer_reasons": cycle_data['transfer_reasons'],
+                "cloud_received_at": cycle_data['start_time'],
                 "camera_id": camera_id,
                 "source": source,
                 "labels": labels,
@@ -1211,49 +1201,106 @@ class CycleManager:
                 "temperature": temperature,
                 "updated_at": datetime.now().isoformat(),
             }
-            save_event_metadata(camera_id, cycle_id, event_metadata)
+            await asyncio.to_thread(save_event_metadata, camera_id, cycle_id, event_metadata)
         except Exception as e:
             logger.error(f"Failed to save event metadata for {cycle_id}: {e}")
+            raise
 
 
         # --- CSV Logging ---
         try:
-            csv_file = "cloud_metrics.csv"
+            csv_file = "cloud_metrics_v2.csv"
             file_exists = os.path.isfile(csv_file)
             with open(csv_file, "a") as f:
                 if not file_exists:
-                    f.write("timestamp,cycle_id,total_time_ms,inference_time_ms,email_time_ms,detected_count,best_conf\n")
+                    f.write("timestamp,cycle_id,aggregate_elapsed_ms,inference_time_ms,detected_count,best_conf,complete\n")
                 
-                f.write(f"{datetime.now().isoformat()},{cycle_id},{total_cycle_time:.2f},{total_inference:.2f},{email_duration:.2f},{detected_images_count},{best_data['max_conf']:.4f}\n")
+                f.write(f"{datetime.now().isoformat()},{cycle_id},{total_cycle_time:.2f},{total_inference:.2f},{detected_images_count},{best_data['max_conf']:.4f},{cycle_data['complete']}\n")
         except Exception as e:
             logger.error(f"Failed to write metrics: {e}")
 
-    async def check_timeouts(self, timeout_seconds=300):
-        while True:
-            await asyncio.sleep(60)
-            logger.info("Running cycle timeout check...")
-            now = datetime.now()
-            cycle_ids = list(self.cycles.keys())
-            
-            for cycle_id in cycle_ids:
-                data = self.cycles[cycle_id]
-                last_update = data['last_update']
-                time_diff = (now - last_update).total_seconds()
-                
-                if time_diff > timeout_seconds:
-                    logger.warning(f"Cycle {cycle_id} timed out (last update {time_diff}s ago). Force processing.")
-                    async with self.lock:
-                        if cycle_id in self.cycles:
-                             await self.process_cycle(cycle_id)
-                             del self.cycles[cycle_id]
-
 cycle_manager = CycleManager()
+_delivery_tasks = []
+
+
+async def infer_received_image(payload):
+    row = await asyncio.to_thread(delivery_store.image, payload['key'])
+    if row['result'] is not None:
+        return
+    started = time.perf_counter()
+    result = await asyncio.to_thread(analyze_image_for_cycle, row['path'],
+                                    row['payload']['filename'], row['payload']['source'])
+    result['inference_ms'] = (time.perf_counter()-started)*1000
+    result['inferred_at'] = time.time()
+    await asyncio.to_thread(delivery_store.result, row['key'], result)
+
+
+async def schedule_cloud_cycles_once():
+    for cycle in await asyncio.to_thread(delivery_store.pending_cycles):
+        rows = await asyncio.to_thread(delivery_store.images, cycle)
+        analyzed = [r for r in rows if r['result'] is not None]
+        complete = {r['idx'] for r in analyzed} == {1, 2, 3}
+        expired = time.time()-min(r['received'] for r in rows) >= CYCLE_TIMEOUT_SECONDS
+        if analyzed and (complete or expired):
+            version = ','.join(str(r['idx']) for r in analyzed)
+            await asyncio.to_thread(delivery_store.enqueue, 'aggregate:'+cycle+':'+version,
+                                    'aggregate', {'cycle': cycle})
+
+
+async def schedule_cloud_cycles():
+    while True:
+        try:
+            await schedule_cloud_cycles_once()
+        except Exception:
+            logger.exception('Cloud aggregation scheduling failed; retrying')
+        await asyncio.sleep(5)
+
+
+async def aggregate_cloud_cycle(payload):
+    rows = await asyncio.to_thread(delivery_store.images, payload['cycle'])
+    rows = [r for r in rows if r['result'] is not None]
+    if not rows:
+        return
+    files = [r['result'] for r in rows]
+    data = {'files': files, 'start_time': min(r['received'] for r in rows),
+            'origin_cycle': payload['cycle'], 'indices': [r['idx'] for r in rows],
+            'complete': {r['idx'] for r in rows} == {1,2,3},
+            'capture_times': {str(r['idx']): r['payload'].get('captured_at') for r in rows},
+            'edge_decisions': {str(r['idx']): r['payload'].get('edge_decision') for r in rows},
+            'transfer_reasons': {str(r['idx']): r['payload'].get('transfer_reason') for r in rows},
+            'timings': [{'save_duration': r['payload']['save_ms']/1000,
+                         'inference_duration': r['result']['inference_ms']/1000} for r in rows]}
+    await cycle_manager.process_cycle(files[0]['event_id'], data)
+    for row in rows:
+        await asyncio.to_thread(delivery_store.terminal, row['key'])
+
+
+async def notify_cloud_cycle(payload):
+    message = {k:v for k,v in payload.items() if k != 'origin_cycle'}
+    started = time.perf_counter()
+    sent = await asyncio.to_thread(send_email, **message)
+    logger.info('[PERF] origin_cycle=%s notification_sent=%s email_ms=%.1f',
+                payload['origin_cycle'], sent, (time.perf_counter()-started)*1000)
+
 
 @app.on_event("startup")
 async def startup_event():
     init_server_sequence()
-    asyncio.create_task(run_startup_maintenance())
-    asyncio.create_task(cycle_manager.check_timeouts())
+    _delivery_tasks.extend([
+        asyncio.create_task(run_startup_maintenance()),
+        asyncio.create_task(worker(delivery_store, 'infer', infer_received_image)),
+        asyncio.create_task(worker(delivery_store, 'aggregate', aggregate_cloud_cycle)),
+        asyncio.create_task(worker(delivery_store, 'notify', notify_cloud_cycle)),
+        asyncio.create_task(schedule_cloud_cycles())])
+
+
+@app.on_event("shutdown")
+async def shutdown_delivery():
+    for task in _delivery_tasks:
+        task.cancel()
+    await asyncio.gather(*_delivery_tasks, return_exceptions=True)
+    _delivery_tasks.clear()
+
 
 def extract_cycle_id(filename: str) -> str:
     """
@@ -1285,7 +1332,16 @@ def extract_cycle_id(filename: str) -> str:
         return "unknown"
 
 
+_model_lock = threading.Lock()
+
+
 def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
+    # Legacy maintenance and durable inference can both use the same model.
+    with _model_lock:
+        return _analyze_image_for_cycle(image_path, filename, source)
+
+
+def _analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict:
     if source == "pi":
         model.conf = 0.1
     else:
@@ -1339,10 +1395,6 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
     match_new = re.search(r"^(.*?)_\d{14}_(\d+)_([1-3][nd]?)\.jpg$", filename, re.IGNORECASE)
     if match_new:
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", match_new.group(1))
-        if "_" in pure_cam_id:
-            parts = pure_cam_id.rsplit("_", 1)
-            if parts[1].isdigit():
-                pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
         if "X" in pure_cam_id:
             pure_cam_id = pure_cam_id.split("X", 1)[0]
@@ -1400,32 +1452,19 @@ def analyze_image_for_cycle(image_path: str, filename: str, source: str) -> dict
     }
 
 
-async def process_and_notify(image_path: str, filename: str, receive_start: float, save_duration: float, source: str):
-    """
-    Perform inference and Add to Cycle Buffer.
-    """
-    logger.info(f"Processing {filename}...")
-
-    inference_start = time.perf_counter()
-    result_data = analyze_image_for_cycle(image_path, filename, source)
-    inference_duration = time.perf_counter() - inference_start
-    cycle_id = result_data['event_id']
-    logger.info(f"Extracted Cycle ID: {cycle_id} for {filename}")
-
-    timing_info = {
-        'receive_start': receive_start,
-        'save_duration': save_duration,
-        'inference_duration': inference_duration
-    }
-
-    await cycle_manager.add_result(cycle_id, result_data, timing_info)
-
 @app.post("/upload")
-async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = File(...), api_key: str = Depends(verify_api_token)):
+async def upload_image(request: Request, file: UploadFile = File(...), api_key: str = Depends(verify_api_token)):
     """
     Receive image, save it, and trigger processing.
     """
     # エッジ側(Pi)が付与した冗長なタイムスタンプ(YYYYMMDD_HHMMSS_microseconds_)を削除
+    received_at, receive_start = time.time(), time.perf_counter()
+    try:
+        origin_cycle, image_index, receipt_key = image_identity(file.filename,
+            request.headers.get('X-Cycle-Id'), request.headers.get('X-Img-Index'))
+    except InvalidUpload as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     clean_original = re.sub(r"^\d{8}_\d{6}_\d+_", "", file.filename)
     
     mapped_filename = replace_mac_in_filename(clean_original)
@@ -1439,10 +1478,6 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
         idx = match.group(3)
         # ← pure_cam_id を先に確定してからファイル名に使用する
         pure_cam_id = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", cam_id)
-        if "_" in pure_cam_id:
-            parts = pure_cam_id.rsplit("_", 1)
-            if parts[1].isdigit():
-                pure_cam_id = parts[0]
         pure_cam_id = get_camera_id(pure_cam_id)
         if "X" in pure_cam_id:
             pure_cam_id = pure_cam_id.split("X", 1)[0]
@@ -1461,25 +1496,41 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     
     logger.info(f"Receiving image: {filename}")
     
-    receive_start = time.perf_counter()
+    temporary = None
+    async def chunks():
+        while True:
+            chunk = await file.read(64*1024)
+            if not chunk:
+                break
+            yield chunk
     try:
-        with open(file_path, "wb") as buffer:
-            while content := await file.read(1024 * 1024):
-                buffer.write(content)
-        
-        save_end = time.perf_counter()
-        save_duration = save_end - receive_start
-
-        source = "satos" if clean_original.startswith("satos_") else "pi" if clean_original.startswith("pi_") else "unknown"
-
-        # Trigger background processing
-        background_tasks.add_task(process_and_notify, file_path, filename, receive_start, save_duration, source)
-        
-        return {"status": "ok", "message": "Image received and processing started"}
-    except Exception as e:
-        logger.error(f"Failed to save image: {e}")
-        return {"status": "error", "message": str(e)}
-
+        # Legacy multipart clients may omit hashes; upgraded Pi sends hash+size.
+        temporary, digest, size = await receive_file(chunks(), os.path.join(UPLOAD_DIR, '.incoming'),
+            request.headers.get('X-Content-SHA256'), request.headers.get('X-File-Size'), min_free=MIN_FREE_BYTES)
+        await asyncio.to_thread(validate_jpeg, temporary)
+        source = 'satos' if clean_original.startswith('satos_') else 'pi' if clean_original.startswith('pi_') else 'unknown'
+        row, duplicate = await asyncio.to_thread(delivery_store.accept, receipt_key, origin_cycle, image_index,
+            digest, temporary, file_path, {'filename': filename, 'source': source,
+                'received_at': received_at, 'save_ms': (time.perf_counter()-receive_start)*1000,
+                'size': size, 'captured_at': request.headers.get('X-Captured-At'),
+                'edge_received_at': request.headers.get('X-Edge-Received-At'),
+                'edge_decision': request.headers.get('X-Edge-Decision'),
+                'transfer_reason': request.headers.get('X-Transfer-Reason')})
+        return {'status': 'ok', 'receipt_id': receipt_key, 'sha256': digest,
+                'duplicate': duplicate, 'filename': Path(row['path']).name}
+    except ReceiptConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except InvalidUpload as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(507 if isinstance(exc, StorageFull) or exc.errno == 28 else 500,
+                            'Image could not be saved') from exc
+    except Exception as exc:
+        logger.exception('Image was not durably accepted')
+        raise HTTPException(500, 'Image was not accepted; retry later') from exc
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
 
 @app.post("/upload_video")
 async def upload_video(

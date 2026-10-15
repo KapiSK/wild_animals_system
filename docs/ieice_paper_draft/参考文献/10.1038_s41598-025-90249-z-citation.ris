@@ -1,0 +1,22 @@
+TY  - JOUR
+AU  - Mulero-Pázmány, Margarita
+AU  - Hurtado, Sandro
+AU  - Barba-González, Cristóbal
+AU  - Antequera-Gómez, María Luisa
+AU  - Díaz-Ruiz, Francisco
+AU  - Real, Raimundo
+AU  - Navas-Delgado, Ismael
+AU  - Aldana-Montes, José F.
+PY  - 2025
+DA  - 2025/05/09
+TI  - Addressing significant challenges for animal detection in camera trap images: a novel deep learning-based approach
+JO  - Scientific Reports
+SP  - 16191
+VL  - 15
+IS  - 1
+AB  - Wildlife biologists increasingly use camera traps for monitoring animal populations. However, manually sifting through the collected images is expensive and time-consuming. Current deep learning studies for camera trap images do not adequately tackle real-world challenges such as imbalances between animal and empty images, distinguishing similar species, and the impact of backgrounds on species identification, limiting the models’ applicability in new locations. Here, we present a novel two-stage deep learning framework. First, we train a global deep-learning model using all animal species in the dataset. Then, an agglomerative clustering algorithm groups animals based on their appearance. Subsequently, we train a specialized deep-learning expert model for each animal group to detect similar features. This approach leverages Transfer Learning from the MegaDetectorV5 (YOLOv5 version) model, already pre-trained on various animal species and ecosystems. Our two-stage deep learning pipeline uses the global model to redirect images to the appropriate expert models for final classification. We validated this strategy using 1.3 million images from 91 camera traps encompassing 24 mammal species and used 120,000 images for testing, achieving an F1-Score of 96.2% using expert models for final classification. This method surpasses existing deep learning models, demonstrating improved precision and effectiveness in automated wildlife detection.
+SN  - 2045-2322
+UR  - https://doi.org/10.1038/s41598-025-90249-z
+DO  - 10.1038/s41598-025-90249-z
+ID  - Mulero-Pázmány2025
+ER  - 

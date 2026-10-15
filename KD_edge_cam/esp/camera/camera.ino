@@ -1,41 +1,12 @@
-/* *****************************************************
- * es_cam.ino — Seeed XIAO ESP32-S3 (Final, Readable Version)
- *
- * トレイルカメラの動作:
- * 1. PIRセンサーまたは20分タイマーでDeep Sleepから起床
- * 2. カメラ初期化
- * 3. 4枚連続撮影 (0.5秒間隔):
- * - 1枚目は自動露出/ゲイン安定化のため破棄
- * - 2, 3, 4枚目を img1.jpg, img2.jpg, img3.jpg としてSDカードの
- * `/archive/[サイクルID]/` フォルダに保存
- * 4. Wi-Fi (SSID: "SLAB-g") に接続
- * 5. mDNS ("edge.local") でPi推論サーバーのIPアドレスを解決
- * 6. 未送信データのアップロード試行:
- * - SDカードの `/archive/` 内をスキャン
- * - アップロード履歴 (`/logs/uploaded_cids.txt`) になく、
- * - かつ、現在のサイクルから数えて直近3サイクル以内の失敗分で、
- * - かつ、画像3枚とログファイルが全て揃っているサイクルのみ、
- * - Pi推論サーバー (ポート8000) へHTTP POSTで送信
- * - 送信成功したら履歴ファイルにサイクルIDを追記
- * 7. アーカイブ整理:
- * - SDカードの `/archive/` 内のサイクルフォルダ数をカウント
- * - 100個を超えていたら、最も古いサイクルから順にフォルダごと削除
- * 8. 現在サイクルのログ保存:
- * - メモリ上のログバッファを `/archive/[サイクルID]/esp_chunk.log` に保存
- * - `/logs/esp.log` にも追記 (ローテーションあり)
- * 9. 30秒間の待機 (クールダウン)
- * 10. Deep Sleepへ移行
- *
- * ハードウェア接続:
- * - GPIO 1: PIRセンサー出力
- * - GPIO 2: モータードライバ IN1
- * - GPIO 3: モータードライバ IN2
- * - GPIO 4: ステータスLED (点灯:起動/接続済, 遅点滅:接続試行, 速点滅:処理中)
- * - GPIO 5: CDS光センサー入力
- * - GPIO 6: フラッシュLED (または赤外線LED) 制御
- * - SDカード: 標準SPIピン (GPIO 7, 8, 9, 21)
- * - カメラ: XIAO ESP32-S3 Sense ボード上のカメラ
- *****************************************************/
+/*
+ * XIAO ESP32-S3 Sense: capture -> SD -> SFTP/FTP/HTTP receipt -> PIC shutdown.
+ * Per wake: capture 4 JPEG frames (discard first, save up to 3), then connect.
+ * Pending archives of every age are retried with a persistent round-robin cursor.
+ * Images may be incomplete; edge/cloud finalize partial cycles after a timeout.
+ * Only acknowledged archives may be reclaimed when SD free space is low.
+ * Logs use monotonic uptime. UTC capture time is estimated from edge time when
+ * available during the same boot; historical offline capture times stay unknown.
+ */
 
 // =======================================================
 // Includes
@@ -58,8 +29,19 @@
 #include <esp_system.h>
 #include <list>   // C++ STL list for managing cycle IDs
 #include <string> // C++ STL string for sorting
+#include <sys/time.h>
 #include <time.h> // For timestamping logs
 #include <vector>
+#include "transfer_config.h"
+#if CAMERA_TRANSFER_MODE == CAMERA_TRANSPORT_SFTP
+#include "sftp_transport.h"
+// SSH key exchange needs more stack than the default Arduino loop task.
+SET_LOOP_TASK_STACK_SIZE(64 * 1024);
+#define FILE_TRANSFER_TAG "[SFTP]"
+#else
+#include "ftp_transport.h"
+#define FILE_TRANSFER_TAG "[FTP]"
+#endif
 
 // =======================================================
 // Hardware Pin Definitions
@@ -69,6 +51,7 @@
 
 // Forward declarations
 static String deviceIdHex();
+static bool saveCurrentLogChunkToSD(const char *label);
 
 namespace hw {
 constexpr uint8_t SD_CS = 21;      // SD Card Chip Select
@@ -98,6 +81,7 @@ constexpr char PI_MDNS_HOST[] =
     "raspberrypi"; // mDNS hostname of your Pi server (e.g., "edge.local")
 
 // These will be populated after mDNS resolution
+IPAddress PI_IP;
 String PI_HOST;       // Base URL (e.g., "http://192.168.1.10:5000")
 String PI_UPLOAD_URL; // Full URL for image uploads
 String PI_HEALTHZ;    // Full URL for Pi server health check
@@ -117,9 +101,8 @@ constexpr uint8_t NUM_SHOTS_TOTAL =
 constexpr uint8_t NUM_SHOTS_SAVE = 3;      // Number of shots to actually save
 constexpr uint32_t SHOT_INTERVAL_MS = 500; // Interval between shots (ms)
 constexpr int MAX_ARCHIVE_CYCLES =
-    100; // Maximum number of cycles to keep in /archive
-constexpr uint8_t UPLOAD_RETRY_WINDOW =
-    3; // How many recent cycles (relative to current) to retry uploading
+    100; // Legacy setting; free-space reclamation protects all pending cycles
+constexpr uint32_t UPLOAD_BUDGET_MS = 60000; // Bound work per wake cycle
 constexpr uint32_t MIN_FREE_SPACE_MB = 30;
 } // namespace param
 
@@ -138,6 +121,7 @@ uint32_t g_tWifiStart = 0, g_tWifiEnd = 0;     // WiFi connection timings
 uint32_t g_tUploadStart = 0, g_tUploadEnd = 0; // Upload timings
 int32_t g_rssi = 0;                            // SIGNAL STRENGTH (dBm)
 uint32_t g_tBegin = 0; // Millis() timestamp when capture/processing started
+bool g_uploadBudgetActive = false;
 String g_syslogBuf;    // In-memory buffer for logs generated during this cycle
 size_t g_syslogStartOff =
     0; // Starting position in syslogBuf for the current cycle's chunk
@@ -199,20 +183,27 @@ static File g_logFile;           // File handle for the daily SD log
 static String g_curLogName = ""; // Name of the currently open daily log file
 
 /**
- * @brief Opens or appends to the daily log file (/log_YYYYMMDD.txt).
+ * @brief Opens the bounded serial log, independent of UTC synchronization.
  */
 static void openNewDailyLogFile() {
   time_t now = time(nullptr);
   struct tm tm_info;
   localtime_r(&now, &tm_info);
   char name[32];
-  strftime(name, sizeof(name), "/log_%Y%m%d.txt", &tm_info);
+  snprintf(name, sizeof(name), "/logs/serial.log");
   String newLogName = name; // Use String for comparison
   if (g_curLogName != newLogName) {
     if (g_logFile) {
       g_logFile.close(); // Close previous day's log if open
     }
     g_curLogName = newLogName;
+    File existing = SD.open(g_curLogName, FILE_READ);
+    size_t logSize = existing ? existing.size() : 0;
+    existing.close();
+    if (logSize >= 512 * 1024) {
+      SD.remove("/logs/serial.log.1");
+      SD.rename(g_curLogName, "/logs/serial.log.1");
+    }
     g_logFile = SD.open(g_curLogName, FILE_APPEND); // Open for appending
     if (!g_logFile) {
       // Log error only to Serial as SD write failed
@@ -261,6 +252,9 @@ static int LOG_PRINTF(const char *fmt, ...) {
     n = sizeof(tmp) - 1; // n reflects the truncated length
   }
   // tmp is guaranteed to be null-terminated at this point (up to size-1)
+  char prefix[32];
+  snprintf(prefix, sizeof(prefix), "[uptime=%lu ms] ", (unsigned long)millis());
+  LOG_RAW(prefix);
   LOG_RAW(tmp); // Log the formatted string
   return n;
 }
@@ -287,16 +281,6 @@ static void ensure() {
     }
   }
 }
-/** @brief Generates a timestamp string for rotated log filenames. */
-static String tsSuffix() {
-  time_t now = time(nullptr);
-  struct tm tm_info;
-  localtime_r(&now, &tm_info);
-  char buf[20];
-  strftime(buf, sizeof(buf), ".%Y%m%d_%H%M%S", &tm_info);
-  return String(buf);
-}
-
 /** @brief Counts the number of lines (newlines) in a file. */
 static size_t countLines(const char *path) {
   File f = SD.open(path, FILE_READ);
@@ -314,7 +298,7 @@ static size_t countLines(const char *path) {
 /** @brief Rotates a log file by renaming it (e.g., esp.log ->
  * esp.log.YYYYMMDD_HHMMSS). */
 static void rotate(const char *path) {
-  String newPath = String(path) + tsSuffix();
+  String newPath = String(path) + ".1"; // Bounded retention, independent of wall clock
   LOG_PRINTF("[LOG] Rotating %s -> %s\n", path, newPath.c_str());
   SD.remove(newPath); // Ensure target is clear (unlikely to collide but safe)
   if (!SD.rename(path, newPath)) {
@@ -323,7 +307,7 @@ static void rotate(const char *path) {
 }
 
 /** @brief Appends a string to a log file, performing rotation if necessary. */
-static void appendWithRotate(const char *path, const String &s,
+static bool appendWithRotate(const char *path, const String &s,
                              size_t max_lines = MAX_LINES) {
   ensure(); // Ensure directory exists
 
@@ -336,11 +320,14 @@ static void appendWithRotate(const char *path, const String &s,
 
   File f = SD.open(path, FILE_APPEND);
   if (f) {
-    f.print(s);
+    size_t written = f.print(s);
+    f.flush();
     f.close();
+    return written == s.length();
   } else {
     // Fallback: try to write to Serial if SD fails
     Serial.printf("[ERR] Failed to append to log %s\n", path);
+    return false;
   }
 }
 } // namespace elog
@@ -354,15 +341,20 @@ static void appendWithRotate(const char *path, const String &s,
  */
 static void initWiFi() {
   g_tWifiStart = millis(); // Record start of WiFi connection
+  LOG_PRINTF("[WIFI] t=%lu ms Connecting to %s (timeout=%lu ms)\n",
+             (unsigned long)g_tWifiStart, net::WIFI_SSID,
+             (unsigned long)net::WIFI_TIMEOUT);
   WiFi.mode(WIFI_STA);     // Set Wi-Fi mode to Station (client)
   WiFi.begin(net::WIFI_SSID, net::WIFI_PASS); // Start connection attempt
-  LOG_PRINTF("[WIFI] Connecting to %s", net::WIFI_SSID);
 
   uint32_t t0 = millis();
   // Wait for connection or timeout
   while (WiFi.status() != WL_CONNECTED) {
     if (millis() - t0 > net::WIFI_TIMEOUT) {
-      LOG_PRINTLN("\n[WIFI] Connection Failed (Timeout)!");
+      g_tWifiEnd = millis();
+      LOG_PRINTF("[WIFI] Connection timeout: status=%d elapsed=%lu ms\n",
+                 (int)WiFi.status(),
+                 (unsigned long)(g_tWifiEnd - g_tWifiStart));
       return; // Exit if connection timed out
     }
     Serial.print("."); // Visual progress on Serial
@@ -372,10 +364,13 @@ static void initWiFi() {
 
   // Connected successfully
   LOG_PRINTLN("\n[WIFI] Connected Successfully.");
-  LOG_PRINTLN("[WIFI] IP Address: " + WiFi.localIP().toString());
+  LOG_PRINTF("[WIFI] IP Address: %s\n", WiFi.localIP().toString().c_str());
   g_rssi = WiFi.RSSI();
   LOG_PRINTF("[WIFI] Signal Strength (RSSI): %d dBm\n", g_rssi);
   g_tWifiEnd = millis(); // Record end of WiFi connection
+  LOG_PRINTF("[WIFI] Connected: BSSID=%s channel=%d elapsed=%lu ms\n",
+             WiFi.BSSIDstr().c_str(), WiFi.channel(),
+             (unsigned long)(g_tWifiEnd - g_tWifiStart));
 }
 
 // =======================================================
@@ -471,6 +466,15 @@ static void powerDownCameraPins() {
  */
 static void powerDownSdCardPins() {
   LOG_PRINTLN("[PWR ] Powering down SD card pins...");
+  if (g_sdReady) {
+    saveCurrentLogChunkToSD("shutdown");
+    if (g_logFile) {
+      g_logFile.flush();
+      g_logFile.close();
+    }
+    SD.end();
+    g_sdReady = false;
+  }
   pinMode(hw::PIN_SD_PWR, OUTPUT);
   digitalWrite(hw::PIN_SD_PWR, LOW);
   // CSピン（Chip
@@ -618,7 +622,6 @@ static void markAsUploaded(const String &cid) {
   if (isCidUploaded(cid)) {
     return; // Already marked, do nothing
   }
-  g_uploadedCidList.push_back(cid); // Add to the in-memory list
 
   // Append the new CID to the file on the SD card
   File file = SD.open(UPLOADED_LIST_PATH, FILE_APPEND);
@@ -627,8 +630,14 @@ static void markAsUploaded(const String &cid) {
     // Potential issue: list in memory and file are now out of sync
     return;
   }
-  file.println(cid); // Add the ID followed by a newline
+  size_t written = file.println(cid);
+  file.flush();
   file.close();
+  if (written != cid.length() + 2) {
+    LOG_PRINTLN("[ERR] Upload history write failed; will retry next boot.");
+    return;
+  }
+  g_uploadedCidList.push_back(cid);
   LOG_PRINTF("[UPLOAD] Marked cycle %s as uploaded.\n", cid.c_str());
 }
 
@@ -638,11 +647,13 @@ static void markAsUploaded(const String &cid) {
  * @return True if resolution is successful, False otherwise.
  */
 static bool resolvePiHost() {
+  const uint32_t started = millis();
   if (WiFi.status() != WL_CONNECTED) {
     LOG_PRINTLN("[mDNS] Wi-Fi not connected, cannot resolve host.");
     return false;
   }
-  LOG_PRINTF("[mDNS] Resolving host: %s.local ...\n", net::PI_MDNS_HOST);
+  LOG_PRINTF("[mDNS] t=%lu ms Resolving host: %s.local (timeout=5000 ms)\n",
+             (unsigned long)started, net::PI_MDNS_HOST);
 
   // Start mDNS (use a unique hostname for the ESP itself if needed)
   String myHostname = "esp32-cam-" + deviceIdHex();
@@ -658,16 +669,19 @@ static bool resolvePiHost() {
   MDNS.end(); // Stop mDNS service after query
 
   // Check if a valid IP address was returned
-  if (piIP == INADDR_NONE || piIP[0] == 0) { // Check for 0.0.0.0 as well
-    LOG_PRINTLN("[mDNS] Host not found.");
+  if (piIP == IPAddress(255, 255, 255, 255) || piIP[0] == 0) {
+    LOG_PRINTF("[mDNS] Host not found: elapsed=%lu ms wifi_status=%d\n",
+               (unsigned long)(millis() - started), (int)WiFi.status());
     g_piHostResolved = false;
     return false;
   }
 
   // Success! Store the resolved IP and construct full URLs
-  LOG_PRINTF("[mDNS] Host found! IP Address: %s\n", piIP.toString().c_str());
+  LOG_PRINTF("[mDNS] Host found: IP=%s elapsed=%lu ms\n",
+             piIP.toString().c_str(), (unsigned long)(millis() - started));
   String hostBase = "http://" + piIP.toString() +
                     ":8000"; // Assuming Pi server runs on port 8000
+  net::PI_IP = piIP;
   net::PI_HOST = hostBase;
   net::PI_UPLOAD_URL = hostBase + "/upload";
   net::PI_HEALTHZ = hostBase + "/healthz";
@@ -676,18 +690,128 @@ static bool resolvePiHost() {
   return true;
 }
 
+#if CAMERA_TRANSFER_MODE == CAMERA_TRANSPORT_SFTP
+static CameraSftpClient g_fileTransfer;
+#else
+static CameraFtpClient g_fileTransfer;
+#endif
+
+static void syncCaptureClock(time_t epoch) {
+  if (epoch <= 1700000000) return;
+  timeval tv = {epoch, 0};
+  settimeofday(&tv, nullptr);
+  if (g_cycleId.length()) {
+    File stamp = SD.open("/archive/" + g_cycleId + "/captured_at.txt", FILE_WRITE);
+    if (stamp) {
+      stamp.printf("%lld\n", (long long)(epoch-(millis()-g_tCapStart)/1000));
+      stamp.close();
+    }
+  }
+  LOG_PRINTF("[TIME] Edge UTC=%lld; capture UTC estimated from uptime.\n", (long long)epoch);
+}
+
+static bool connectFileTransfer() {
+  if (g_fileTransfer.connected()) return true;
+#if CAMERA_TRANSFER_MODE == CAMERA_TRANSPORT_SFTP
+  bool ok = g_fileTransfer.begin(net::PI_IP, CAMERA_SFTP_PORT, CAMERA_SFTP_USER,
+                        CAMERA_SFTP_HOST_FINGERPRINT, CAMERA_SFTP_KEY_PATH,
+                        CAMERA_SFTP_KEY_PASSPHRASE, CAMERA_SFTP_REMOTE_ROOT,
+                        g_tUploadStart, param::UPLOAD_BUDGET_MS);
+  LOG_PRINTF("[SFTP] Connection/auth %s (port=%u free_heap=%u detail=%s)\n",
+             ok ? "OK" : "FAILED", CAMERA_SFTP_PORT, ESP.getFreeHeap(), g_fileTransfer.error());
+#else
+  bool ok = g_fileTransfer.begin(net::PI_IP, CAMERA_FTP_PORT, CAMERA_FTP_USER,
+                        CAMERA_FTP_PASSWORD, g_tUploadStart, param::UPLOAD_BUDGET_MS);
+  LOG_PRINTF("[FTP] Connection/login %s (port=%u)\n", ok ? "OK" : "FAILED", CAMERA_FTP_PORT);
+#endif
+  return ok;
+}
+
+static bool uploadTransferFile(const String &path, const String &cycleId, int imgIdx) {
+  if (!connectFileTransfer()) return false;
+  const uint32_t started = millis();
+  File file = SD.open(path, FILE_READ);
+  if (!file || !file.size()) { file.close(); return false; }
+  size_t size = file.size(), hashed = 0;
+  uint8_t buffer[2048], hash[32];
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0);
+  while (hashed < size && millis()-g_tUploadStart < param::UPLOAD_BUDGET_MS) {
+    int count = file.read(buffer, sizeof(buffer));
+    if (count <= 0) break;
+    mbedtls_sha256_update(&ctx, buffer, count);
+    hashed += count;
+  }
+  mbedtls_sha256_finish(&ctx, hash);
+  mbedtls_sha256_free(&ctx);
+  if (hashed != size || !file.seek(0)) { file.close(); return false; }
+  char hex[65], token[33];
+  for (int i = 0; i < 32; i++) sprintf(hex+2*i, "%02x", hash[i]);
+  hex[64] = '\0';
+  snprintf(token, sizeof(token), "%08lx%08lx%08lx%08lx",
+           (unsigned long)esp_random(), (unsigned long)esp_random(),
+           (unsigned long)esp_random(), (unsigned long)esp_random());
+  String base = String("incoming/") + token;
+  JsonDocument manifest;
+  manifest["version"] = 1;
+  manifest["kind"] = imgIdx > 0 ? "image" : "log";
+  manifest["filename"] = path.substring(path.lastIndexOf('/')+1);
+  manifest["cycle_id"] = cycleId;
+  manifest["image_index"] = imgIdx;
+  manifest["size"] = size;
+  manifest["sha256"] = hex;
+  File captured = SD.open("/archive/" + cycleId + "/captured_at.txt", FILE_READ);
+  if (captured) {
+    String epoch = captured.readStringUntil('\n');
+    epoch.trim();
+    if (epoch.length()) manifest["captured_at"] = epoch;
+    captured.close();
+  }
+  String body;
+  serializeJson(manifest, body);
+  LOG_PRINTF(FILE_TRANSFER_TAG " Sending cid=%s image=%d bytes=%lu\n", cycleId.c_str(), imgIdx, (unsigned long)size);
+  bool sent = g_fileTransfer.putFile(base+".data.part", file);
+  file.close();
+  sent = sent && g_fileTransfer.renameFile(base+".data.part", base+".data") &&
+         g_fileTransfer.putText(base+".json.part", body) && g_fileTransfer.renameFile(base+".json.part", base+".ready");
+  if (!sent) { g_fileTransfer.close(); LOG_PRINTLN(FILE_TRANSFER_TAG " Transfer failed; retained on SD."); return false; }
+  uint32_t pollStart = millis();
+  while (g_fileTransfer.connected() && millis()-pollStart < 15000) {
+    String response;
+    if (g_fileTransfer.getText(String("receipts/")+token+".json", response)) {
+      JsonDocument receipt;
+      bool ok = !deserializeJson(receipt, response) && String(receipt["status"] | "") == "ok" &&
+                String(receipt["sha256"] | "") == hex;
+      String expected = imgIdx > 0 ? cycleId+":"+String(imgIdx) : String("log:")+hex;
+      ok = ok && String(receipt["receipt_id"] | "") == expected;
+      LOG_PRINTF(FILE_TRANSFER_TAG " Receipt %s cid=%s image=%d elapsed=%lu ms\n", ok ? "OK" : "REJECTED",
+                 cycleId.c_str(), imgIdx, (unsigned long)(millis()-started));
+      return ok;
+    }
+    delay(250);
+  }
+  LOG_PRINTLN(FILE_TRANSFER_TAG " Application receipt timed out; retained on SD.");
+  return false;
+}
+
 /**
- * @brief Uploads a single file to the Pi server via HTTP POST.
+ * @brief Uploads a single file using the configured SFTP, FTP or HTTP transport.
  * @param url The full URL endpoint on the Pi server.
  * @param path The path to the file on the ESP32's SD card.
  * @param ctype The Content-Type header value (e.g., "image/jpeg").
  * @param cycleId The cycle ID associated with this file.
  * @param imgIdx The image index (1, 2, or 3) if applicable, 0 otherwise (for
  * log file).
- * @return True if the upload returns HTTP 200 OK, False otherwise.
+ * @return True only after receiving a matching application receipt.
  */
 static bool uploadFile(const String &url, const String &path, const char *ctype,
                        const String &cycleId, int imgIdx) {
+  if (CAMERA_TRANSFER_MODE != CAMERA_TRANSPORT_HTTP) return uploadTransferFile(path, cycleId, imgIdx);
+  if (g_uploadBudgetActive && millis() - g_tUploadStart >= param::UPLOAD_BUDGET_MS) {
+    LOG_PRINTLN("[UPLOAD] Wake-cycle transfer budget exhausted.");
+    return false;
+  }
   File file = SD.open(path, FILE_READ);
 
   // Check if file opened successfully
@@ -700,8 +824,7 @@ static bool uploadFile(const String &url, const String &path, const char *ctype,
   if (fileSize == 0) {
     LOG_PRINTF("[WARN] Upload: Skipping empty file %s\n", path.c_str());
     file.close();
-    return true; // Treat empty file upload as success? Or should it be false?
-                 // Let's say true.
+    return false; // Empty files are not durable image receipts.
   }
 
   bool success = false;
@@ -737,18 +860,52 @@ static bool uploadFile(const String &url, const String &path, const char *ctype,
       sprintf(hexHash + 2 * i, "%02x", hashResult[i]);
     hexHash[64] = '\0';
 
-    file.seek(0); // Rewind file pointer to the beginning for sending
+    if (!file.seek(0)) {
+      file.close();
+      httpClient.end();
+      return false;
+    }
+    File captured = SD.open("/archive/" + cycleId + "/captured_at.txt", FILE_READ);
+    if (captured) {
+      String epoch = captured.readStringUntil('\n');
+      epoch.trim();
+      if (epoch.length() > 0) httpClient.addHeader("X-Captured-At", epoch);
+      captured.close();
+    }
     httpClient.addHeader(net::HDR_HASH, String(hexHash)); // Add hash header
     httpClient.addHeader("X-API-KEY", net::API_TOKEN);    // Add API Auth Header
-    httpClient.setTimeout(15000); // Set timeout for the request (ms)
+    uint32_t elapsed = millis() - g_tUploadStart;
+    if (g_uploadBudgetActive && elapsed >= param::UPLOAD_BUDGET_MS) {
+      file.close();
+      httpClient.end();
+      return false;
+    }
+    uint32_t remaining = g_uploadBudgetActive ? param::UPLOAD_BUDGET_MS - elapsed : 15000;
+    uint32_t timeout = remaining < 15000 ? remaining : 15000;
+    httpClient.setTimeout(timeout);
+    httpClient.setConnectTimeout(timeout < 5000 ? timeout : 5000);
 
     // Send the POST request with the file stream and size
+    const uint32_t started = millis();
+    LOG_PRINTF("[HTTP] t=%lu ms POST %s cid=%s image=%d bytes=%lu\n",
+               (unsigned long)started, url.c_str(), cycleId.c_str(), imgIdx,
+               (unsigned long)fileSize);
     int httpCode = httpClient.sendRequest("POST", &file, fileSize);
+    LOG_PRINTF("[HTTP] POST result=%d elapsed=%lu ms wifi_status=%d rssi=%d dBm\n",
+               httpCode, (unsigned long)(millis() - started),
+               (int)WiFi.status(), (int)WiFi.RSSI());
 
     // Check response code
     if (httpCode == HTTP_CODE_OK) {
-      success = true;
-      LOG_PRINTF("[UPLOAD] OK: %s -> %d\n", path.c_str(), httpCode);
+      JsonDocument receipt;
+      DeserializationError error = deserializeJson(receipt, httpClient.getString());
+      success = !error && String(receipt["status"] | "") == "ok" &&
+                String(receipt["sha256"] | "") == hexHash;
+      if (imgIdx > 0) {
+        success = success && String(receipt["receipt_id"] | "") == cycleId + ":" + String(imgIdx);
+      }
+      LOG_PRINTF("[UPLOAD] Receipt %s: %s -> %d\n",
+                 success ? "confirmed" : "INVALID", path.c_str(), httpCode);
     } else {
       // Log error with HTTP code and potentially response body
       LOG_PRINTF("[ERR] Upload Failed: %s -> %d (%s)\n", path.c_str(), httpCode,
@@ -860,76 +1017,61 @@ static void uploadPendingData() {
     return;
   }
 
-  // 1. サーバーのヘルスチェック
-  HTTPClient healthCheckClient;
-  healthCheckClient.setTimeout(3000);
   bool piOk = false;
-  // ※仮IP対応を入れている場合はURLが正しいか注意してください
-  if (healthCheckClient.begin(net::PI_HEALTHZ)) {
-    int httpCode = healthCheckClient.GET();
-    healthCheckClient.end();
-    if (httpCode == HTTP_CODE_OK) {
-      piOk = true;
-    } else {
-      LOG_PRINTF(
-          "[UPLOAD] Pi health check failed (HTTP %d). Skipping uploads.\n",
-          httpCode);
+  if (CAMERA_TRANSFER_MODE != CAMERA_TRANSPORT_HTTP) {
+    piOk = connectFileTransfer();
+    if (piOk) {
+      String response;
+      if (g_fileTransfer.getText("status.json", response)) {
+        JsonDocument status;
+        if (!deserializeJson(status, response)) {
+          piOk = String(status["status"] | "") == "ok";
+          if (piOk) syncCaptureClock(status["utc_epoch"] | 0L);
+        }
+      }
+      // If status.json is not published yet, each file still requires a durable receipt.
     }
   } else {
-    LOG_PRINTLN("[ERR] HTTPClient begin failed for health check.");
+    HTTPClient health;
+    health.setTimeout(3000);
+    health.setConnectTimeout(3000);
+    if (health.begin(net::PI_HEALTHZ)) {
+      int code = health.GET();
+      LOG_PRINTF("[HTTP] Health result=%d\n", code);
+      if (code == HTTP_CODE_OK) {
+        JsonDocument status;
+        if (!deserializeJson(status, health.getString()) && String(status["status"] | "") == "ok") {
+          piOk = true;
+          syncCaptureClock(status["utc_epoch"] | 0L);
+        }
+      }
+      health.end();
+    }
   }
-  if (!piOk)
-    return;
+  if (!piOk) { g_fileTransfer.close(); return; }
+  g_uploadBudgetActive = true;
 
-  LOG_PRINTLN("[UPLOAD] Pi server OK. Scanning archive (Newest -> Oldest)...");
-
-  // 2. サイクル一覧を取得 (この関数は内部で昇順ソートしています)
-  // ※フォルダ数が多いとここで少し時間がかかりますが、タイムアウト前にリスト化します
+  LOG_PRINTLN("[UPLOAD] Pi server OK. Resuming round-robin scan of all pending archives.");
   std::list<String> cycleDirs = listCycleDirs("/archive");
-
-  // 3. リストを逆順 (降順) にする -> 最新のものが先頭に来る
-  cycleDirs.reverse();
-
-  long currentSeq = g_currentSeqNum;
-  // 再試行範囲の計算 (現在 - 3)
-  long minSeqToRetry = max(0L, (currentSeq > param::UPLOAD_RETRY_WINDOW)
-                                   ? (currentSeq - param::UPLOAD_RETRY_WINDOW)
-                                   : 0L);
-
-  LOG_PRINTF("[UPLOAD] Current seq: %ld. Retry window: >= %ld. Found %d total "
-             "cycles.\n",
-             currentSeq, minSeqToRetry, cycleDirs.size());
-
+  File cursorFile = SD.open("/logs/retry_cursor.txt", FILE_READ);
+  if (cursorFile && !cycleDirs.empty()) {
+    String cursor = cursorFile.readStringUntil('\n');
+    cursor.trim();
+    long cursorSeq = getSeqNumFromCid(cursor);
+    auto next = cycleDirs.begin();
+    while (next != cycleDirs.end() && getSeqNumFromCid(*next) <= cursorSeq) ++next;
+    if (next != cycleDirs.end()) cycleDirs.splice(cycleDirs.end(), cycleDirs, cycleDirs.begin(), next);
+  }
+  cursorFile.close();
   int uploadCount = 0;
-  const int MAX_UPLOADS_LIMIT = 3; // ★ユーザー要望: 最大3件まで
-
-  // 4. リストの上から順 (最新順) にチェック
+  int attemptedCount = 0;
+  const int MAX_UPLOADS_LIMIT = 3;
   for (const String &cid : cycleDirs) {
-
-    // 既に3件アップロードしたら終了
-    if (uploadCount >= MAX_UPLOADS_LIMIT) {
-      LOG_PRINTLN("[UPLOAD] Reached limit of 3 uploads per cycle.");
+    if (attemptedCount >= MAX_UPLOADS_LIMIT || millis()-g_tUploadStart >= param::UPLOAD_BUDGET_MS)
       break;
-    }
-
-    // --- フィルタリング ---
-
-    // A. 既にアップロード済みならスキップ
-    if (isCidUploaded(cid)) {
-      continue;
-    }
-
-    // B. 再試行ウィンドウより古いならスキップ
-    // (ただし最新サイクル=currentSeqは除外せず通す)
+    if (isCidUploaded(cid)) continue;
     long cycleSeq = getSeqNumFromCid(cid);
-    if (cycleSeq == -1)
-      continue; // 無効なID
-
-    if (cycleSeq < minSeqToRetry && cycleSeq != currentSeq) {
-      LOG_PRINTF("[UPLOAD] Reached old data (seq %ld). Stop scanning.\n",
-                 cycleSeq);
-      break; // これを入れるとさらに高速化されます
-    }
+    if (cycleSeq == -1) continue;
 
     // C. ファイルが揃っているかチェック
     // Naming: {CID}-{1~3}{n|d}.jpg
@@ -959,20 +1101,25 @@ static void uploadPendingData() {
 
     String pLog = "/archive/" + cid + "/esp_chunk.log";
 
-    if (p1 == "" || p2 == "" || p3 == "" || !SD.exists(pLog)) {
-      // Fallback: Check for legacy names img1.jpg just in case?
-      // (Skipping legacy check to keep code clean as per new requirements)
-      LOG_PRINTF("[UPLOAD] Skipping incomplete cycle: %s\n", cid.c_str());
+    if ((p1 == "" && p2 == "" && p3 == "") || !SD.exists(pLog)) {
+      LOG_PRINTF("[UPLOAD] No sendable images/log in cycle: %s\n", cid.c_str());
       continue;
     }
+    attemptedCount++;
+    File nextCursor = SD.open("/logs/retry_cursor.txt", FILE_WRITE);
+    if (nextCursor) { nextCursor.println(cid); nextCursor.close(); }
 
     // --- アップロード実行 ---
     LOG_PRINTF("[UPLOAD] Uploading %s (seq %ld)...\n", cid.c_str(), cycleSeq);
 
-    bool ok1 = uploadFile(net::PI_UPLOAD_URL, p1, "image/jpeg", cid, 1);
-    bool ok2 = uploadFile(net::PI_UPLOAD_URL, p2, "image/jpeg", cid, 2);
-    bool ok3 = uploadFile(net::PI_UPLOAD_URL, p3, "image/jpeg", cid, 3);
-    bool okLog = uploadFile(net::PI_ESPLOG_URL, pLog, "text/plain", cid, 0);
+    bool ok1 = p1 == "" || uploadFile(net::PI_UPLOAD_URL, p1, "image/jpeg", cid, 1);
+    bool ok2 = p2 == "" || uploadFile(net::PI_UPLOAD_URL, p2, "image/jpeg", cid, 2);
+    bool ok3 = p3 == "" || uploadFile(net::PI_UPLOAD_URL, p3, "image/jpeg", cid, 3);
+    // Include Wi-Fi, mDNS, health check and image transfer results in the
+    // current cycle's uploaded log. Close the writer before hashing/sending.
+    // The log upload's own result is saved locally by the final checkpoint.
+    bool logReady = cid != g_cycleId || saveCurrentLogChunkToSD("before_log_upload");
+    bool okLog = logReady && uploadFile(net::PI_ESPLOG_URL, pLog, "text/plain", cid, 0);
 
     if (ok1 && ok2 && ok3 && okLog) {
       markAsUploaded(cid);
@@ -986,6 +1133,8 @@ static void uploadPendingData() {
   if (cycleDirs.empty()) {
     LOG_PRINTLN("[UPLOAD] No cycles found in archive.");
   }
+  g_fileTransfer.close();
+  g_uploadBudgetActive = false;
   g_tUploadEnd = millis(); // Record end of upload
 }
 
@@ -1017,39 +1166,39 @@ static String makeEspLogChunkForCurrentCycle() {
  * (/logs/esp.log) with rotation.
  * @param chunk The log chunk String to append.
  */
-static void updateEspLogAppendRotate(const String &chunk) {
-  if (chunk.length() == 0)
-    return;
-  elog::appendWithRotate(elog::ESP, chunk, elog::MAX_LINES);
+static bool updateEspLogAppendRotate(const String &chunk) {
+  if (chunk.length() == 0) return true;
+  return elog::appendWithRotate(elog::ESP, chunk, elog::MAX_LINES);
 }
 
 /**
  * @brief Saves the current log chunk to SD card and clears the memory buffer.
  * @param label A label indicating when the log was saved (e.g., "early", "final").
  */
-static void saveCurrentLogChunkToSD(const char* label) {
-  String logChunk = makeEspLogChunkForCurrentCycle();
-  if (logChunk.length() > 0) {
-    // Append to the main persistent log (/logs/esp.log)
-    updateEspLogAppendRotate(logChunk);
-    // Save chunk specifically for this cycle in its archive folder
-    if (g_cycleId.length() > 0) { // Only if a capture cycle ran
-      String logChunkPath = "/archive/" + g_cycleId + "/esp_chunk.log";
-      // FILE_WRITE on esp32 SD library defaults to FILE_APPEND for some versions,
-      // but FILE_APPEND is explicitly safer here since we may write multiple times per cycle.
-      File file = SD.open(logChunkPath, FILE_APPEND); 
-      if (file) {
-        file.print(logChunk);
-        file.close();
-        LOG_PRINTF("[SAVE] Saved log chunk (%s): %s\n", label, logChunkPath.c_str());
-      } else {
-        LOG_PRINTF("[ERR] Failed to save log chunk (%s): %s\n", label, logChunkPath.c_str());
-      }
+static bool saveCurrentLogChunkToSD(const char* label) {
+  if (!g_sdReady) return false;
+  size_t checkpoint = g_syslogBuf.length();
+  String chunk = makeEspLogChunkForCurrentCycle();
+  if (!chunk.length()) return true;
+  bool saved = updateEspLogAppendRotate(chunk);
+  if (g_cycleId.length()) {
+    File file = SD.open("/archive/" + g_cycleId + "/esp_chunk.log", FILE_APPEND);
+    if (file) {
+      size_t written = file.print(chunk);
+      file.flush();
+      file.close();
+      saved = saved && written == chunk.length();
+    } else {
+      saved = false;
     }
-    // Clear memory buffer for next chunk
-    g_syslogBuf = "";
+  }
+  if (saved) {
+    // Preserve messages emitted by the logging/rotation code after the snapshot.
+    g_syslogBuf.remove(0, checkpoint);
     g_syslogStartOff = 0;
   }
+  LOG_PRINTF("[SAVE] Log checkpoint %s: %s\n", label, saved ? "saved" : "FAILED, retaining buffer");
+  return saved;
 }
 
 /***********************************************************
@@ -1099,8 +1248,13 @@ static bool removeDirRecursive(const String &path) {
   bool success = true;
   // Iterate through directory contents
   while (file = dir.openNextFile()) {
-    String filePath = path + "/" + file.name(); // Construct full path of item
-    if (file.isDirectory()) {
+    String name = file.name();
+    int slash = name.lastIndexOf('/');
+    if (slash >= 0) name = name.substring(slash + 1);
+    String filePath = path + "/" + name;
+    bool isDirectory = file.isDirectory();
+    file.close();
+    if (isDirectory) {
       success &= removeDirRecursive(filePath); // Recurse into subdirectory
     } else {
       // It's a file, remove it
@@ -1170,6 +1324,7 @@ static void cleanupOldArchives() {
 
   // 5. 古いもの (リストの先頭) から順に削除するループ
   for (const String &oldestCid : cycleDirs) {
+    if (!isCidUploaded(oldestCid) || oldestCid == g_cycleId) continue;
     String dirPath = "/archive/" + oldestCid;
     LOG_PRINTF("[GC] Removing old cycle: %s\n", dirPath.c_str());
 
@@ -1320,7 +1475,7 @@ static void beginCapture() {
   g_tCapStart = millis();          // Record start of capture
   g_cycleId = makeCycleIdNoTime(); // Generate the unique ID for this cycle
   g_tBegin = millis();             // Record start time
-  g_syslogStartOff = g_syslogBuf.length(); // Mark start of logs for this cycle
+  g_syslogStartOff = 0; // Include boot/storage diagnostics in the first checkpoint
 
   // Apply LED/Motor actions based on current light level
   bool night = isNight();
@@ -1369,6 +1524,12 @@ static void beginCapture() {
     // Incomplete cycles will be skipped by the upload logic later
   }
   g_tCapEnd = millis(); // Record end of capture
+  File metadata = SD.open("/archive/" + g_cycleId + "/capture_meta.json", FILE_WRITE);
+  if (metadata) {
+    metadata.printf("{\"capture_uptime_ms\":%lu,\"capture_duration_ms\":%lu,\"utc_known_at_capture\":false}\n",
+                    (unsigned long)g_tCapStart, (unsigned long)(g_tCapEnd-g_tCapStart));
+    metadata.close();
+  }
 }
 
 /***********************************************************
@@ -1383,7 +1544,7 @@ void setup() {
 
   // Start the status LED task
   // Solid LED indicates booting
-  LOG_PRINTLN("\n=== ESP-CAM Boot (Cooldown Version) ===");
+  LOG_PRINTLN("\n=== ESP-CAM Boot: UTC unknown until edge synchronization ===");
   g_tWake = millis();
   // Record wake-up time
 
@@ -1422,7 +1583,9 @@ void setup() {
   }
   elog::ensure();
   // Ensure /logs directory exists
-  openNewDailyLogFile(); // Prepare the daily log file
+  openNewDailyLogFile(); // Prepare the bounded serial log
+  loadUploadedList();
+  cleanupOldArchives();
 
   // --- Main Operations ---
   // 1. Initialize Camera
@@ -1462,9 +1625,10 @@ void setup() {
   }
 
   // 4. Enter Sleep (includes cooldown)
-  LOG_PRINTLN("[STEP] All tasks complete. Entering cooldown then sleep.");
+  LOG_PRINTLN("[STEP] All tasks complete. Saving logs before PIC shutdown.");
   // Save remaining logs generated during Wi-Fi and Upload phases
   saveCurrentLogChunkToSD("final");
+  cleanupOldArchives();
   requestShutdownAndWait(); // Saves logs, cleans archive, waits 30s, sets pins,
                             // sleeps
 }

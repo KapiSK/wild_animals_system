@@ -1,3 +1,4 @@
+import os
 from ultralytics import YOLO
 import cv2
 
@@ -5,12 +6,15 @@ class Detector:
     def __init__(self):
         # 蒸留済みのモデルをRaspberry Piで非同期(マルチスレッド)かつ高速・安定に動かすため、
         # TFLite(.tflite) または ONNX(.onnx) 形式のモデルを使用します。
-        self.model = YOLO("best.onnx") # .onnx の場合は "best.onnx" に変更してください
+        self.model_path = os.getenv("EDGE_MODEL_PATH", "best.onnx")
+        self.confidence = float(os.getenv("EDGE_CONFIDENCE", "0.004"))
+        if not 0 <= self.confidence <= 1:
+            raise ValueError("EDGE_CONFIDENCE must be between 0 and 1")
+        self.model = YOLO(self.model_path) # .onnx の場合は "best.onnx" に変更してください
 
     def detect(self, image_path, save_path=None):
-        # 推論の実行 (conf=0.50 は「AIの自信度が50%以上のときだけ検出する」という閾値設定です)
-        # 誤検知が多い場合は0.60等に上げ、検知漏れが多い場合は0.25等に下げてください。
-        results = self.model(image_path, conf=0.004)
+        # Default preserves current behavior; calibrate using field audit samples.
+        results = self.model(image_path, conf=self.confidence)
         is_animal_detected = False
         label_detected = None
 

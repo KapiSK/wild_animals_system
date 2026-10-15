@@ -1,0 +1,48 @@
+% A4縦・1カラム．参考PDFに近い余白，章見出し，右上ページ番号．
+\usepackage[haranoaji]{luatexja-preset}
+\usepackage[top=30mm,bottom=30mm,left=26mm,right=26mm,headheight=16pt,headsep=10mm]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{fancyhdr}
+\usepackage[unicode,hidelinks,bookmarksnumbered]{hyperref}
+
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\renewcommand{\listfigurename}{図目次}
+\renewcommand{\listtablename}{表目次}
+\renewcommand{\bibname}{参考文献}
+\renewcommand{\baselinestretch}{1.12}
+\setlength{\parindent}{1\zw}
+\setlength{\parskip}{0pt}
+\raggedbottom
+
+\fancypagestyle{thesis}{%
+  \fancyhf{}
+  \fancyhead[R]{\small\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
+}
+% 章の開始ページにも同じ位置に番号を置く．
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyhead[R]{\small\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
+}
+\makeatletter
+\let\ps@plainhead\ps@plain
+\let\ps@plainfoot\ps@plain
+\makeatother
+
+% 執筆時に，この命令全体を実際の本文へ置き換える．
+% 記入案内は完成した研究内容ではないため，灰色で表示する．
+\newcommand{\writehere}[1]{\par\noindent{\color{gray}\small［記入内容：#1］}\par}
+\newcommand{\unnumberedchapter}[1]{%
+  \chapter*{#1}%
+  \phantomsection
+  \addcontentsline{toc}{chapter}{#1}%
+  \markboth{#1}{#1}%
+}

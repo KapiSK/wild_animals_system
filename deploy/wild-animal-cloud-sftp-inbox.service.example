@@ -1,0 +1,18 @@
+[Unit]
+Description=Wild animals SFTP inbox importer
+Wants=network-online.target
+After=network-online.target wild-animal-server-main.service
+
+[Service]
+Type=simple
+# Run as the cloud application user, distinct from the SSH upload account.
+User=wildcloud
+SupplementaryGroups=wild-transfer
+WorkingDirectory=/opt/wild_animals
+ExecStart=/opt/wild_animals/original_server/venv/bin/python /opt/wild_animals/transfer_receiver.py --transport sftp --role cloud --env-file /opt/wild_animals/original_server/.env.transfer
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

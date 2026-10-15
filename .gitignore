@@ -17,3 +17,6 @@ __pycache__/
 # Others (Windows, VS Code)
 .vscode/
 .DS_Store
+transfer_secrets.h
+camera_ed25519
+.env.transfer

@@ -1,405 +1,293 @@
 import os
+import sys
 import datetime
 import time
 import asyncio
 import logging
-import re
-from collections import defaultdict
+from logging.handlers import RotatingFileHandler
+import hashlib
+import json
+from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Header, HTTPException, status, Depends
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
-import aiofiles
-import httpx
 from urllib.parse import urlparse
+from fastapi import FastAPI, Request, Header, HTTPException, Depends
+from fastapi.responses import HTMLResponse, FileResponse
+from dotenv import load_dotenv
+import httpx
 from detector import Detector
 
-# Load environment variables
-load_dotenv()
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from pipeline_common import (Store, worker, receive_file, validate_jpeg,
+                             image_identity, InvalidUpload, ReceiptConflict,
+                             StorageFull, sync_directory)
 
-# Configuration
-# Images are saved here
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-# Optional: URL to forward images to (if not set in .env, forwarding is skipped)
-# Optional: URL to forward images to (if not set in .env, forwarding is skipped)
+from file_transfer import send_sftp
+
+load_dotenv()
+UPLOAD_DIR = os.path.abspath(os.getenv("UPLOAD_DIR", "uploads"))
 MAIN_SERVER_URL = os.getenv("MAIN_SERVER_URL")
-# Local Mode: If True, skips forwarding to external server
+CLOUD_TRANSFER_MODE = os.getenv("CLOUD_TRANSFER_MODE", "http").lower()
+if CLOUD_TRANSFER_MODE not in ("http", "sftp"):
+    raise ValueError("CLOUD_TRANSFER_MODE must be http or sftp")
 LOCAL_MODE = os.getenv("LOCAL_MODE", "False").lower() == "true"
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
+CYCLE_TIMEOUT = int(os.getenv("CYCLE_TIMEOUT_SECONDS", "300"))
+NEGATIVE_SAMPLE_RATE = float(os.getenv("NEGATIVE_SAMPLE_RATE", "0.01"))
+MIN_FREE_BYTES = int(os.getenv("MIN_FREE_MB", "64")) * 1024 * 1024
+if not 0 <= NEGATIVE_SAMPLE_RATE <= 1:
+    raise ValueError("NEGATIVE_SAMPLE_RATE must be between 0 and 1")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+                    handlers=[RotatingFileHandler("edge_server.log", maxBytes=5*1024*1024,
+                                                  backupCount=3, encoding='utf-8', delay=True), logging.StreamHandler()])
+logger = logging.getLogger(__name__)
+store = Store(os.getenv("PIPELINE_DB", os.path.join(UPLOAD_DIR, "pipeline.sqlite3")))
+detector = None
+
 
 async def verify_api_token(x_api_key: str = Header(None)):
     if x_api_key != API_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Token"
-        )
+        raise HTTPException(status_code=401, detail="Invalid API Token")
 
-LOG_FILE = "server.log"
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("edge_server.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+def sampled_negative(cycle):
+    # Stable across retries/restarts: sample entire cycles, not isolated frames.
+    fraction = int(hashlib.sha256(cycle.encode()).hexdigest()[:8], 16) / 2**32
+    return fraction < NEGATIVE_SAMPLE_RATE
 
-# Ensure upload directory exists
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-detector = None
+async def infer_image(payload):
+    row = await asyncio.to_thread(store.image, payload['key'])
+    if row['result'] is not None:
+        return
+    siblings = await asyncio.to_thread(store.images, row['cycle'])
+    started = time.perf_counter()
+    if any(r['result'] and r['result']['decision'] == 'positive' for r in siblings):
+        result = {'decision': 'skipped', 'label': 'early exit after positive detection'}
+    else:
+        positive, label = await asyncio.to_thread(detector.detect, row['path'])
+        result = {'decision': 'positive' if positive else 'negative', 'label': label}
+    result.update(inference_ms=(time.perf_counter()-started)*1000,
+                  inferred_at=time.time(), model=detector.model_path,
+                  confidence_threshold=detector.confidence)
+    await asyncio.to_thread(store.result, row['key'], result)
 
-async def cleanup_old_files(days=7):
-    logger.info(f"Running cleanup for files older than {days} days")
-    now = time.time()
-    cutoff = now - (days * 86400)
-    try:
-        files = os.listdir(UPLOAD_DIR)
-        for f in files:
-            filepath = os.path.join(UPLOAD_DIR, f)
-            if os.path.isfile(filepath):
-                mtime = os.path.getmtime(filepath)
-                if mtime < cutoff:
-                    os.remove(filepath)
-                    logger.info(f"Deleted old file: {f}")
-    except Exception as e:
-        logger.error(f"Failed to cleanup files: {e}")
+
+async def aggregate_once():
+    for cycle in await asyncio.to_thread(store.pending_cycles):
+        rows = await asyncio.to_thread(store.images, cycle)
+        analyzed = [r for r in rows if r['result'] is not None]
+        complete = {r['idx'] for r in analyzed} == {1, 2, 3}
+        expired = time.time() - min(r['received'] for r in rows) >= CYCLE_TIMEOUT
+        if not complete and not expired:
+            continue
+        # On timeout process available successful results; a failed inference
+        # remains pending and can join the same cycle after a retry.
+        if not analyzed:
+            continue
+        positive = any(r['result']['decision'] == 'positive' for r in analyzed)
+        audit = not positive and sampled_negative(cycle)
+        for row in analyzed:
+            if positive or audit:
+                # A late positive may reopen an earlier negative decision.
+                await asyncio.to_thread(store.terminal, row['key'], False)
+                await asyncio.to_thread(store.enqueue, 'forward:'+row['key'], 'forward',
+                                        {'key': row['key'], 'reason': 'positive' if positive else 'negative_sample'})
+                job = await asyncio.to_thread(store.job, 'forward:'+row['key'])
+                if job['state'] == 'done':
+                    await asyncio.to_thread(store.terminal, row['key'])
+            else:
+                await asyncio.to_thread(store.terminal, row['key'])
+        logger.info("Cycle=%s complete=%s images=%s positive=%s audit=%s",
+                    cycle, complete, [r['idx'] for r in analyzed], positive, audit)
+
+
+async def aggregate_loop():
+    while True:
+        try:
+            await aggregate_once()
+        except Exception:
+            logger.exception("Cycle aggregation failed; will retry")
+        await asyncio.sleep(5)
+
+
+async def forward_image(payload):
+    if LOCAL_MODE or (CLOUD_TRANSFER_MODE == "http" and not MAIN_SERVER_URL):
+        raise RuntimeError("Cloud forwarding disabled/unconfigured; retaining queued image")
+    row = await asyncio.to_thread(store.image, payload['key'])
+    metadata = row['payload']
+    headers = {'X-API-KEY': API_TOKEN, 'X-Cycle-Id': row['cycle'],
+               'X-Img-Index': str(row['idx']), 'X-Content-SHA256': row['hash'],
+               'X-File-Size': str(metadata['size']),
+               'X-Edge-Received-At': str(row['received']),
+               'X-Edge-Decision': row['result']['decision'],
+               'X-Transfer-Reason': payload['reason']}
+    if metadata.get('captured_at'):
+        headers['X-Captured-At'] = metadata['captured_at']
+    started = time.perf_counter()
+    if CLOUD_TRANSFER_MODE == 'sftp':
+        message = {'version':1, 'kind':'image', 'filename':metadata['original_filename'],
+                   'cycle_id':row['cycle'], 'image_index':row['idx'], 'sha256':row['hash'],
+                   'size':metadata['size'], 'captured_at':metadata.get('captured_at'),
+                   'edge_received_at':str(row['received']), 'edge_decision':row['result']['decision'],
+                   'transfer_reason':payload['reason']}
+        config = {'host':os.getenv('SFTP_HOST'), 'port':os.getenv('SFTP_PORT','22'),
+                  'username':os.getenv('SFTP_USER'), 'key_filename':os.getenv('SFTP_KEY_FILE'),
+                  'known_hosts':os.getenv('SFTP_KNOWN_HOSTS'), 'remote_root':os.getenv('SFTP_REMOTE_ROOT','/transfer'),
+                  'passphrase':os.getenv('SFTP_KEY_PASSPHRASE'), 'timeout':os.getenv('SFTP_TIMEOUT','30')}
+        await asyncio.to_thread(send_sftp, row['path'], message, config)
+    else:
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+            with open(row['path'], 'rb') as image_file:
+                response = await client.post(MAIN_SERVER_URL,
+                    files={'file': (metadata['original_filename'], image_file, 'image/jpeg')}, headers=headers)
+            response.raise_for_status()
+            receipt = response.json()
+            if receipt.get('status') != 'ok' or receipt.get('receipt_id') != row['key'] or receipt.get('sha256') != row['hash']:
+                raise RuntimeError("Cloud did not confirm a matching durable receipt")
+    # Do not mark terminal here: worker must commit job completion first.
+    result = dict(row['result'])
+    result.update(forwarded=True, forwarded_at=time.time(),
+                  forward_ms=(time.perf_counter()-started)*1000,
+                  end_to_end_ms=max(0, (time.time()-row['received'])*1000),
+                  transfer_reason=payload['reason'], transport=CLOUD_TRANSFER_MODE)
+    await asyncio.to_thread(store.result, row['key'], result)
+    logger.info("[PERF] receipt=%s forwarded=true save_ms=%.1f inference_ms=%.1f forward_ms=%.1f end_to_end_ms=%.1f",
+                row['key'], metadata['save_ms'], result['inference_ms'], result['forward_ms'], result['end_to_end_ms'])
+
 
 async def periodic_cleanup():
     while True:
         try:
-            await cleanup_old_files()
-        except Exception as e:
-            logger.error(f"Periodic cleanup error: {e}")
-        await asyncio.sleep(86400) # Run daily
+            await asyncio.to_thread(store.cleanup, int(os.getenv('RETENTION_DAYS', '7')))
+            await asyncio.to_thread(cleanup_auxiliary_files)
+        except Exception:
+            logger.exception("Cleanup failed")
+        await asyncio.sleep(3600)
+
+
+def cleanup_auxiliary_files():
+    # Received logs have no downstream jobs. Stale .part files were never ACKed.
+    for directory, age in [('logs', 7*86400), ('incoming', 86400)]:
+        for path in (Path(UPLOAD_DIR)/directory).glob('*'):
+            if path.is_file() and path.stat().st_mtime < time.time()-age:
+                path.unlink(missing_ok=True)
+
 
 async def periodic_heartbeat():
     while True:
         try:
             if MAIN_SERVER_URL and not LOCAL_MODE:
                 parsed = urlparse(MAIN_SERVER_URL)
-                base_url = f"{parsed.scheme}://{parsed.netloc}"
-                heartbeat_url = f"{base_url}/api/v1/heartbeat"
-                
                 async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
-                    headers = {"X-API-KEY": API_TOKEN}
-                    payload = {"node_id": "pi", "status": "alive"}
-                    response = await client.post(heartbeat_url, json=payload, headers=headers)
-                    if response.status_code == 200:
-                        logger.info("Heartbeat sent successfully.")
-                    else:
-                        logger.warning(f"Heartbeat failed with status: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Heartbeat error: {e}")
-            
-        await asyncio.sleep(3600) # 1時間おきに実行
+                    await client.post(f"{parsed.scheme}://{parsed.netloc}/api/v1/heartbeat",
+                        headers={'X-API-KEY': API_TOKEN}, json={'node_id': 'pi', 'status': 'alive'})
+        except Exception:
+            logger.exception("Heartbeat failed")
+        await asyncio.sleep(3600)
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app):
     global detector
-    logger.info("Initializing YOLO Detector...")
-    # Initialize in background to avoid blocking startup
     detector = await asyncio.to_thread(Detector)
-    logger.info("Detector initialized.")
-    cleanup_task = asyncio.create_task(periodic_cleanup())
-    heartbeat_task = asyncio.create_task(periodic_heartbeat())
-    yield
-    cleanup_task.cancel()
-    heartbeat_task.cancel()
+    tasks = [asyncio.create_task(worker(store, 'infer', infer_image)),
+             asyncio.create_task(worker(store, 'forward', forward_image)),
+             asyncio.create_task(aggregate_loop()), asyncio.create_task(periodic_cleanup()),
+             asyncio.create_task(periodic_heartbeat())]
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
 
 app = FastAPI(lifespan=lifespan)
-
-# Mount the static directory to serve images
-app.mount("/images", StaticFiles(directory=UPLOAD_DIR), name="images")
-
-# Semaphore to limit concurrent inference
-# Setting to 1 ensures we process one image at a time to save resources (CPU/RAM) on Pi
-processing_semaphore = asyncio.Semaphore(1)
-
-
-class CycleManager:
-    def __init__(self):
-        # Stores cycle data: { cycle_id: { 'files': [], 'last_update': timestamp, 'start_time': float, 'timings': [] } }
-        self.cycles = defaultdict(lambda: {
-            'files': [], 
-            'last_update': datetime.datetime.now(),
-            'start_time': None,
-            'timings': [] # List of dicts with timing info for each image
-        })
-        self.lock = asyncio.Lock()
-
-    async def add_result(self, cycle_id, file_path, filename, is_animal, timing_info):
-        async with self.lock:
-            cycle = self.cycles[cycle_id]
-            
-            # Set cycle start time if it's the first image
-            if cycle['start_time'] is None:
-                cycle['start_time'] = timing_info['receive_start']
-            # Or keep the earliest one if images arrive out of order/parallel (though we lock)
-            elif timing_info['receive_start'] < cycle['start_time']:
-                cycle['start_time'] = timing_info['receive_start']
-
-            cycle['files'].append({
-                'path': file_path,
-                'filename': filename,
-                'is_animal': is_animal
-            })
-            cycle['timings'].append(timing_info)
-            cycle['last_update'] = datetime.datetime.now()
-            
-            files = cycle['files']
-            count = len(files)
-            
-            # Check condition if we have 3 images
-            if count >= 3:
-                cycle_end_time = time.perf_counter()
-                total_cycle_time = (cycle_end_time - cycle['start_time']) * 1000 # ms
-                
-                animal_count = sum(1 for f in files if f['is_animal'])
-                logger.info(f"Cycle {cycle_id} complete. Detected targets: {animal_count}/{count}")
-                
-                # Calculate total specific times
-                total_receive_save = sum(t['save_duration'] for t in cycle['timings']) * 1000 # ms
-                total_inference = sum(t['inference_duration'] for t in cycle['timings']) * 1000 # ms
-                
-                forward_start = time.perf_counter()
-                if animal_count >= 1:
-                    logger.info(f"Cycle {cycle_id} MET criteria (>=1 target). Forwarding all strings.")
-                    await self.forward_cycle(files)
-                else:
-                    logger.info(f"Cycle {cycle_id} NOT met criteria. Not forwarding.")
-                forward_duration = (time.perf_counter() - forward_start) * 1000 # ms
-
-                # Calculate Overhead/Wait time
-                # Total = (Receive/Save + Inference) + Forward + Overhead
-                # Note: Receive/Save happens in parallel with nothing (it's the first step), 
-                # but "Wait" is the idle time between images.
-                # Strictly speaking: overhead = total - (process_time_sum)
-                # But process_time shares timeline. 
-                # Let's define overhead as: Total - (Sum of active processing phases)
-                # Active phases: Max(Receive, Inference)? No, they are sequential per image.
-                # Actually, images arrive sequentially so we process them.
-                # So the "Work" time is roughly sum of Receive+Inference for all images + Forward.
-                # The rest is "Wait" for the next image to arrive.
-                work_time = total_receive_save + total_inference + forward_duration
-                wait_overhead = total_cycle_time - work_time
-
-                # Log Performance Metrics
-                logger.info(f"[PERF] Cycle {cycle_id} Finished. Total: {total_cycle_time:.0f}ms")
-                logger.info(f"[PERF] Breakdown: Recv+Save={total_receive_save:.0f}ms, Infer={total_inference:.0f}ms, Fwd={forward_duration:.0f}ms, Wait/Overhead={wait_overhead:.0f}ms")
-
-                # --- CSV Logging ---
-                try:
-                    csv_file = "edge_metrics.csv"
-                    file_exists = os.path.isfile(csv_file)
-                    async with aiofiles.open(csv_file, "a") as f:
-                        if not file_exists:
-                            await f.write("timestamp,cycle_id,total_time_ms,total_recv_save_ms,total_inference_ms,forward_ms,wait_overhead_ms,animal_count,forwarded\n")
-                        
-                        do_forward = (animal_count >= 1)
-                        await f.write(f"{datetime.datetime.now().isoformat()},{cycle_id},{total_cycle_time:.0f},{total_receive_save:.0f},{total_inference:.0f},{forward_duration:.0f},{wait_overhead:.0f},{animal_count},{do_forward}\n")
-                except Exception as e:
-                    logger.error(f"Failed to write to {csv_file}: {e}")
-                
-
-                
-                # Cleanup
-                del self.cycles[cycle_id]
-            else:
-                 logger.info(f"Cycle {cycle_id} buffered. Count: {count}/3")
-
-    async def forward_cycle(self, files):
-        if LOCAL_MODE:
-            logger.info("Local mode enabled. Skipping forwarding.")
-            return
-
-        if not MAIN_SERVER_URL:
-             logger.info("MAIN_SERVER_URL not set, skipping forwarding.")
-             return
-
-        for file_info in files:
-            await forward_image(file_info['path'], file_info['filename'])
-
-    async def has_detected_animal(self, cycle_id):
-        async with self.lock:
-            if cycle_id in self.cycles:
-                return any(f['is_animal'] for f in self.cycles[cycle_id]['files'])
-            return False
-
-    async def cleanup_old_cycles(self, max_age_seconds=300):
-        # Potentially clean up incomplete cycles that are too old
-        # Not implemented for simplicity in this phase, but good practice
-        pass
-
-cycle_manager = CycleManager()
+# Keep queue databases and temporary uploads out of the image-serving directory.
+IMAGE_DIR = os.path.join(UPLOAD_DIR, 'images')
+os.makedirs(IMAGE_DIR, exist_ok=True)
+@app.get('/images/{filename}')
+async def serve_image(filename: str):
+    # Preserve old gallery URLs without exposing the receipt database/logs.
+    if Path(filename).name != filename or '/' in filename or '\\' in filename or Path(filename).suffix.lower() not in ('.jpg','.jpeg','.png','.gif'):
+        raise HTTPException(404, 'Image not found')
+    for directory in (IMAGE_DIR, UPLOAD_DIR):
+        path = Path(directory)/filename
+        if path.is_file():
+            return FileResponse(path)
+    raise HTTPException(404, 'Image not found')
 
 
-def extract_cycle_id(original_filename: str):
-    # original_filename from ESP32 is expected to be e.g. "MAC-SEQUENCE-1.jpg"
-    stem = os.path.splitext(original_filename)[0]
-    
-    # Remove receiving timestamp prefix to ensure images from the same sequence get the identical Cycle ID
-    stem = re.sub(r"^(pi|satos)_Rcv\d{6}_", "", stem)
-
-    match = re.search(r"-(1|2|3)[nd]?$", stem)
-    if match:
-        return stem[:match.start()]
-    return "unknown"
+def upload_error(exc):
+    if isinstance(exc, ReceiptConflict):
+        return HTTPException(409, str(exc))
+    if isinstance(exc, InvalidUpload):
+        return HTTPException(422, str(exc))
+    if isinstance(exc, StorageFull) or getattr(exc, 'errno', None) == 28:
+        return HTTPException(507, 'Insufficient storage')
+    logger.exception('Upload could not be durably accepted')
+    return HTTPException(500, 'Upload was not accepted; retry later')
 
 
-async def process_image(file_path: str, filename: str, original_filename: str, receive_start: float, save_duration: float):
-    """
-    Background task to process the image:
-    1. Run object detection
-    2. Add to cycle buffer
-    3. Forward if cycle complete and condition met
-    """
-    async with processing_semaphore:
-        logger.info(f"Starting processing for {filename}")
-        try:
-            # Extract Cycle ID first
-            cycle_id = extract_cycle_id(original_filename)
-            logger.info(f"Cycle ID for {original_filename}: {cycle_id}")
-
-            # Check for Early Exit
-            skip_inference = False
-            if cycle_id != "unknown" and await cycle_manager.has_detected_animal(cycle_id):
-                logger.info(f"Early Exit: Cycle {cycle_id} already has a positive detection. Skipping inference for {filename}.")
-                skip_inference = True
-                is_animal = False
-                label = "skipped (early exit)"
-
-            # Measure Inference Time
-            inference_start = time.perf_counter()
-            if not skip_inference:
-                # Run detection in background thread
-                is_animal, label = await asyncio.to_thread(detector.detect, file_path, save_path=None)
-                if is_animal:
-                    logger.info(f"Target detected in {filename}: {label}")
-                else:
-                    logger.info(f"No target detected in {filename} (Result: {label})")
-            
-            inference_duration = time.perf_counter() - inference_start
-            
-            timing_info = {
-                'receive_start': receive_start,
-                'save_duration': save_duration,
-                'inference_duration': inference_duration
-            }
-
-            if cycle_id != "unknown":
-                await cycle_manager.add_result(cycle_id, file_path, filename, is_animal, timing_info)
-            else:
-                logger.warning(f"Could not extract Cycle ID from {filename}, skipping buffering.")
-
-        except Exception as e:
-            logger.error(f"Error processing {filename}: {e}")
-
-async def forward_image(file_path: str, filename: str):
-    """
-    Forward the image to the main server
-    """
-    logger.info(f"Forwarding {filename} to {MAIN_SERVER_URL}")
+@app.post('/upload')
+async def upload_image(request: Request, api_key: str = Depends(verify_api_token)):
+    temporary = None
+    received, started = time.time(), time.perf_counter()
     try:
-        # verify=False is required to connect to the cloud server using a self-signed SSL certificate
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
-            # Open file asynchronously for reading
-            async with aiofiles.open(file_path, "rb") as f:
-                content = await f.read()
-                
-            files = {"file": (filename, content, "image/jpeg")}
-            headers = {"X-API-KEY": API_TOKEN}
-            
-            # Note: External server (server.py) expects just the file and the API key header.
-            response = await client.post(MAIN_SERVER_URL, files=files, headers=headers)
-            response.raise_for_status()
-            logger.info(f"Successfully forwarded {filename}. Status: {response.status_code}")
-            
-    except httpx.HTTPError as e:
-        logger.error(f"Failed to forward {filename}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error forwarding {filename}: {e}")
+        original = request.headers.get('X-File-Name', '')
+        cycle, index, key = image_identity(original, request.headers.get('X-Cycle-Id'), request.headers.get('X-Img-Index'))
+        digest_header = request.headers.get('X-Content-SHA256')
+        if not digest_header:
+            raise InvalidUpload('SHA256 header required')
+        temporary, digest, size = await receive_file(request.stream(), os.path.join(UPLOAD_DIR, 'incoming'),
+            digest_header, request.headers.get('Content-Length'), min_free=MIN_FREE_BYTES)
+        await asyncio.to_thread(validate_jpeg, temporary)
+        filename = f"{cycle}-{index}.jpg"
+        row, duplicate = await asyncio.to_thread(store.accept, key, cycle, index, digest, temporary,
+            os.path.join(IMAGE_DIR, filename),
+            {'original_filename': 'pi_Rcv'+datetime.datetime.now().strftime('%H%M%S')+'_'+original,
+             'received_at': received, 'captured_at': request.headers.get('X-Captured-At'),
+             'size': size, 'save_ms': (time.perf_counter()-started)*1000})
+        return {'status': 'ok', 'receipt_id': key, 'sha256': digest, 'duplicate': duplicate, 'filename': Path(row['path']).name}
+    except Exception as exc:
+        raise upload_error(exc) from exc
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
 
-@app.post("/upload")
-async def upload_image(request: Request, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_token)):
-    """
-    Handle image upload (Raw Binary):
-    1. Save image to disk asynchronously (fast, non-blocking)
-    2. Return 200 OK immediately
-    3. Schedule processing in background
-    """
-    receive_start = time.perf_counter()
-    
-    # Get filename from header
-    original_filename = request.headers.get("X-File-Name")
-    if not original_filename:
-        # Fallback if header missing
-        original_filename = "unknown.jpg"
 
-    # Annotate with Pi edge receiving time for Cloud Server reporting
-    edge_rcv_time = datetime.datetime.now().strftime("%H%M%S")
-    original_filename = f"pi_Rcv{edge_rcv_time}_{original_filename}"
-
-    # Generate timestamp for storage
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    filename = f"{timestamp}_{original_filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    
-    logger.info(f"Receiving upload: {filename}")
-    
-    try:
-        # Save file asynchronously by streaming the request body
-        async with aiofiles.open(file_path, "wb") as buffer:
-            async for chunk in request.stream():
-                await buffer.write(chunk)
-        
-        save_end = time.perf_counter()
-        save_duration = save_end - receive_start
-        
-        logger.info(f"Saved {filename}")
-        
-        # Schedule background processing
-        background_tasks.add_task(process_image, file_path, filename, original_filename, receive_start, save_duration)
-        
-        return {"status": "ok", "filename": filename, "message": "Image received and queued for processing"}
-        
-    except Exception as e:
-        logger.error(f"Failed to save upload {filename}: {e}")
-        return {"status": "error", "message": str(e)}
-
-@app.get("/healthz")
-async def health_check():
-    """
-    Health check endpoint for ESP32.
-    """
-    return {"status": "ok"}
-
-@app.post("/esp_log")
+@app.post('/esp_log')
 async def upload_esp_log(request: Request, api_key: str = Depends(verify_api_token)):
-    """
-    Receive log file from ESP32 (Raw Binary).
-    """
-    original_filename = request.headers.get("X-File-Name")
-    if not original_filename:
-        original_filename = "esp.log"
-        
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"esp_{timestamp}_{original_filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    
-    logger.info(f"Receiving ESP log: {filename}")
+    temporary = None
     try:
-        async with aiofiles.open(file_path, "wb") as buffer:
-            async for chunk in request.stream():
-                await buffer.write(chunk)
-        return {"status": "ok", "message": "Log received"}
-    except Exception as e:
-        logger.error(f"Failed to save ESP log: {e}")
-        return {"status": "error", "message": str(e)}
+        digest_header = request.headers.get('X-Content-SHA256')
+        if not digest_header:
+            raise InvalidUpload('SHA256 header required')
+        temporary, digest, size = await receive_file(request.stream(), os.path.join(UPLOAD_DIR, 'incoming'),
+            digest_header, request.headers.get('Content-Length'), max_bytes=2*1024*1024, min_free=MIN_FREE_BYTES)
+        logs = Path(UPLOAD_DIR) / 'logs'
+        logs.mkdir(exist_ok=True)
+        destination = logs / (digest+'.log')
+        await asyncio.to_thread(os.replace, temporary, destination)
+        await asyncio.to_thread(sync_directory, logs)
+        return {'status': 'ok', 'sha256': digest, 'size': size}
+    except Exception as exc:
+        raise upload_error(exc) from exc
+    finally:
+        if temporary:
+            Path(temporary).unlink(missing_ok=True)
+
+
+@app.get('/healthz')
+async def health_check():
+    import shutil
+    free = await asyncio.to_thread(lambda: shutil.disk_usage(UPLOAD_DIR).free)
+    if free < MIN_FREE_BYTES:
+        raise HTTPException(507, 'Insufficient storage')
+    return {'status': 'ok', 'utc_epoch': int(time.time()), 'free_bytes': free,
+            'queue': await asyncio.to_thread(store.stats)}
+
 
 @app.get("/api/images")
 async def get_images():
@@ -407,9 +295,9 @@ async def get_images():
     Return a list of images in the upload directory, sorted by newest first.
     """
     try:
-        files = [f for f in os.listdir(UPLOAD_DIR) if os.path.isfile(os.path.join(UPLOAD_DIR, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-        # Sort by modification time descending (newest first)
-        files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_DIR, x)), reverse=True)
+        paths = {p.name:p for directory in (UPLOAD_DIR, IMAGE_DIR) for p in Path(directory).iterdir()
+                 if p.is_file() and p.suffix.lower() in ('.png','.jpg','.jpeg','.gif')}
+        files = sorted(paths, key=lambda name: paths[name].stat().st_mtime, reverse=True)
         return {"status": "ok", "images": files}
     except Exception as e:
         logger.error(f"Failed to get image list: {e}")

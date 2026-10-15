@@ -1,0 +1,53 @@
+# 相対パスはこの設定ファイルの位置が基準です。
+server:
+  host: 192.168.200.1
+  port: 8080
+  storage: received
+  max_image_bytes: 20000000
+  read_timeout_s: 130
+  fsync: false
+sender:
+  host: 192.168.200.1
+  port: 8080
+  source_ip: 192.168.200.2
+  interface: wlan0 # 実機のドライバ確認後に変更
+  enforce_route: true
+  device_id: cam01
+  manifest: corpus/manifest.csv
+  image_ids: [day, night, vegetation]
+  reuse_connection: true
+  connect_timeout_s: 10
+  event_deadline_s: 120
+  max_retries: 0
+  retry_delay_s: 1
+experiment:
+  trials: 30
+  interval_s: 5 # 開始時刻間の最小間隔。遅れた場合に並列実行しない
+  results: results
+  condition_id: baseline_10m
+  distance_m: 10
+  environment: line_of_sight
+  site: null
+  tx_height_m: 2
+  rx_height_m: 2
+  channel: null
+  bandwidth_mhz: null
+  tx_power_dbm: null
+  duty_enabled: null
+  power_mode: always_on
+  notes: null
+hardware:
+  module_model: null
+  pi_model: null
+  firmware: null
+  driver_version: null
+  country: JP
+  antenna: null
+  clock_sync: null
+radio:
+  interval_s: 2
+iperf:
+  duration_s: 30
+  trials: 3
+  udp_rates: [100K, 250K, 500K, 1M]
+  timeout_s: 150

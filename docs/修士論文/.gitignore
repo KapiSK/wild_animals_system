@@ -1,0 +1,9 @@
+/out/
+/.preview/
+*.synctex.gz
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.out

@@ -1,5 +1,136 @@
-成果の正確性と誇張排除のルール（Accuracy & Fact-based Claims） 査読者からの指摘を完全に防ぐため、厳密な事実（ファクト）に忠実な表現を徹底し、以下の語弊や誇張を排除すること。
-「不要な（unnecessary）」の禁止: AIの一次選別で破棄した画像の中には「動物の見逃し（False Negative）」も含まれる。そのため、削減した画像を「不要な画像（unnecessary images）」と表現しないこと。代わりに「全体の〜（overall / total）」等の客観的な言葉を用いること。
-「伝送量（データサイズ）」と「送信枚数」の厳密な区別: 削減率の計算がデータバイト数ではなくトリガー回数（枚数）に基づく場合、誤解を招く image transmission（画像伝送量）ではなく、事実通り the number of transmitted images（画像の送信枚数）と明確に記述すること。
-実証していない主張の禁止: 定量的に評価・実証していないこと（例：「通信量削減とリアルタイム性のバランスをとることに成功した (successfully balancing...)」など）は記載しないこと。データから得られた削減率の事実のみを記述すること。
-実験環境の正確な表現: 本格的な野外運用試験を行っていない場合は、Field experiments ではなく単に Experiments と記述すること。
+[2]Tabak MA, Norouzzadeh MS, Wolfson DW, et al. Machine learning to classify animal species in camera trap images: Applications in ecology. Methods Ecol Evol. 2019; 10: 585–590. https://doi.org/10.1111/2041-210X.13120
+[3]著者3名・題名・2019年7月は正確ですが、掲載先がありません。arXiv preprint, arXiv:1907.06772, 2019 と明記してください。arXiv の初回投稿日は2019年7月15日です。
+[5]@article{https://doi.org/10.1111/2041-210X.14036,
+author = {Whytock, Robin C. and Suijten, Thijs and van Deursen, Tim and Świeżewski, Jędrzej and Mermiaghe, Hervé and Madamba, Nazaire and Mouckoumou, Narcisse and Zwerts, Joeri A. and Pambo, Aurélie Flore Koumba and Bahaa-el-din, Laila and Brittain, Stephanie and Cardoso, Anabelle W. and Henschel, Philipp and Lehmann, David and Momboua, Brice Roxan and Makaga, Loïc and Orbell, Christopher and White, Lee J. T. and Iponga, Donald Midoko and Abernethy, Katharine A.},
+title = {Real-time alerts from AI-enabled camera traps using the Iridium satellite network: A case-study in Gabon, Central Africa},
+journal = {Methods in Ecology and Evolution},
+volume = {14},
+number = {3},
+pages = {867-874},
+doi = {https://doi.org/10.1111/2041-210X.14036},
+url = {https://besjournals.onlinelibrary.wiley.com/doi/abs/10.1111/2041-210X.14036},
+eprint = {https://besjournals.onlinelibrary.wiley.com/doi/pdf/10.1111/2041-210X.14036},
+abstract = {Abstract Efforts to preserve, protect and restore ecosystems are hindered by long delays between data collection and analysis. Threats to ecosystems can go undetected for years or decades as a result. Real-time data can help solve this issue but significant technical barriers exist. For example, automated camera traps are widely used for ecosystem monitoring but it is challenging to transmit images for real-time analysis where there is no reliable cellular or WiFi connectivity. We modified an off-the-shelf camera trap (Bushnell™) and customised existing open-source hardware to create a ‘smart’ camera trap system. Images captured by the camera trap are instantly labelled by an artificial intelligence model and an ‘alert’ containing the image label and other metadata is then delivered to the end-user within minutes over the Iridium satellite network. We present results from testing in the Netherlands, Europe, and from a pilot test in a closed-canopy forest in Gabon, Central Africa. All reference materials required to build the system are provided in open-source repositories. Results show the system can operate for a minimum of 3 months without intervention when capturing a median of 17.23 images per day. The median time-difference between image capture and receiving an alert was 7.35 min, though some outliers showed delays of 5-days or more when the system was incorrectly positioned and unable to connect to the Iridium network. We anticipate significant developments in this field and hope that the solutions presented here, and the lessons learned, can be used to inform future advances. New artificial intelligence models and the addition of other sensors such as microphones will expand the system's potential for other, real-time use cases including real-time biodiversity monitoring, wild resource management and detecting illegal human activities in protected areas.},
+year = {2023}
+}
+[6]A. Patkar, P. Hole, L. Salvi, Real-time wildlife intrusion detection system using IoT and YOLOv8, Journal of Smart Sensors and Computing, 2025, 1(2), 25209, doi: https://doi.org/10.64189/ssc.25209.
+[10]C. S. Madhumathi, V. Naveen, N. Akshay, M. S. Kumar and M. M. Aslam, "Advanced Wild Animal Detection and Alert System using YOLO V5 Model," 2023 7th International Conference on Trends in Electronics and Informatics (ICOEI), Tirunelveli, India, 2023, pp. 365-371, doi: 10.1109/ICOEI56765.2023.10126065.
+[11]@article{VELASCOMONTERO2024102815,
+title = {Reliable and efficient integration of AI into camera traps for smart wildlife monitoring based on continual learning},
+journal = {Ecological Informatics},
+volume = {83},
+pages = {102815},
+year = {2024},
+issn = {1574-9541},
+doi = {https://doi.org/10.1016/j.ecoinf.2024.102815},
+url = {https://www.sciencedirect.com/science/article/pii/S1574954124003571},
+author = {Delia Velasco-Montero and Jorge Fernández-Berni and Ricardo Carmona-Galán and Ariadna Sanglas and Francisco Palomares},
+keywords = {On-device processing, Wildlife monitoring, Smart camera trap, Hardware-software co-design, Efficient AI, Continual learning},
+abstract = {In this paper, we comprehensively report on an efficient approach for the integration of artificial intelligence (AI) processing pipelines in camera traps for smart on-site wildlife monitoring. Our work covers hardware, software, and algorithmics. We have built two prototypes of smart camera trap on a maximum bill of materials of 100$. We have also built two datasets, made publicly available, comprising over 17 k images, many of them notably challenging even for humans. Leveraging our broad expertise on embedded systems, specialized software libraries and toolchains, and AI techniques such as transfer learning, explainable AI, and, most importantly, continual learning, we achieve more reliable inference on-site - specifically 10 % higher F1-score - than MegaDetector run off-site on a desktop computer. The paper includes many practical details on system realization and on-site training in addition to a vast set of lab and experimental results.}
+}
+[12]@article{Hiroshi SAITO20202020SEP0004,
+  title={Battery-Powered Wild Animal Detection Nodes with Deep Learning},
+  author={Hiroshi SAITO and Tatsuki OTAKE and Hayato KATO and Masayuki TOKUTAKE and Shogo SEMBA and Yoichi TOMIOKA and Yukihide KOHIRA},
+  journal={IEICE Transactions on Communications},
+  volume={E103.B},
+  number={12},
+  pages={1394-1402},
+  year={2020},
+  doi={10.1587/transcom.2020SEP0004}
+}
+[13]@article{FENNELL2022e02104,
+title = {Use of object detection in camera trap image identification: Assessing a method to rapidly and accurately classify human and animal detections for research and application in recreation ecology},
+journal = {Global Ecology and Conservation},
+volume = {35},
+pages = {e02104},
+year = {2022},
+issn = {2351-9894},
+doi = {https://doi.org/10.1016/j.gecco.2022.e02104},
+url = {https://www.sciencedirect.com/science/article/pii/S2351989422001068},
+author = {Mitchell Fennell and Christopher Beirne and A. Cole Burton},
+keywords = {Artificial intelligence, Remote camera, Computer vision, Species Classification, Human-wildlife Interactions},
+abstract = {Camera traps are increasingly used to answer complex ecological questions. However, the rapidly growing number of images collected presents technical challenges. Each image must be classified to extract data, requiring significant labor, and potentially creating an information bottleneck. We applied an object detection model (MegaDetector) to camera trap data from a study of recreation ecology in British Columbia, Canada. We tested its performance in detecting humans and animals relative to manual image classifications, and assessed efficiency by comparing the time required for manual classification versus a modified workflow integrating object detection with manual classification. We also evaluated the reliability of using MegaDetector to create an index of human activity for application to the study of recreation impacts to wildlife. In our application, MegaDetector detected human and animal images with 99% and 82% precision, and 95% and 92% recall respectively, at a confidence threshold of 90%. Processing speed was increased by over 500%, and the time required for the manual processing component was reduced by 8.4 ×. The index of human detection events from MegaDetector matched the output from manual classification, with a mean 0.45% difference in estimated human detections across site-weeks. Our test of an open-source object detection model showed it performed well in partially classifying a camera trap dataset, significantly increasing processing efficiency. We suggest that this tool could be integrated into existing camera trap workflows to accelerate research and application by alleviating data bottlenecks, particularly for surveys processing large volumes of human images. We also show how the model and workflow can be used to anonymize human images prior to classification, protecting individual privacy.}
+}
+[14]TY  - JOUR
+AU  - Mulero-Pázmány, Margarita
+AU  - Hurtado, Sandro
+AU  - Barba-González, Cristóbal
+AU  - Antequera-Gómez, María Luisa
+AU  - Díaz-Ruiz, Francisco
+AU  - Real, Raimundo
+AU  - Navas-Delgado, Ismael
+AU  - Aldana-Montes, José F.
+PY  - 2025
+DA  - 2025/05/09
+TI  - Addressing significant challenges for animal detection in camera trap images: a novel deep learning-based approach
+JO  - Scientific Reports
+SP  - 16191
+VL  - 15
+IS  - 1
+AB  - Wildlife biologists increasingly use camera traps for monitoring animal populations. However, manually sifting through the collected images is expensive and time-consuming. Current deep learning studies for camera trap images do not adequately tackle real-world challenges such as imbalances between animal and empty images, distinguishing similar species, and the impact of backgrounds on species identification, limiting the models’ applicability in new locations. Here, we present a novel two-stage deep learning framework. First, we train a global deep-learning model using all animal species in the dataset. Then, an agglomerative clustering algorithm groups animals based on their appearance. Subsequently, we train a specialized deep-learning expert model for each animal group to detect similar features. This approach leverages Transfer Learning from the MegaDetectorV5 (YOLOv5 version) model, already pre-trained on various animal species and ecosystems. Our two-stage deep learning pipeline uses the global model to redirect images to the appropriate expert models for final classification. We validated this strategy using 1.3 million images from 91 camera traps encompassing 24 mammal species and used 120,000 images for testing, achieving an F1-Score of 96.2% using expert models for final classification. This method surpasses existing deep learning models, demonstrating improved precision and effectiveness in automated wildlife detection.
+SN  - 2045-2322
+UR  - https://doi.org/10.1038/s41598-025-90249-z
+DO  - 10.1038/s41598-025-90249-z
+ID  - Mulero-Pázmány2025
+ER  - 
+[15]Rahman, M.A.; Giordano, S.; Pagano, M. Smart Wildlife Monitoring: Real-Time Hybrid Tracking Using Kalman Filter and Local Binary Similarity Matching on Edge Network. Computers 2025, 14, 307. https://doi.org/10.3390/computers14080307
+[16]@INPROCEEDINGS{10716895,
+  author={M, Kathir and V, Balaji and K, Ashwini},
+  booktitle={2024 10th International Conference on Advanced Computing and Communication Systems (ICACCS)}, 
+  title={Animal Intrusion Detection Using Yolo V8}, 
+  year={2024},
+  volume={1},
+  number={},
+  pages={206-211},
+  keywords={YOLO;Communication systems;Wildlife;Buildings;Intrusion detection;Crops;Detectors;Agriculture;Protection;Monitoring;animal intrusion detection;yolov8;wildlife protection;agriculture;crop damage prevention;wildlife safety;human-wildlife conflicts;biodiversity conservation;precise animal recognition;agriculture protection},
+  doi={10.1109/ICACCS60874.2024.10716895}}
+  [17]@INPROCEEDINGS{11459678,
+  author={Selvaraj, K. and M.Anandaraj and J, Angeljulie and S.Saravanan},
+  booktitle={2025 6th International Conference on Smart Electronics and Communication (ICOSEC)}, 
+  title={An Efficient Automated Framework for Wildlife Detection and Prevention in Agricultural Zones Nearer to Forest Reserves}, 
+  year={2025},
+  volume={},
+  number={},
+  pages={1659-1664},
+  keywords={Satellite images;Earth Observing System;Feeds;Recommender systems;Information filtering;Circuits and systems;Internet of Things;Communication systems;Computer networks;Internet;wild animal detection;IoT;real-time monitoring;conservation;machine learning;crop protection},
+  doi={10.1109/ICOSEC67334.2025.11459678}}
+  [19]@INPROCEEDINGS{11337723,
+  author={K S, Saiharshith and S, Sanjay and K, Sanjay Balaji and Doss, Srinath and L, Jabasheela and G, Senthil Kumar},
+  booktitle={2025 Control Instrumentation System Conference (CISCON)}, 
+  title={Eyes in the Thicket: A Neural Gaze for Invisible Wildlife Encounters}, 
+  year={2025},
+  volume={},
+  number={},
+  pages={1-6},
+  keywords={YOLO;Surveillance;Machine vision;Instruments;Wildlife;Transfer learning;Pipelines;Observers;Real-time systems;Residual neural networks;ResNet50;Real-Time Detection;Transfer Learning;Camouflage Recognition;Deep Convolutional Networks;GSM Alert System;Edge AI;Wildlife Surveillance;Neural Feature Extraction;Embedded Vision System},
+  doi={10.1109/CISCON66933.2025.11337723}}
+  [22]@INPROCEEDINGS{11345049,
+  author={Harits, Muhammad Abyan and Aditria, Muhammad Reza and Fathi, Thufail Agung and Karna, Nyoman and Istikmal},
+  booktitle={2025 8th International Conference on Information and Communications Technology (ICOIACT)}, 
+  title={Edge Computing IoT Security (ECIS): Implementation of IPS and Encryption for My I-Pond}, 
+  year={2025},
+  volume={},
+  number={},
+  pages={24-29},
+  keywords={Cloud computing;Prevention and mitigation;Image edge detection;Quality of service;Encryption;Security;IP networks;Time factors;Edge computing;Aquaculture;IoT;Edge Computing;Raspberry Pi;Suricata;AES-256;Intrusion Prevention System},
+  doi={10.1109/ICOIACT67584.2025.11345049}}
+  [23]@INPROCEEDINGS{8716170,
+  author={Kamesaka, Ryoki and Hoshino, Yukinobu},
+  booktitle={2018 Joint 10th International Conference on Soft Computing and Intelligent Systems (SCIS) and 19th International Symposium on Advanced Intelligent Systems (ISIS)}, 
+  title={Development of a Prevention System for Beast Damage of Agricultural Products Using Deep Learning}, 
+  year={2018},
+  volume={},
+  number={},
+  pages={747-752},
+  keywords={Agriculture;Monitoring;Lead acid batteries;Lead;Power demand;Deep learning;Agricultural, Crop Damage, Wild Monkey, Color Space, Classification, Deep Learning, Convolutional Neural Network, Raspberry Pi, Ichigo Jam, Internet of Things},
+  doi={10.1109/SCIS-ISIS.2018.00124}}
+  [24]@INPROCEEDINGS{11324419,
+  author={Manavalasundaram, V. K. and B, Mirthika and L, Yaswanth Kumar and T, Pavethra and S, Virubhashayan},
+  booktitle={2025 4th International Conference on Automation, Computing and Renewable Systems (ICACRS)}, 
+  title={Smart Wildlife Detection and Repulsion System using Deep-Learning}, 
+  year={2025},
+  volume={},
+  number={},
+  pages={1-8},
+  keywords={YOLO;Image edge detection;Wildlife;Crops;Feature extraction;Cameras;Acoustics;Real-time systems;Livestock;Edge computing;Animal detection;Ultrasonic emission;Repulsion},
+  doi={10.1109/ICACRS67045.2025.11324419}}

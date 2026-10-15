@@ -1,0 +1,18 @@
+[Unit]
+Description=Wild animals camera SFTP inbox importer
+Wants=network-online.target
+After=network-online.target wild-animal-edge-main.service
+
+[Service]
+Type=simple
+# Replace user, checkout and venv paths to match the existing Pi service.
+User=wildcam
+SupplementaryGroups=camera-transfer
+WorkingDirectory=/opt/wild_animals
+ExecStart=/opt/wild_animals/KD_pi_server/venv/bin/python /opt/wild_animals/transfer_receiver.py --transport sftp --role edge --env-file /opt/wild_animals/KD_pi_server/.env.transfer
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
