@@ -16,6 +16,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Raspberry Piでは、上の `pip install -r requirements.txt` の前にCPU版PyTorchを入れてください。通常の配布元では不要なCUDA関連パッケージが入り、容量不足になる場合があります。
+
+```bash
+python -m pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+下記の `setup_pi_services.sh` を使う場合は、CPU版の導入とバージョン保持を自動で行います。
+
 `.env.example` を参考に `.env` にFTP設定を追記し、`FTP_PASSWORD` に任意のパスワードを設定してください（必須）。既存の `.env` は上書きしないでください。
 
 ```bash

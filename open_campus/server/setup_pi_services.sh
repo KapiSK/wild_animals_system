@@ -17,7 +17,12 @@ apt-get install -y python3-pip python3-venv libgl1 libglib2.0-0
 if [ ! -x "$VENV_DIR/bin/python" ]; then
     sudo -u "$RUN_USER" python3 -m venv "$VENV_DIR"
 fi
-sudo -u "$RUN_USER" "$VENV_DIR/bin/python" -m pip install -r "$BASE_DIR/requirements.txt"
+# Pi uses CPU inference. Avoid PyPI's ARM CUDA dependencies and /tmp tmpfs.
+sudo -u "$RUN_USER" mkdir -p "$BASE_DIR/pip_tmp"
+sudo -u "$RUN_USER" env TMPDIR="$BASE_DIR/pip_tmp" "$VENV_DIR/bin/python" -m pip install --no-cache-dir --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Keep the selected CPU builds when resolving the application's dependencies.
+sudo -u "$RUN_USER" "$VENV_DIR/bin/python" -c 'import sys; from pathlib import Path; from importlib.metadata import version; Path(sys.argv[1]).write_text("".join(f"{name}=={version(name)}\n" for name in ("torch", "torchvision")))' "$VENV_DIR/cpu-constraints.txt"
+sudo -u "$RUN_USER" env TMPDIR="$BASE_DIR/pip_tmp" "$VENV_DIR/bin/python" -m pip install --no-cache-dir -c "$VENV_DIR/cpu-constraints.txt" -r "$BASE_DIR/requirements.txt"
 cat > /etc/systemd/system/open-campus-camera.service <<EOF
 [Unit]
 Description=Open Campus FTP Camera Demo
