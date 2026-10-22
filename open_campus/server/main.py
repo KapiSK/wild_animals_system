@@ -4,6 +4,10 @@ import time
 import asyncio
 import logging
 import re
+from pathlib import Path
+from contextlib import suppress
+from PIL import Image
+from ftp_receiver import CameraFTP
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Header, HTTPException, status, Depends
@@ -14,12 +18,14 @@ import aiofiles
 from detector import Detector
 
 # Load environment variables
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 # Configuration
 # Images are saved here
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-PROCESSING_DIR = os.getenv("PROCESSING_DIR", "processing")
+UPLOAD_DIR = str(BASE_DIR / os.getenv("UPLOAD_DIR", "uploads"))
+PROCESSING_DIR = str(BASE_DIR / os.getenv("PROCESSING_DIR", "processing"))
+FTP_INBOX = str(BASE_DIR / os.getenv("FTP_INBOX", "ftp_inbox"))
 API_TOKEN = os.getenv("API_TOKEN", "wild-animals-token-2026")
 
 async def verify_api_token(x_api_key: str = Header(None)):
@@ -79,9 +85,29 @@ async def lifespan(app: FastAPI):
     # Initialize in background to avoid blocking startup (downloads yolov8n.pt if missing)
     detector = await asyncio.to_thread(Detector)
     logger.info("Detector initialized.")
+    loop = asyncio.get_running_loop()
+    pending = set()
+
+    def enqueue(path):
+        def schedule():
+            task = asyncio.create_task(process_ftp_image(path))
+            pending.add(task)
+            task.add_done_callback(pending.discard)
+        loop.call_soon_threadsafe(schedule)
+
+    ftp = CameraFTP(FTP_INBOX, PROCESSING_DIR, enqueue)
+    ftp.start()
     cleanup_task = asyncio.create_task(periodic_cleanup())
-    yield
-    cleanup_task.cancel()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(ftp.stop)
+        await asyncio.sleep(0)  # Schedule the last completed FTP transfers.
+        if pending:
+            await asyncio.gather(*pending)
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
 
 app = FastAPI(lifespan=lifespan)
 
@@ -91,6 +117,38 @@ app.mount("/images", StaticFiles(directory=UPLOAD_DIR), name="images")
 # Semaphore to limit concurrent inference
 # Setting to 1 ensures we process one image at a time to save resources (CPU/RAM) on Pi
 processing_semaphore = asyncio.Semaphore(1)
+
+
+async def process_ftp_image(path):
+    """Publish each complete camera image, with person bounding boxes."""
+    path = Path(path)
+    output = path.with_suffix(".jpg")
+
+    def detect_and_publish():
+        # Decode before inference: FTP test text files and corrupt uploads are
+        # never exposed in the gallery. Normalize camera formats to JPEG.
+        with Image.open(path) as image:
+            image.convert("RGB").save(output, "JPEG", quality=95)
+        detector.detect(str(output), save_path=str(output))
+        filename = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f_") + path.stem + ".jpg"
+        # Stage on the destination filesystem so publication is always atomic.
+        import shutil
+        staging = Path(UPLOAD_DIR) / (filename + ".tmp")
+        try:
+            shutil.copyfile(output, staging)
+            staging.replace(Path(UPLOAD_DIR) / filename)
+        finally:
+            staging.unlink(missing_ok=True)
+        logger.info("Published FTP camera image: %s", filename)
+
+    async with processing_semaphore:
+        try:
+            await asyncio.to_thread(detect_and_publish)
+        except Exception:
+            logger.exception("Could not process FTP image: %s", path.name)
+        finally:
+            path.unlink(missing_ok=True)
+            output.unlink(missing_ok=True)
 
 
 class CycleManager:
@@ -373,4 +431,4 @@ async def get_images():
         return {"status": "error", "message": str(e)}
 
 # Mount frontend static files
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+app.mount("/", StaticFiles(directory=str(BASE_DIR / "frontend"), html=True), name="frontend")

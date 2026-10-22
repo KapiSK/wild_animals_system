@@ -20,8 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Parse filename to extract info if possible (depends on format)
     function parseFilename(filename) {
-        // format usually: timestamp_pi_RcvHHMMSS_original.jpg
-        return filename;
+        const span = document.createElement('span');
+        span.textContent = filename;
+        return span.innerHTML;
     }
 
     function formatTime() {
@@ -33,11 +34,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!images || images.length === 0) {
             latestContainer.innerHTML = `
                 <div class="empty-state">
-                    <p>No images detected yet.</p>
+                    <p>FTPでカメラ画像を受信すると、ここに表示されます。</p>
                 </div>
             `;
             latestContainer.className = 'glass-card latest-card';
             galleryGrid.innerHTML = '';
+            currentImages = [];
             return;
         }
 
@@ -47,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update Latest Image
         if (latestImg !== prevLatest || currentImages.length === 0) {
             latestContainer.innerHTML = `
-                <img src="/images/${latestImg}" alt="Latest Detection" onclick="openModal(this)">
+                <img src="/images/${encodeURIComponent(latestImg)}" alt="最新の受信画像・人物検出結果" onclick="openModal(this)">
                 <div class="info-bar">
                     <span class="filename">${parseFilename(latestImg)}</span>
                     <span class="time-badge">${formatTime()}</span>
@@ -63,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 html += `
                     <div class="glass-card gallery-item" onclick="openModal(this.querySelector('img'))">
                         <div class="img-wrapper">
-                            <img src="/images/${images[i]}" alt="Captured Image">
+                            <img src="/images/${encodeURIComponent(images[i])}" alt="Captured Image">
                         </div>
                         <div class="item-info">
                             <p>${parseFilename(images[i])}</p>
@@ -84,11 +86,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function fetchImages() {
-        fetch('/api/images')
+        fetch('/api/images', { cache: 'no-store' })
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'ok') {
-                    if (!arraysEqual(currentImages, data.images)) {
+                    if (!arraysEqual(currentImages, data.images) || data.images.length === 0) {
                         updateUI(data.images);
                     }
                 } else {
@@ -115,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // slight delay to allow display:block to apply before adding class for transition
         setTimeout(() => modal.classList.add('show'), 10);
         modalImg.src = imgElement.src;
-        captionText.innerHTML = imgElement.nextElementSibling ? imgElement.nextElementSibling.innerText : "Detection Result";
+        captionText.textContent = imgElement.nextElementSibling ? imgElement.nextElementSibling.innerText : "人物検出結果";
     }
 
     closeBtn.onclick = function() {

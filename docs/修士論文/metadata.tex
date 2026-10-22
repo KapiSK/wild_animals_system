@@ -12,3 +12,14 @@
 \newcommand{\ThesisSupervisor}{［指導教員氏名・職位］}
 \newcommand{\ThesisStudentID}{［学籍番号］}
 \newcommand{\ThesisAuthor}{［氏名］}
+
+% テンプレートの表紙用コマンド．年度には「年度」を付けず記入する．
+\title{\shortstack{\ThesisCoverTitle}}
+\author{\ThesisAuthor}
+\authorintitle{\ThesisAuthor}
+\date{\ThesisDate}
+\nendo{\ThesisYear}
+\studentid{\ThesisStudentID}
+\advisor{\ThesisSupervisor}
+\affiliation{\shortstack{\ThesisUniversity\quad\ThesisGraduateSchool\\\ThesisField}}
+\pdfstringdefDisableCommands{\def\shortstack#1{#1}\def\\{ }}

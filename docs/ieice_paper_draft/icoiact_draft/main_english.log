@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  14 OCT 2026 17:42
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.2.17)  22 OCT 2026 14:30
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -312,11 +312,12 @@ File: ../img/prototype_camera.jpeg Graphic file (type jpg)
 Package pdftex.def Info: ../img/prototype_camera.jpeg  used on input line 106.
 (pdftex.def)             Requested size: 113.39923pt x 107.11893pt.
  [2 <../img/system_structure_eng.png>]
-<../img/system_flow_eng.png, id=17, 1376.14125pt x 1114.1625pt>
-File: ../img/system_flow_eng.png Graphic file (type png)
-<use ../img/system_flow_eng.png>
-Package pdftex.def Info: ../img/system_flow_eng.png  used on input line 128.
-(pdftex.def)             Requested size: 252.0pt x 204.02574pt.
+<../データ/システムフロー.png, id=17, 1421.31pt x 1114.1625pt>
+File: ../データ/システムフロー.png Graphic file (type png)
+<use ../データ/システムフロー.png>
+Package pdftex.def Info: ../データ/システムフロー.png  used on input 
+line 128.
+(pdftex.def)             Requested size: 252.0pt x 197.53146pt.
 LaTeX Font Info:    Trying to load font information for U+msa on input line 159
 .
 
@@ -338,8 +339,22 @@ Underfull \hbox (badness 6910) in paragraph at lines 177--177
 []\OT1/ptm/m/n/8 Comms Mod-
  []
 
-[3 <../img/prototype_camera.jpeg> <../img/system_flow_eng.png>] [4]
-(./main_english.bbl [5])
+[3 <../img/prototype_camera.jpeg> <../データ/システムフロー.png>]
+<../データ/昼間画像_YOLOv8n_T_1.jpg, id=22, 1541.76pt x 1103.62312pt>
+File: ../データ/昼間画像_YOLOv8n_T_1.jpg Graphic file (type jpg)
+<use ../データ/昼間画像_YOLOv8n_T_1.jpg>
+Package pdftex.def Info: ../データ/昼間画像_YOLOv8n_T_1.jpg  used on inp
+ut line 238.
+(pdftex.def)             Requested size: 247.6778pt x 177.29057pt.
+<../データ/夜間画像_YOLOv8n_N_1.jpg, id=23, 2055.68pt x 1471.4975pt>
+File: ../データ/夜間画像_YOLOv8n_N_1.jpg Graphic file (type jpg)
+<use ../データ/夜間画像_YOLOv8n_N_1.jpg>
+Package pdftex.def Info: ../データ/夜間画像_YOLOv8n_N_1.jpg  used on inp
+ut line 243.
+(pdftex.def)             Requested size: 247.6778pt x 177.29059pt.
+
+[4] [5 <../データ/昼間画像_YOLOv8n_T_1.jpg> <../データ/夜間画像_Y
+OLOv8n_N_1.jpg>] (./main_english.bbl)
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -358,24 +373,26 @@ L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 4158 strings out of 469471
- 64661 string characters out of 5469204
- 496326 words of memory out of 5000000
- 32783 multiletter control sequences out of 15000+600000
- 667468 words of font info for 114 fonts, out of 8000000 for 9000
+ 4178 strings out of 469471
+ 65563 string characters out of 5469204
+ 498918 words of memory out of 5000000
+ 32802 multiletter control sequences out of 15000+600000
+ 668546 words of font info for 115 fonts, out of 8000000 for 9000
  36 hyphenation exceptions out of 8191
  57i,11n,65p,1507b,351s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <c:/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb><c:/tex
-live/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb><c:/texlive/2025/
-texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb><c:/texlive/2025/texmf-dis
-t/fonts/type1/public/amsfonts/cm/cmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/ty
-pe1/urw/times/utmb8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmb
-i8a.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmr8a.pfb><c:/texliv
-e/2025/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on main_english.pdf (6 pages, 1742672 bytes).
+live/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb><c:/texlive/2025
+/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb><c:/texlive/2025/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmr7.pfb><c:/texlive/2025/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmsy10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public
+/amsfonts/cm/cmsy8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmb8a
+.pfb><c:/texlive/2025/texmf-dist/fonts/type1/urw/times/utmbi8a.pfb><c:/texlive/
+2025/texmf-dist/fonts/type1/urw/times/utmr8a.pfb><c:/texlive/2025/texmf-dist/fo
+nts/type1/urw/times/utmri8a.pfb>
+Output written on main_english.pdf (6 pages, 3499485 bytes).
 PDF statistics:
- 70 PDF objects out of 1000 (max. 8388607)
- 40 compressed objects within 1 object stream
+ 82 PDF objects out of 1000 (max. 8388607)
+ 46 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
- 16 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 26 words of extra memory for PDF output out of 10000 (max. 10000000)
 

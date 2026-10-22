@@ -1,0 +1,264 @@
+% -*- latex -*-
+\NeedsTeXFormat{pLaTeX2e}[2001/09/04]
+\ProvidesPackage{slab}[2008/07/29, hayashi, tkobaya]
+
+% usage:
+% \documentclass[12pt,oneside,openany]{jsbook}
+% \usepackage[bthesis]{slab} or
+% \usepackage[mthesis]{slab} or
+% \usepackage[phdthesis]{slab}
+
+\RequirePackage[T1]{fontenc}
+\RequirePackage{amsmath}
+%\RequirePackage{times} % txfonts を呼んでいるので不要（のはず）
+%\RequirePackage[psamsfonts]{amssymb} % txfonts を呼んでいるので不要（のはず）
+\RequirePackage{txfonts} % amsmath の後に呼ぶこと
+\RequirePackage[dvipdfmx]{graphicx}
+\RequirePackage{fancyhdr}
+%%
+%% PDF のタイトル，しおり，リンクなど
+%%
+
+% PDF の文字化けを防ぐ
+% \AtBeginDvi を使うやり方はもう古い（タイトル等が化ける）
+% nameref -> titleref -> hyperref の順に読み込むこと
+\RequirePackage{nameref}
+% Legacy titleref is unused; nameref provides named references.
+\RequirePackage[%
+  dvipdfmx,%
+  bookmarks=true,%
+  bookmarksnumbered=true,%
+  bookmarkstype=toc,%
+  bookmarksopen=true,%
+%  pdfstartview={FitBH -32768},% 幅に合わせて拡大
+  pdfdisplaydoctitle=true, % タイトルバーに \title を表示
+%  pdfsubject={},%
+%  pdfauthor={},%
+%  pdfkeywords={},%
+%  colorlinks={true},%
+%  urlcolor={red}
+  setpagesize=false
+]{hyperref}
+
+\def\pdfsetup{%
+  \hypersetup{%
+    pdftitle={\@title},% タイトル
+    pdfauthor={{\@author}}% 作成者
+  }%
+}
+
+
+%%
+%% 入力の定義
+%%
+\def\nendo#1{\gdef\@nendo{#1}}
+\def\authorintitle#1{\gdef\@authorintitle{#1}}
+\def\advisor#1{\gdef\@advisor{#1}}
+\def\affiliation#1{\gdef\@affiliation{#1}}
+\def\studentid#1{\gdef\@studentid{#1}}
+
+%%
+%% タイトルページ
+%%
+\def\univlogo{{\normalsize\sc
+    \includegraphics[width=4.8cm, clip]{logo.eps}\\
+    \vspace{-\baselineskip}\vspace{-17mm}%{[width=1cm], vspace-5.2mm}
+    \hspace{43mm}Shinshu University\\\vspace{-1\baselineskip}\vspace{3.8mm}%{hspace{12mm}}
+    \hspace{43mm}Faculty of Engineering%%{hspace{12mm}}
+}}
+\renewcommand{\maketitle}{%
+  \begin{titlepage}%
+\setlength\topmargin{\paperheight}
+\addtolength\topmargin{-1.43\textheight}
+    \univtitle%
+    \pdfsetup%
+  \end{titlepage}
+  \setcounter{page}{1}
+}
+
+
+%%
+%% オプション
+%%
+\newcommand{\TODO}[1]{}
+\newcommand{\TS}[1]{#1}
+
+\DeclareOption{draft}{%
+  \AtEndOfPackage{
+    \RequirePackage[color]{showkeys}
+    \RequirePackage{udline}
+  }
+  \renewcommand{\TODO}[1]{{\bf [TODO: #1]}}
+  \renewcommand{\TS}[1]{\ul{#1}}
+}
+
+\DeclareOption{bthesis}{%
+  \def\univtitle{
+    \begin{flushleft}\univlogo\end{flushleft}
+    \vspace{4zw}
+    \center
+        {\Large
+          \@ifundefined{@nendo}{}{\@nendo} 学士論文\\
+          \vspace{2zw}
+        {\LARGE 
+        \begin{tabular}{|c|}\hline
+          \@title \\ \hline
+      \end{tabular}
+      }
+      \\\vspace{5zw}
+      \@ifundefined{@advisor}{}{指導教員: \@advisor\\\vspace{1zw}}
+      \@ifundefined{@date}{}{\@date\\ \vspace{6zw}}
+      {\LARGE 提出者}\\\vspace{1zw}
+      {\Large \@ifundefined{@affiliation}{}{\@affiliation\\\vspace{1zw}}}
+      {\LARGE \@ifundefined{@studentid}{}{\@studentid\hspace{1zw}}}
+      {\LARGE \@ifundefined{@authorintitle}{\@author}{\@authorintitle}}
+    }
+  }
+}
+\DeclareOption{mthesis}{%
+  \def\univtitle{
+    \begin{flushleft}\univlogo\end{flushleft}
+    \vspace{4zw}
+    \center
+    {\Large
+      \@ifundefined{@nendo}{}{\@nendo 年度 }{\LARGE 修士論文}\\\vspace{2zw}
+      {\LARGE 
+        \begin{tabular}{|c|}\hline
+          \@title \\ \hline
+      \end{tabular}
+      }
+      \\\vspace{5zw}
+      \@ifundefined{@advisor}{}{指導教員: \@advisor\\\vspace{1zw}}
+      \@ifundefined{@date}{}{\@date\\ \vspace{6zw}}
+      {\LARGE 提出者}\\\vspace{1zw}
+      {\Large \@ifundefined{@affiliation}{}{\@affiliation\\\vspace{1zw}}}
+      {\LARGE \@ifundefined{@studentid}{}{\@studentid\hspace{1zw}}}
+      {\LARGE \@ifundefined{@authorintitle}{\@author}{\@authorintitle}}
+    }
+  }
+}
+\DeclareOption{dthesis}{%
+  \def\univtitle{
+    \begin{flushleft}\univlogo\end{flushleft}
+      \vspace{6zw}
+      \center{
+        \Large
+        \@ifundefined{@nendo}{}{\@nendo} 学位論文\\
+        \vspace{1zw}
+        {\huge \@title}\\
+         \vspace{9zw}
+         \@ifundefined{@affiliation}{}{\@affiliation\\
+         \vspace{1zw}}
+        {\huge \@ifundefined{@authorintitle}{\@author}{\@authorintitle}}\\\vspace{2zw}
+      \@ifundefined{@date}{}{\@date}
+    }
+  }
+}
+
+
+%%
+%% 余白
+%%
+
+% 上の余白が大きすぎるので変更
+\setlength\textheight{.80\paperheight}
+\addtolength\textheight{-\topskip}
+\addtolength\textheight{-\headsep}
+\addtolength\textheight{-\footskip}
+\addtolength\textheight{-\topskip}
+\divide\textheight\baselineskip
+\multiply\textheight\baselineskip
+\addtolength\textheight{\topskip}
+\addtolength\textheight{.1\p@}
+
+\setlength\topmargin{\paperheight}
+\addtolength\topmargin{-\textheight}
+\addtolength\topmargin{-\topskip}
+\addtolength\topmargin{-\headsep}
+\addtolength\topmargin{-\footskip}
+\setlength\topmargin{.5\topmargin}
+\iftombow
+  \addtolength\topmargin{-1in}
+\else
+  \addtolength\topmargin{-1.5truein}
+\fi
+
+% 左右の余白が小さすぎるので変更
+\setlength\fullwidth{.75\paperwidth}
+\setlength\textwidth{\fullwidth}
+\setlength\oddsidemargin{\paperwidth}
+\addtolength\oddsidemargin{-\fullwidth}
+\setlength\oddsidemargin{.5\oddsidemargin}
+\iftombow
+  \addtolength\oddsidemargin{-1in}
+\else
+  \addtolength\oddsidemargin{-1truein}
+\fi
+\setlength\evensidemargin{\oddsidemargin}
+
+%\addtolength\oddsidemargin{1.5zw}
+%\addtolength\evensidemargin{-1.5zw}
+
+% 目次では subsection まで表示
+\setcounter{tocdepth}{2}
+
+% 西暦ではなく元号を使用
+\和暦
+
+% 章などの欧文をセリフのボールドに
+\def\headfont{\bfseries}
+
+% ヘッダーのカスタマイズ
+%\pagestyle{headings}
+\makeatletter
+\def\ps@plain{%
+  \let\@mkboth \@gobbletwo
+  \def\@oddhead{\reset@font \hfil \thepage}%
+  \let\@oddfoot \@empty
+  \let\@evenhead \@empty
+  \let\@evenfoot \@oddfoot
+}
+
+\def\ps@myheadings{%
+   \let\@oddfoot\@empty
+   \let\@evenfoot\@empty
+   \def\@evenhead{\underline{\hb@xt@ \textwidth{\leftmark \hfil \thepage}}}%
+   \def\@oddhead{\underline{\hb@xt@ \textwidth{\rightmark \hfil \thepage}}}%
+   \let\@mkboth \@gobbletwo
+   \let\chaptermark \@gobbletwo
+%   \let\sectionmark \@gobble     
+    \let\subsectionmark \@gobble % article 系
+    \let\@mkboth \markboth
+
+    \def\chaptermark##1{%
+   \markboth{%
+      \ifnum \c@secnumdepth >\m@ne
+         \if@mainmatter
+            第 \thechapter 章\hskip 1zw
+         \fi
+      \fi
+      ##1}{}%
+    }%
+    \def\sectionmark##1{%
+      \markright{%
+        \ifnum \c@secnumdepth >\z@
+        \if@mainmatter
+        \thesection \hskip 1zw
+        \fi
+        \fi
+        ##1}%
+    }%
+  
+}
+% booktabs provides top/mid/bottom rules.
+\pagestyle{myheadings}
+\makeatother
+
+%\fancyhead[LE]{第 \thechapter 章}
+%\fancyhead[RE]{\it \thepage}
+%\fancyhead[LO]{\rightmark}
+%\fancyhead[RO]{{\it \thepage}}
+%\cfoot{}
+
+\ExecuteOptions{mthesis}
+\ProcessOptions

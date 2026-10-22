@@ -1,0 +1,74 @@
+\documentclass[12pt,a4paper,oneside,openany]{jsbook}
+\usepackage[bthesis]{slab} % 卒論
+%\usepackage[mthesis]{slab} % 修論
+%\usepackage[dthesis]{slab} % 博論
+
+\usepackage{graphicx}
+\usepackage{mediabb}
+\usepackage{ascmac}
+\usepackage{fancybox}
+%\usepackage{bigfoot}
+
+% プログラムのコード掲載用
+\usepackage[final]{listings}
+\lstset{                 %listingsの設定
+numbers=left,            %行番号を左
+numberstyle=\scriptsize, %
+stepnumber=1,            %1行おきに行番号を
+numbersep=1zw,           %ソースと行番号の間隔
+lineskip=-0.5zw,         %行間隔 要調整
+basicstyle=\scriptsize\ttfamily,     %ttfamily
+fontadjust=false,
+xleftmargin=20pt,
+frame=tRBl,
+framesep=5pt,
+framexleftmargin=17pt,
+}
+
+\newcommand{\figref}[1]{図 \ref{#1}}
+\newcommand{\tabref}[1]{表 \ref{#1}}
+\newcommand{\secref}[1]{章 \ref{#1}}
+\newcommand{\equref}[1]{式 \eqref{#1}}
+\newcommand{\lstref}[1]{Listing \ref{#1}}
+
+\title{卒論のタイトル}
+\author{信大 太郎}
+\authorintitle{信~~大~~~~~太~~郎} % 表示用
+\date{令和 X 年 X 月}
+\nendo{令和 X 年度}
+\studentid{XXTXXXXX}
+\advisor{佐藤 真平 准教授}
+\affiliation{信州大学工学部 電子情報システム工学科}
+
+\begin{document}
+
+\frontmatter
+\maketitle
+
+\include{0_abstract}
+\tableofcontents
+\listoffigures
+\listoftables
+
+\mainmatter
+% 章番号が決まったらファイル名に連番を振っても良いし，
+% include せずにすべてをこのファイルに含めても良い．
+\include{1_introduction}
+\include{2_background}
+\include{3_preliminary}
+\include{4_related_works}
+\include{5_proposal}
+\include{6_evaluation}
+\include{7_conclusion}
+
+%\appendix
+%\chapter{付録A}
+%\chapter{付録B}
+
+\backmatter
+\include{acknowledgement}
+
+\bibliographystyle{myjunsrt}
+\bibliography{library}
+
+\end{document}

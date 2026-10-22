@@ -11,6 +11,9 @@ venv/
 
 # Project specific
 uploads/
+ftp_inbox/
+processing/
+edge_server.log
 server.log
 *.pt
 

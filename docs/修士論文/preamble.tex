@@ -1,48 +1,31 @@
-% A4縦・1カラム．参考PDFに近い余白，章見出し，右上ページ番号．
-\usepackage[haranoaji]{luatexja-preset}
-\usepackage[top=30mm,bottom=30mm,left=26mm,right=26mm,headheight=16pt,headsep=10mm]{geometry}
-\usepackage{graphicx}
-\usepackage{amsmath,amssymb}
+% bthesis.zipの体裁を修士論文設定で使用する．
+\usepackage[mthesis]{slab}
+\usepackage{pxjahyper}
 \usepackage{booktabs,tabularx}
-\usepackage{xcolor}
+\usepackage[dvipdfmx]{xcolor}
 \usepackage{url}
-\usepackage{fancyhdr}
-\usepackage[unicode,hidelinks,bookmarksnumbered]{hyperref}
-
+\usepackage{ascmac,fancybox}
+\usepackage[final]{listings}
+\usepackage{jlisting}
+\lstset{numbers=left,numberstyle=\scriptsize,stepnumber=1,numbersep=1zw,
+basicstyle=\scriptsize\ttfamily,xleftmargin=20pt,frame=tRBl,framesep=5pt,framexleftmargin=17pt}
+\hypersetup{hidelinks}
 \setcounter{secnumdepth}{2}
 \setcounter{tocdepth}{2}
 \renewcommand{\listfigurename}{図目次}
 \renewcommand{\listtablename}{表目次}
 \renewcommand{\bibname}{参考文献}
-\renewcommand{\baselinestretch}{1.12}
-\setlength{\parindent}{1\zw}
-\setlength{\parskip}{0pt}
+% 執筆要領：図表はページ上部，1ページに合計2点まで．
+\setcounter{topnumber}{2}
+\setcounter{bottomnumber}{0}
+\setcounter{totalnumber}{2}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\textfraction}{0.1}
 \raggedbottom
-
-\fancypagestyle{thesis}{%
-  \fancyhf{}
-  \fancyhead[R]{\small\thepage}
-  \renewcommand{\headrulewidth}{0pt}
-  \renewcommand{\footrulewidth}{0pt}
-}
-% 章の開始ページにも同じ位置に番号を置く．
-\fancypagestyle{plain}{%
-  \fancyhf{}
-  \fancyhead[R]{\small\thepage}
-  \renewcommand{\headrulewidth}{0pt}
-  \renewcommand{\footrulewidth}{0pt}
-}
-\makeatletter
-\let\ps@plainhead\ps@plain
-\let\ps@plainfoot\ps@plain
-\makeatother
-
-% 執筆時に，この命令全体を実際の本文へ置き換える．
-% 記入案内は完成した研究内容ではないため，灰色で表示する．
+\newcommand{\figref}[1]{図\ref{#1}}
+\newcommand{\tabref}[1]{表\ref{#1}}
+\newcommand{\secref}[1]{章\ref{#1}}
+\newcommand{\equref}[1]{式\eqref{#1}}
+\newcommand{\lstref}[1]{Listing \ref{#1}}
 \newcommand{\writehere}[1]{\par\noindent{\color{gray}\small［記入内容：#1］}\par}
-\newcommand{\unnumberedchapter}[1]{%
-  \chapter*{#1}%
-  \phantomsection
-  \addcontentsline{toc}{chapter}{#1}%
-  \markboth{#1}{#1}%
-}
+\newcommand{\unnumberedchapter}[1]{\chapter*{#1}\phantomsection\addcontentsline{toc}{chapter}{#1}\markboth{#1}{#1}}

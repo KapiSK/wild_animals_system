@@ -51,7 +51,7 @@ shanlin@shinshu-u.ac.jp}
 \maketitle
 
 \begin{abstract}
-Wildlife damage to agricultural crops is a serious issue in rural and mountainous areas of Japan, where continuous monitoring is required under limited communication infrastructure and cost constraints. This paper presents a low-cost and communication-efficient edge--cloud monitoring system using multiple trail cameras for wildlife damage control. The proposed system consists of three layers: edge cameras, an edge server, and a cloud server. Multiple cameras are connected to the edge server through a local area network, allowing multiple cameras to share a single cellular connection. To reduce the number of images forwarded to the cloud, the system employs a two-stage animal detection process. A lightweight AI model, YOLOv8n, is deployed on the edge server to filter out empty shots caused by environmental factors such as wind and vegetation movement, while MegaDetector v5a performs cloud verification before alerts are issued. Edge filtering reduced the number of capture events selected for transmission by 81.2\% during daytime and 50.7\% at night. Recall relative to MegaDetector reference labels was 93.8\% and 68.4\%, respectively, indicating a need to improve nighttime detection.
+Wildlife damage to agricultural crops is a serious issue in rural and mountainous areas of Japan, where continuous monitoring is required under limited communication infrastructure and cost constraints. This paper presents a communication-efficient edge--cloud monitoring system using multiple trail cameras for wildlife damage control. The proposed system consists of three layers: edge cameras, an edge server, and a cloud server. Multiple cameras are connected to the edge server through a local area network, allowing multiple cameras to share a single cellular connection. To reduce the number of images forwarded to the cloud, the system employs a two-stage animal detection process. A lightweight AI model, YOLOv8n, is deployed on the edge server to filter out empty shots caused by environmental factors such as wind and vegetation movement, while MegaDetector v5a performs cloud verification before alerts are issued. Edge filtering reduced the number of capture events selected for transmission by 81.2\% during daytime and 50.7\% at night. Recall relative to MegaDetector reference labels was 93.8\% and 68.4\%, respectively, indicating a need to improve nighttime detection.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -98,9 +98,9 @@ The overall configuration of the proposed system is shown in Fig.~\ref{fig:syste
 \end{figure}
 
 \subsubsection{Edge Camera}
-Edge cameras are deployed directly throughout the monitoring area. They are responsible for detecting the appearance of animals, capturing images, and transferring them to the edge server via local communication. Since they are intended to be deployed in large numbers in outdoor environments without commercial power, they must utilize ultra-low-power microcontrollers and be capable of operating for long periods solely on independent batteries.
+Edge cameras are deployed directly throughout the monitoring area. They capture images when triggered by a PIR sensor and transfer them to the edge server via local communication. The PIR sensor provides a motion trigger; animal presence is determined by AI models at the edge and cloud servers. Battery-powered operation in locations without commercial power is a design goal.
 
-The prototype uses the Seeed Studio XIAO ESP32S3 Sense. Although inexpensive, this device has Wi-Fi communication and camera functions. Furthermore, its Deep Sleep function is used with the aim of reducing standby consumption; the measured power limitations of the prototype are discussed in Section V. A PIR sensor is used as a trigger for motion detection, and HTTP communication via Wi-Fi is used to transmit images to the edge server. It uses eight AA batteries (6V) as a power source, facilitating installation in locations without power infrastructure. Fig.~\ref{fig:camera} shows an overview of the edge camera prototype.
+The prototype uses the Seeed Studio XIAO ESP32S3 Sense. This device provides Wi-Fi communication and camera functions. Furthermore, its Deep Sleep function is used with the aim of reducing standby consumption; the measured power limitations of the prototype are discussed in Section V. A PIR sensor triggers image capture in response to motion, and HTTP communication via Wi-Fi is used to transmit images to the edge server. It uses eight AA batteries (6V) as a power source, facilitating installation in locations without power infrastructure. Fig.~\ref{fig:camera} shows an overview of the edge camera prototype.
 
 \begin{figure}[tb]
     \centerline{\includegraphics[width=0.45\linewidth]{../img/prototype_camera.jpeg}}
@@ -125,7 +125,7 @@ The network has two stages. First, cameras transfer images through a local WLAN 
 The data processing flow of the proposed system is shown in Fig.~\ref{fig:flow}. Processing proceeds from image acquisition at the camera to edge filtering at the edge server, followed by cloud verification and notification. The processing flow of each component is described below.
 
 \begin{figure}[tb]
-    \centerline{\includegraphics[width=\columnwidth]{../img/system_flow_eng.png}}
+    \centerline{\includegraphics[width=\columnwidth]{../データ/システムフロー.png}}
     \caption{Data processing flow of the proposed system.}
     \label{fig:flow}
 \end{figure}
@@ -208,7 +208,7 @@ Because this system assumes operation in agricultural and mountainous areas wher
 We similarly measured the power consumption of the edge server (Raspberry Pi 4B). At 5.0V, the idle current was 405$\sim$410mA (approx. 2.05W). Adding the maximum power consumption of the LTE router (approx. 6W), the resulting power estimate is approximately 8W. This combines the measured Pi idle consumption with the router maximum rating, rather than measuring the combined system under inference load.
 
 \subsection{WLAN Communication Performance}
-Under line-of-sight conditions, we evaluated communication stability while varying the distance between the edge camera and the server. Table \ref{tab:comm_perf} shows the experimental results. At close range (approx. 1m), RSSI remained stable at around -30$\sim$-35dBm. At a distance of 100m, RSSI was around -60$\sim$-65dBm, and it dropped to -77$\sim$-80dBm at the maximum distance of 200m. While connection establishment and image transfer were successfully completed without problems up to 100m, approaching the 200m point caused RSSI to fall below -75dBm, resulting in noticeable latency and communication instability. Thus, in this configuration, stable image transfer is achieved up to approximately 100m in a line-of-sight environment, while communication quality degrades near 200m, suggesting that repeaters or alternative communication methods are necessary for stable operation over longer distances.
+Under line-of-sight conditions, we evaluated communication stability while varying the distance between the edge camera and the server. Table \ref{tab:comm_perf} shows the experimental results. At close range (approx. 1m), RSSI remained stable at around -30$\sim$-35dBm. At a distance of 100m, RSSI was around -60$\sim$-65dBm, and it dropped to -77$\sim$-80dBm at the maximum distance of 200m. While connection establishment and image transfer were successfully completed without problems up to 100m, approaching the 200m point caused RSSI to fall below -75dBm, resulting in noticeable latency and communication instability.
 
 \begin{table}[tb]
     \caption{Communication Performance (Line-of-Sight Environment)}
@@ -231,7 +231,23 @@ Under line-of-sight conditions, we evaluated communication stability while varyi
     \end{table}
 
 \subsection{Reduction in Capture Events Selected for Transmission}
-We evaluated YOLOv8n using images collected by commercial cameras in Kiso Town from June to November 2025. The dataset contains the intended wildlife targets listed in Section I. The evaluation unit is a capture event, normally comprising three images: there are 1,428 daytime events (4,283 available images) and 268 nighttime events (804 images). A model labels an event positive if it detects an animal in at least one available image. YOLOv8n uses a confidence threshold of 0.05 to limit missed detections, while MegaDetector v5a uses 0.25 to generate reference labels (Table \ref{tab:ai_accuracy}). These labels are model-generated rather than human-annotated ground truth. Precision is the fraction of YOLO-positive events that are also MD-positive; recall is the fraction of MD-positive events that are YOLO-positive. Thus, the reported metrics describe agreement with MegaDetector, not independently verified animal detection accuracy.
+\begin{figure*}[t]
+    \centering
+    \begin{minipage}[t]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{../データ/昼間画像_YOLOv8n_T_1.jpg}
+        \par\small (a) Daytime: animal detected.
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{../データ/夜間画像_YOLOv8n_N_1.jpg}
+        \par\small (b) Nighttime: animal missed.
+    \end{minipage}
+    \caption{Example images from the Kiso Town evaluation dataset, captured by commercial cameras. At a confidence threshold of 0.05, YOLOv8n detects the animal in (a) but misses the animal in the lower part of (b). These are image-level examples.}
+    \label{fig:day_night_examples}
+\end{figure*}
+
+We evaluated YOLOv8n using images collected by commercial cameras in Kiso Town from June to November 2025. The dataset contains the intended wildlife targets listed in Section I. The evaluation unit is a capture event, normally comprising three images: there are 1,428 daytime events (4,284 images) and 268 nighttime events (804 images). A model labels an event positive if it detects an animal in at least one available image. YOLOv8n uses a confidence threshold of 0.05 to limit missed detections, while MegaDetector v5a uses 0.25 to generate reference labels (Table \ref{tab:ai_accuracy}). These labels are model-generated rather than human-annotated ground truth. Precision is the fraction of YOLO-positive events that are also MD-positive; recall is the fraction of MD-positive events that are YOLO-positive. Thus, the reported metrics describe agreement with MegaDetector, not independently verified animal detection accuracy.
 
 \begin{table}[tb]
     \caption{Event-Level Agreement with MegaDetector (YOLO: 0.05; MD: 0.25)}
@@ -257,12 +273,13 @@ We evaluated YOLOv8n using images collected by commercial cameras in Kiso Town f
     \end{center}
     \end{table}
 
-Relative to the MegaDetector reference, YOLOv8n achieved a recall of 93.8\% and precision of 72.8\% during the daytime. Conversely, at night, the recall was 68.4\% and the precision was 78.8\%, showing a tendency for recall to decrease compared to daytime.
+Relative to the MegaDetector reference, daytime recall and precision were 93.8\% and 72.8\%, respectively; nighttime recall and precision were 68.4\% and 78.8\%.
+Fig.~\ref{fig:day_night_examples} shows a daytime detection and a nighttime missed detection from the evaluation images.
 
-Next, Table \ref{tab:comm_reduction} shows the transmission reduction rate on a capture-event basis. This is the fraction of events not selected for forwarding because YOLOv8n detected no animal. It includes events that are positive according to MegaDetector but negative according to YOLOv8n. Equation~\ref{eq:reduction} counts events rather than individual images or transmitted bytes.
+Next, Table \ref{tab:comm_reduction} shows the transmission reduction rate on a capture-event basis. This is the fraction of events not selected for forwarding because YOLOv8n detects no animal. It includes events that are positive according to MegaDetector but negative according to YOLOv8n. In Equation~\ref{eq:reduction}, $N_{\mathrm{total}}$ is the total number of capture events, $N_{\mathrm{selected}}$ is the number selected for transmission, and $R$ is the reduction rate in percent. The equation counts events rather than individual images or transmitted bytes.
 
 \begin{equation}
-    \text{Reduction} = \left( 1 - \frac{\text{Transmitted Triggers}}{\text{Total Triggers}} \right) \times 100 \label{eq:reduction}
+    R = \left( 1 - \frac{N_{\mathrm{selected}}}{N_{\mathrm{total}}} \right) \times 100 \label{eq:reduction}
 \end{equation}
 
 \begin{table}[tb]
@@ -274,9 +291,9 @@ Next, Table \ref{tab:comm_reduction} shows the transmission reduction rate on a 
         \hline
         \textbf{Item} & \textbf{Daytime} & \textbf{Nighttime} \\
         \hline \hline
-        Total Triggers & 1,428 & 268 \\
+        Total Events & 1,428 & 268 \\
         \hline
-        Transmitted Triggers & 268 & 132 \\
+        Events Selected for Transmission & 268 & 132 \\
         \hline
         Reduction Rate (\%) & 81.2 & 50.7 \\
         \hline
@@ -285,21 +302,21 @@ Next, Table \ref{tab:comm_reduction} shows the transmission reduction rate on a 
     \end{center}
     \end{table}
 
-As a result, the event-based transmission reduction rate was 81.2\% during the daytime and 50.7\% at night, confirming a tendency for the reduction rate to be lower at night than during the day.
+The event-based transmission reduction rates were 81.2\% during daytime and 50.7\% at night.
 
 \subsection{Total System Processing Time}
-We measured the overall system processing time in a stable communication environment with an RSSI of around -35dBm. The processing time on the edge side (from camera capture to completion of transmission processing at the edge server) was approximately 33 seconds (total of approx. 20 seconds for camera processing and approx. 13 seconds for edge server processing). The processing on the cloud side (from reception to completion of email notification) required approximately 11 seconds. As a result, the total time required from detecting an animal to completing an email notification to the user was approximately 44 seconds.
+We measured system processing time from PIR-triggered motion sensing to completion of email notification processing in a stable communication environment with an RSSI of around -35dBm. The edge-side processing time, from the PIR trigger to completion of transmission processing at the edge server, was approximately 33 seconds: approximately 20 seconds for camera processing and 13 seconds for edge server processing. Cloud-side processing, from image reception to completion of email notification processing, required approximately 11 seconds. The total processing time from the PIR trigger was approximately 44 seconds.
 
 \section{Discussion}
 
-In the experiment, event-based transmission reductions of 81.2\% during the daytime and 50.7\% at night were achieved. These reductions include missed detections: YOLOv8n rejected 13 of 208 MD-positive daytime events and 48 of 152 MD-positive nighttime events. Cloud verification cannot recover events discarded at the edge. Nighttime recall was 68.4\%; low contrast and the limitations of the lightweight model are possible contributing factors, but their individual effects have not been isolated. Transfer learning using nighttime camera images and comparison with alternative lightweight models should evaluate both recall and transmission reduction. Independent human annotations are needed to establish detection accuracy beyond agreement with MegaDetector.
+In the experiment, event-based transmission reductions of 81.2\% during the daytime and 50.7\% at night were achieved. These reductions include missed detections: YOLOv8n rejected 13 of 208 MD-positive daytime events and 48 of 152 MD-positive nighttime events. Cloud verification cannot recover events discarded at the edge. Nighttime recall was 68.4\%. In Fig.~\ref{fig:day_night_examples}(b), the animal is partly obscured by vegetation and has limited contrast with its surroundings. These conditions and the limitations of the lightweight model may contribute to missed detections, but their individual effects have not been isolated. Transfer learning using nighttime camera images and comparison with alternative lightweight models should evaluate both recall and transmission reduction. Independent human annotations are needed to establish detection accuracy beyond agreement with MegaDetector.
 
-Power consumption also limits deployment. At the measured whole-node standby power of 0.57W, 35 hours of standby alone requires approximately 20Wh delivered to the camera. This is an energy requirement, not a measured battery lifetime; capture, transmission, conversion losses, and usable battery capacity must also be considered. Improvements should verify deep-sleep entry, switch off peripherals such as the SD card and camera when inactive, and shorten active capture and communication periods. Peripheral power control is a possible contributor to standby consumption, requiring component-level measurements. SPARROW uses scheduled uplink operation and event-triggered communication \cite{SPARROW2026}; a similar duty-cycling strategy warrants evaluation here alongside its effect on notification latency.
+Power consumption also limits deployment. At the measured whole-node standby power of 0.57W, 35 hours of standby alone requires approximately 20Wh delivered to the camera. This is an energy requirement, not a measured battery lifetime; capture, transmission, conversion losses, and usable battery capacity must also be considered. Potential improvements include switching off peripherals such as the SD card and camera when inactive and shortening active capture and communication periods. Component-level measurements are needed to identify the sources of standby consumption. SPARROW uses scheduled uplink operation and event-triggered communication \cite{SPARROW2026}; a similar duty-cycling strategy warrants evaluation here alongside its effect on notification latency.
 
-The current results support considering deployments where cameras have clear WLAN paths of approximately 100m to an edge server with reliable power and LTE coverage, and where a notification processing time of approximately 44 seconds is acceptable. The sunny, line-of-sight communication test does not establish performance in dense vegetation, obstructed terrain, or adverse weather. Near 200m, communication became unstable. Nighttime recall and battery endurance require improvement before unattended long-term use. Long-term field operation and concurrent multi-camera performance remain to be evaluated.
+The current results support considering deployments where cameras have clear WLAN paths of approximately 100m to an edge server with reliable power and LTE coverage, and where approximately 44 seconds from the PIR trigger to completion of email notification processing is acceptable. The sunny, line-of-sight communication test does not establish performance in dense vegetation, obstructed terrain, or adverse weather. Communication became unstable near 200m; repeaters or alternative links should be evaluated for longer distances. Nighttime recall and battery endurance require improvement before unattended long-term use. Long-term field operation and concurrent multi-camera performance remain to be evaluated.
 
 \section{Conclusion}
-We proposed a low-cost monitoring system for wildlife damage control. It uses a three-layer structure: edge cameras, an edge server, and a cloud server. This separates image acquisition, filtering, and notification across the three layers. The architecture connects multiple cameras to a shared LTE uplink through a local WLAN, eliminating the need for individual cellular contracts. The prototype combines edge filtering with YOLOv8n and cloud verification with MegaDetector v5a. We confirmed event-based transmission reductions of 81.2\% during the daytime and 50.7\% at night, with recall relative to MegaDetector of 93.8\% and 68.4\%, respectively. Nighttime detection and power consumption remain key limitations.
+This paper presents an edge--cloud monitoring system for wildlife damage control. It uses a three-layer structure: edge cameras, an edge server, and a cloud server. This separates image acquisition, filtering, and notification across the three layers. The architecture connects multiple cameras to a shared LTE uplink through a local WLAN, eliminating the need for individual cellular contracts. The prototype combines edge filtering with YOLOv8n and cloud verification with MegaDetector v5a. We confirmed event-based transmission reductions of 81.2\% during the daytime and 50.7\% at night, with recall relative to MegaDetector of 93.8\% and 68.4\%, respectively. Nighttime detection and power consumption remain key limitations.
 
 Future work will prioritize human-annotated evaluation, nighttime transfer learning, and peripheral power control. We will measure complete capture--transfer--sleep cycles and battery endurance, then evaluate obstructed links, concurrent cameras, and long-term field operation. Model and communication changes will be assessed against recall, transmission reduction, and notification latency.
 
